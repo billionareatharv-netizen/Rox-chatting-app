@@ -36,7 +36,10 @@ const saveLocal = (key: string, data: any) => {
 const seedMockData = () => {
   const users = getLocal(STORAGE_KEY_USERS);
   
-  if (!users.some((u: any) => u.email === 'demo@example.com')) {
+  const hasDemo = users.some((u: any) => u.email.toLowerCase() === 'demo@example.com');
+  const hasAdmin = users.some((u: any) => u.email.toLowerCase() === 'betterrroxx@gmail.com');
+
+  if (!hasDemo) {
     users.push({ 
       uid: 'demo-user-123', 
       email: 'demo@example.com', 
@@ -52,7 +55,7 @@ const seedMockData = () => {
     });
   }
 
-  if (!users.some((u: any) => u.email === 'betterrroxx@gmail.com')) {
+  if (!hasAdmin) {
     users.push({ 
       uid: 'admin-001', 
       email: 'betterrroxx@gmail.com', 
@@ -69,7 +72,9 @@ const seedMockData = () => {
     });
   }
 
-  saveLocal(STORAGE_KEY_USERS, users);
+  if (!hasDemo || !hasAdmin) {
+    saveLocal(STORAGE_KEY_USERS, users);
+  }
 };
 
 seedMockData();
@@ -105,7 +110,8 @@ export const db: any = { collection: (name: string) => ({ name }) };
 
 export const signInWithEmailAndPassword = async (authObj: any, email: string, pass: string) => {
   const users = getLocal(STORAGE_KEY_USERS);
-  const user = users.find((u: any) => u.email === email);
+  // Email lookup should be case-insensitive for better UX
+  const user = users.find((u: any) => u.email.toLowerCase() === email.toLowerCase());
   
   if (!user) throw new Error("auth/user-not-found");
   if (user.password !== pass) throw new Error("auth/wrong-password");
@@ -123,11 +129,13 @@ export const signInWithEmailAndPassword = async (authObj: any, email: string, pa
 
 export const createUserWithEmailAndPassword = async (authObj: any, email: string, pass: string) => {
   const users = getLocal(STORAGE_KEY_USERS);
-  if (users.some((u: any) => u.email === email)) throw new Error("auth/email-already-in-use");
+  if (users.some((u: any) => u.email.toLowerCase() === email.toLowerCase())) {
+    throw new Error("auth/email-already-in-use");
+  }
 
   const newUser = { 
     uid: crypto.randomUUID(), 
-    email, 
+    email: email.toLowerCase(), 
     password: pass, 
     status: 'online', 
     lastSeen: Date.now(),
@@ -149,7 +157,7 @@ export const createUserWithEmailAndPassword = async (authObj: any, email: string
 
 export const signInWithPopup = async () => {
   const users = getLocal(STORAGE_KEY_USERS);
-  let user = users.find((u: any) => u.email === 'google-user@example.com');
+  let user = users.find((u: any) => u.email.toLowerCase() === 'google-user@example.com');
   
   if (!user) {
     user = {
@@ -212,8 +220,7 @@ export const admin_toggleAdminAccess = async (uid: string) => {
   const users = getLocal(STORAGE_KEY_USERS);
   const i = users.findIndex((u: any) => u.uid === uid);
   if (i !== -1) {
-    // Prevent self-demotion or demoting the super admin via standard panel
-    if (users[i].email === 'betterrroxx@gmail.com') return;
+    if (users[i].email.toLowerCase() === 'betterrroxx@gmail.com') return;
     users[i].isAdmin = !users[i].isAdmin;
     saveLocal(STORAGE_KEY_USERS, users);
   }
@@ -424,6 +431,7 @@ export const viewStory = async (storyId: string, userId: string, userName: strin
     const views = stories[idx].views || [];
     if (!views.some((v: any) => v.userId === userId)) {
       views.push({ userId, userName, timestamp: Date.now() });
+      stories[idx].views = views;
       stories[idx].views = views;
       saveLocal(STORAGE_KEY_STORIES, stories);
     }

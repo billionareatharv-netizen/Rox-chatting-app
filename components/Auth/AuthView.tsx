@@ -18,35 +18,41 @@ export const AuthView: React.FC = () => {
   }, [email, password, name, isLogin]);
 
   const getFriendlyErrorMessage = (errCode: string) => {
-    switch (errCode) {
-      case 'auth/email-already-in-use':
-        return "This email is already registered. Switching to Sign In...";
-      case 'auth/user-not-found':
-        return "No account found with this email. Please sign up or use Demo account.";
-      case 'auth/wrong-password':
-      case 'auth/incorrect-password':
-        return "Incorrect password. Please try again.";
-      case 'auth/invalid-email':
-        return "Please enter a valid email address.";
-      case 'auth/weak-password':
-        return "Password should be at least 6 characters.";
-      default:
-        if (errCode.includes('user-not-found')) return "No account found with this email. Please sign up.";
-        if (errCode.includes('email-already-in-use')) return "This email is already registered. Switching to Sign In...";
-        return errCode.replace('Firebase: ', '').replace('auth/', '').split('-').join(' ');
+    if (!errCode) return "An unexpected error occurred.";
+    
+    // Check for raw error codes or messages containing codes
+    const code = errCode.toLowerCase();
+    
+    if (code.includes('wrong-password') || code.includes('incorrect-password')) {
+      return "Incorrect password. Please double-check your credentials.";
     }
+    if (code.includes('user-not-found')) {
+      return "No account found with this email. Please sign up or check for typos.";
+    }
+    if (code.includes('email-already-in-use')) {
+      return "This email is already registered. Try signing in instead.";
+    }
+    if (code.includes('invalid-email')) {
+      return "Please enter a valid email address.";
+    }
+    if (code.includes('weak-password')) {
+      return "Password should be at least 6 characters.";
+    }
+    if (code.includes('suspended') || code.includes('blocked')) {
+      return "This account has been suspended by an administrator.";
+    }
+
+    // Default cleanup for other error strings
+    return errCode.replace('Firebase: ', '').replace('auth/', '').split('-').join(' ');
   };
 
   const handleDemoLogin = async () => {
     setIsLoading(true);
     setError(null);
     try {
-      console.log("Attempting Demo Login...");
       await login('demo@example.com', 'password123');
-      console.log("Demo Login successful!");
     } catch (err: any) {
-      console.error("Demo Login Failed:", err);
-      setError("Demo account is currently unavailable. Please try signing up.");
+      setError("The demo account is currently undergoing maintenance. Please try signing up.");
     } finally {
       setIsLoading(false);
     }
@@ -61,21 +67,34 @@ export const AuthView: React.FC = () => {
       if (isLogin) {
         await login(email, password);
       } else {
-        if (name.trim().length < 2) throw new Error("Please enter a valid name.");
+        if (name.trim().length < 2) throw new Error("Please enter your full name.");
         
         try {
           await signup(email, password, name);
         } catch (err: any) {
-          if (err.message === 'auth/email-already-in-use' || err.message.includes('email-already-in-use')) {
+          // If signup fails because email exists, try logging in
+          if (err.message.includes('email-already-in-use')) {
             setIsLogin(true);
-            await login(email, password);
+            try {
+              await login(email, password);
+            } catch (loginErr: any) {
+              throw new Error("This email is already registered, but the password you provided doesn't match our records.");
+            }
           } else {
             throw err;
           }
         }
       }
     } catch (err: any) {
-      console.error("Auth Submission Error:", err);
+      // We only log to console if it's NOT a standard auth error to keep the console clean
+      const isAuthError = err.message.includes('auth/') || 
+                          err.message.includes('password') || 
+                          err.message.includes('user-not-found');
+      
+      if (!isAuthError) {
+        console.error("Auth Exception:", err);
+      }
+      
       const message = getFriendlyErrorMessage(err.message);
       setError(message.charAt(0).toUpperCase() + message.slice(1));
     } finally {
@@ -89,7 +108,6 @@ export const AuthView: React.FC = () => {
     try {
       await googleSignIn();
     } catch (err: any) {
-      console.error("Google Sign In Error:", err);
       setError(getFriendlyErrorMessage(err.message));
     } finally {
       setIsLoading(false);
@@ -110,8 +128,8 @@ export const AuthView: React.FC = () => {
         </div>
 
         {error && (
-          <div className="mb-6 p-3 bg-red-500/20 border border-red-500/50 rounded-xl text-red-100 text-sm flex items-center gap-2 animate-in slide-in-from-top-2">
-            <svg className="w-5 h-5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <div className="mb-6 p-4 bg-red-500/10 border border-red-500/30 rounded-2xl text-red-100 text-[13px] leading-relaxed flex items-start gap-3 animate-in slide-in-from-top-2">
+            <svg className="w-5 h-5 shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
             </svg>
             <span className="flex-1">{error}</span>
@@ -121,7 +139,7 @@ export const AuthView: React.FC = () => {
         <form id="auth-form" onSubmit={handleSubmit} className="space-y-4">
           {!isLogin && (
             <div className="animate-in fade-in slide-in-from-top-2 duration-300">
-              <label className="block text-white/80 text-sm font-medium mb-1 ml-1">Full Name</label>
+              <label className="block text-white/80 text-[11px] font-black uppercase tracking-widest mb-1.5 ml-1">Full Name</label>
               <input 
                 type="text" 
                 required
@@ -134,7 +152,7 @@ export const AuthView: React.FC = () => {
             </div>
           )}
           <div>
-            <label className="block text-white/80 text-sm font-medium mb-1 ml-1">Email Address</label>
+            <label className="block text-white/80 text-[11px] font-black uppercase tracking-widest mb-1.5 ml-1">Email Address</label>
             <input 
               type="email" 
               required
@@ -146,7 +164,7 @@ export const AuthView: React.FC = () => {
             />
           </div>
           <div>
-            <label className="block text-white/80 text-sm font-medium mb-1 ml-1">Password</label>
+            <label className="block text-white/80 text-[11px] font-black uppercase tracking-widest mb-1.5 ml-1">Password</label>
             <input 
               type="password" 
               required
@@ -161,7 +179,7 @@ export const AuthView: React.FC = () => {
           <button 
             type="submit" 
             disabled={isLoading}
-            className="w-full bg-white text-indigo-600 font-bold py-3 rounded-xl hover:bg-slate-100 active:scale-95 transition-all shadow-lg flex items-center justify-center gap-2 disabled:opacity-70 disabled:active:scale-100"
+            className="w-full bg-white text-indigo-600 font-bold py-4 rounded-xl hover:bg-slate-50 active:scale-95 transition-all shadow-xl flex items-center justify-center gap-2 disabled:opacity-70 disabled:active:scale-100"
           >
             {isLoading ? (
               <div className="w-5 h-5 border-2 border-indigo-600 border-t-transparent rounded-full animate-spin"></div>
@@ -175,15 +193,15 @@ export const AuthView: React.FC = () => {
           <button 
             onClick={handleDemoLogin}
             disabled={isLoading}
-            className="w-full bg-indigo-500/30 border border-white/30 py-3 rounded-xl text-white text-sm font-bold hover:bg-indigo-500/50 transition-all flex items-center justify-center gap-2"
+            className="w-full bg-indigo-500/20 border border-white/20 py-3 rounded-xl text-white text-sm font-bold hover:bg-indigo-500/40 transition-all flex items-center justify-center gap-2"
           >
-            {isLoading ? 'Loading...' : '🚀 Use Demo Account'}
+            {isLoading ? 'Processing...' : '🚀 Use Demo Account'}
           </button>
 
           <div className="flex items-center justify-center gap-4 py-2">
-            <div className="h-px bg-white/20 flex-1"></div>
-            <span className="text-white/40 text-[10px] font-bold uppercase">Or</span>
-            <div className="h-px bg-white/20 flex-1"></div>
+            <div className="h-px bg-white/10 flex-1"></div>
+            <span className="text-white/30 text-[9px] font-black uppercase tracking-[0.2em]">Social Connect</span>
+            <div className="h-px bg-white/10 flex-1"></div>
           </div>
 
           <button 
@@ -194,7 +212,7 @@ export const AuthView: React.FC = () => {
             <svg className="w-5 h-5" viewBox="0 0 24 24">
               <path fill="currentColor" d="M12.545,10.239v3.821h5.445c-0.712,2.315-2.647,3.972-5.445,3.972-3.332,0-6.033-2.701-6.033-6.032s2.701-6.032,6.033-6.032c1.498,0,2.866,0.549,3.921,1.453l2.814-2.814C17.503,2.988,15.139,2,12.545,2C7.021,2,2.543,6.477,2.543,12s4.478,10,10.002,10c8.396,0,10.249-7.85,9.426-11.748L12.545,10.239z"/>
             </svg>
-            Google Sign In
+            Continue with Google
           </button>
         </div>
 
@@ -204,9 +222,9 @@ export const AuthView: React.FC = () => {
             setError(null);
           }}
           disabled={isLoading}
-          className="w-full mt-8 text-white/60 hover:text-white text-sm font-medium transition-colors"
+          className="w-full mt-8 text-white/50 hover:text-white text-sm font-bold transition-colors"
         >
-          {isLogin ? "Don't have an account? Sign Up" : "Already have an account? Sign In"}
+          {isLogin ? "Need an account? Sign Up" : "Already registered? Sign In"}
         </button>
       </div>
     </div>
