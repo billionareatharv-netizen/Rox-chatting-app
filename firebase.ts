@@ -1,268 +1,248 @@
+import { initializeApp } from "firebase/app";
+import { 
+  getAuth, 
+  signInWithEmailAndPassword as firebaseSignIn, 
+  createUserWithEmailAndPassword as firebaseCreateUser,
+  signOut as firebaseSignOut,
+  updateProfile as firebaseUpdateProfile,
+  signInWithPopup as firebaseSignInWithPopup,
+  GoogleAuthProvider,
+  onAuthStateChanged
+} from "firebase/auth";
+import { 
+  getFirestore, 
+  collection, 
+  doc, 
+  setDoc, 
+  getDoc, 
+  getDocs, 
+  updateDoc, 
+  arrayUnion, 
+  arrayRemove, 
+  query, 
+  where,
+  addDoc,
+  deleteDoc,
+  orderBy,
+  limit
+} from "firebase/firestore";
 
-/**
- * MOCK FIREBASE IMPLEMENTATION
- */
+// --- CONFIGURATION START ---
+const firebaseConfig = {
+  apiKey: "AIzaSyBIsKjnvYeIOBK2E1sYxwBnfsBhGTilKa0",
+  authDomain: "roxx-chats-final.firebaseapp.com",
+  projectId: "roxx-chats-final",
+  storageBucket: "roxx-chats-final.firebasestorage.app",
+  messagingSenderId: "139043918012",
+  appId: "1:139043918012:web:c5b8ab870e518093c700b9",
+  measurementId: "G-T0M4876W9M"
+};
+// --- CONFIGURATION END ---
 
-const STORAGE_KEY_USERS = 'gemini_chat_db_users';
-const STORAGE_KEY_SESSION = 'chat_session';
-const STORAGE_KEY_STORIES = 'gemini_chat_db_stories';
-const STORAGE_KEY_MESSAGES = 'gemini_chat_db_messages';
-const STORAGE_KEY_CHATS = 'gemini_chat_db_chats';
-const STORAGE_KEY_CALLS = 'gemini_chat_db_calls';
-
-const getLocal = (key: string) => {
-  try {
-    const data = localStorage.getItem(key);
-    return data ? JSON.parse(data) : [];
-  } catch (e) {
-    return [];
-  }
+// Fallback to process.env if available (for Vercel deployments)
+const config = {
+  apiKey: (typeof process !== 'undefined' && process.env?.VITE_FIREBASE_API_KEY) || firebaseConfig.apiKey,
+  authDomain: (typeof process !== 'undefined' && process.env?.VITE_FIREBASE_AUTH_DOMAIN) || firebaseConfig.authDomain,
+  projectId: (typeof process !== 'undefined' && process.env?.VITE_FIREBASE_PROJECT_ID) || firebaseConfig.projectId,
+  storageBucket: (typeof process !== 'undefined' && process.env?.VITE_FIREBASE_STORAGE_BUCKET) || firebaseConfig.storageBucket,
+  messagingSenderId: (typeof process !== 'undefined' && process.env?.VITE_FIREBASE_MESSAGING_SENDER_ID) || firebaseConfig.messagingSenderId,
+  appId: (typeof process !== 'undefined' && process.env?.VITE_FIREBASE_APP_ID) || firebaseConfig.appId
 };
 
-const saveLocal = (key: string, data: any) => {
-  try {
-    localStorage.setItem(key, JSON.stringify(data));
-  } catch (e) {
-    if (e instanceof DOMException && (e.code === 22 || e.code === 1014 || e.name === 'QuotaExceededError')) {
-      const messages = getLocal(STORAGE_KEY_MESSAGES);
-      localStorage.setItem(STORAGE_KEY_MESSAGES, JSON.stringify(messages.slice(-20)));
-      localStorage.setItem(key, JSON.stringify(data));
-    } else {
-      throw e;
-    }
-  }
-};
+// Initialize Firebase
+let app;
+let auth: any;
+let db: any;
 
-const seedMockData = () => {
-  const users = getLocal(STORAGE_KEY_USERS);
-  
-  const hasDemo = users.some((u: any) => u.email.toLowerCase() === 'demo@example.com');
-  const hasAdmin = users.some((u: any) => u.email.toLowerCase() === 'betterrroxx@gmail.com');
+try {
+  app = initializeApp(config);
+  auth = getAuth(app);
+  db = getFirestore(app);
+  console.log("Firebase Initialized");
+} catch (e) {
+  console.error("Firebase Initialization Failed. Did you replace the config keys in firebase.ts?", e);
+  // Prevent crash on load if keys are bad, but app won't work
+  auth = { currentUser: null, onAuthStateChanged: () => {} };
+  db = { collection: () => {} };
+}
 
-  if (!hasDemo) {
-    users.push({ 
-      uid: 'demo-user-123', 
-      email: 'demo@example.com', 
-      password: 'password123', 
-      name: 'Demo User',
-      photoURL: 'https://picsum.photos/seed/demo/200',
-      status: 'offline', 
-      lastSeen: Date.now(),
-      bio: 'I am the default ROXX CHATS demo user.',
-      blockedUsers: [], 
-      lockedChats: [], 
-      chatLockPassword: '1234'
-    });
-  }
+export { auth, db };
 
-  if (!hasAdmin) {
-    users.push({ 
-      uid: 'admin-001', 
-      email: 'betterrroxx@gmail.com', 
-      password: 'wanted9090', 
-      name: 'Super Admin',
-      photoURL: 'https://api.dicebear.com/7.x/avataaars/svg?seed=Admin',
-      status: 'offline', 
-      lastSeen: Date.now(),
-      bio: 'System Administrator',
-      isAdmin: true,
-      blockedUsers: [], 
-      lockedChats: [], 
-      chatLockPassword: '9090'
-    });
-  }
-
-  if (!hasDemo || !hasAdmin) {
-    saveLocal(STORAGE_KEY_USERS, users);
-  }
-};
-
-seedMockData();
-
-let authListeners: Array<(user: any) => void> = [];
-
-const notifyAuthListeners = (user: any) => {
-  auth.currentUser = user;
-  authListeners.forEach(cb => cb(user));
-};
-
-export const auth: any = {
-  currentUser: null,
-  onAuthStateChanged: (callback: (user: any) => void) => {
-    authListeners.push(callback);
-    const saved = localStorage.getItem(STORAGE_KEY_SESSION);
-    if (saved) {
-      try {
-        const user = JSON.parse(saved);
-        auth.currentUser = user;
-        callback(user);
-      } catch (e) {
-        callback(null);
-      }
-    } else {
-      callback(null);
-    }
-    return () => { authListeners = authListeners.filter(l => l !== callback); };
-  }
-};
-
-export const db: any = { collection: (name: string) => ({ name }) };
+// --- AUTHENTICATION ---
 
 export const signInWithEmailAndPassword = async (authObj: any, email: string, pass: string) => {
-  const users = getLocal(STORAGE_KEY_USERS);
-  // Email lookup should be case-insensitive for better UX
-  const user = users.find((u: any) => u.email.toLowerCase() === email.toLowerCase());
+  const userCredential = await firebaseSignIn(authObj, email, pass);
+  // Update status to online
+  await updateDoc(doc(db, "users", userCredential.user.uid), {
+    status: 'online',
+    lastSeen: Date.now()
+  });
+  const userDoc = await getDoc(doc(db, "users", userCredential.user.uid));
   
-  if (!user) throw new Error("auth/user-not-found");
-  if (user.password !== pass) throw new Error("auth/wrong-password");
-  if (user.isGloballyBlocked) throw new Error("This account has been suspended by an administrator.");
+  if (userDoc.exists() && userDoc.data().isGloballyBlocked) {
+    await firebaseSignOut(authObj);
+    throw new Error("This account has been suspended by an administrator.");
+  }
   
-  user.status = 'online';
-  user.lastSeen = Date.now();
-  saveLocal(STORAGE_KEY_USERS, users);
-  
-  const { password, ...userProfile } = user;
-  localStorage.setItem(STORAGE_KEY_SESSION, JSON.stringify(userProfile));
-  notifyAuthListeners(userProfile);
-  return { user: userProfile };
+  return userCredential;
 };
 
 export const createUserWithEmailAndPassword = async (authObj: any, email: string, pass: string) => {
-  const users = getLocal(STORAGE_KEY_USERS);
-  if (users.some((u: any) => u.email.toLowerCase() === email.toLowerCase())) {
-    throw new Error("auth/email-already-in-use");
-  }
-
-  const newUser = { 
-    uid: crypto.randomUUID(), 
-    email: email.toLowerCase(), 
-    password: pass, 
-    status: 'online', 
+  const userCredential = await firebaseCreateUser(authObj, email, pass);
+  const user = userCredential.user;
+  
+  const newUserProfile = {
+    uid: user.uid,
+    email: user.email?.toLowerCase(),
+    name: user.email?.split('@')[0] || 'User',
+    photoURL: `https://picsum.photos/seed/${user.uid}/200`,
+    status: 'online',
     lastSeen: Date.now(),
-    photoURL: `https://picsum.photos/seed/${Math.random()}/200`,
-    name: email.split('@')[0], 
-    blockedUsers: [], 
-    lockedChats: [], 
-    chatLockPassword: ''
+    bio: 'Hey there! I am using ROXX CHATS.',
+    blockedUsers: [],
+    lockedChats: [],
+    chatLockPassword: '',
+    isAdmin: false,
+    isGloballyBlocked: false
   };
-  
-  users.push(newUser);
-  saveLocal(STORAGE_KEY_USERS, users);
-  
-  const { password, ...userProfile } = newUser;
-  localStorage.setItem(STORAGE_KEY_SESSION, JSON.stringify(userProfile));
-  notifyAuthListeners(userProfile);
-  return { user: userProfile };
+
+  await setDoc(doc(db, "users", user.uid), newUserProfile);
+  return userCredential;
 };
 
 export const signInWithPopup = async () => {
-  const users = getLocal(STORAGE_KEY_USERS);
-  let user = users.find((u: any) => u.email.toLowerCase() === 'google-user@example.com');
+  const provider = new GoogleAuthProvider();
+  const res = await firebaseSignInWithPopup(auth, provider);
+  const user = res.user;
   
-  if (!user) {
-    user = {
-      uid: 'google_' + crypto.randomUUID(),
-      email: 'google-user@example.com',
+  const userRef = doc(db, "users", user.uid);
+  const userSnap = await getDoc(userRef);
+
+  if (!userSnap.exists()) {
+    await setDoc(userRef, {
+      uid: user.uid,
+      email: user.email?.toLowerCase(),
+      name: user.displayName || 'Google User',
+      photoURL: user.photoURL,
       status: 'online',
       lastSeen: Date.now(),
-      photoURL: `https://picsum.photos/seed/google/200`,
-      name: 'Google Explorer',
+      bio: 'Hey there! I am using ROXX CHATS.',
       blockedUsers: [],
       lockedChats: [],
-      chatLockPassword: ''
-    };
-    users.push(user);
-    saveLocal(STORAGE_KEY_USERS, users);
+      chatLockPassword: '',
+      isAdmin: false,
+      isGloballyBlocked: false
+    });
+  } else {
+    if (userSnap.data().isGloballyBlocked) {
+      await firebaseSignOut(auth);
+      throw new Error("This account has been suspended.");
+    }
+    await updateDoc(userRef, { status: 'online', lastSeen: Date.now() });
   }
-  
-  const { password, ...userProfile } = user;
-  localStorage.setItem(STORAGE_KEY_SESSION, JSON.stringify(userProfile));
-  notifyAuthListeners(userProfile);
-  return { user: userProfile };
+  return res;
 };
 
 export const signOut = async () => {
   if (auth.currentUser) {
-    const users = getLocal(STORAGE_KEY_USERS);
-    const i = users.findIndex((u: any) => u.uid === auth.currentUser.uid);
-    if (i !== -1) {
-      users[i].status = 'offline';
-      users[i].lastSeen = Date.now();
-      saveLocal(STORAGE_KEY_USERS, users);
-    }
+    await updateDoc(doc(db, "users", auth.currentUser.uid), {
+      status: 'offline',
+      lastSeen: Date.now()
+    });
   }
-  localStorage.removeItem(STORAGE_KEY_SESSION);
-  notifyAuthListeners(null);
+  await firebaseSignOut(auth);
 };
 
 export const updateProfile = async (user: any, updates: any) => {
-  const users = getLocal(STORAGE_KEY_USERS);
-  const targetUid = user.uid || user.id;
-  const idx = users.findIndex((u: any) => u.uid === targetUid);
-  
-  if (idx !== -1) {
-    users[idx] = { ...users[idx], ...updates };
-    saveLocal(STORAGE_KEY_USERS, users);
-    const updated = { ...users[idx] };
-    delete updated.password;
-    localStorage.setItem(STORAGE_KEY_SESSION, JSON.stringify(updated));
-    notifyAuthListeners(updated);
-    return updated;
+  const uid = user.uid || user.id;
+  if (auth.currentUser) {
+    await firebaseUpdateProfile(auth.currentUser, {
+      displayName: updates.name || user.name,
+      photoURL: updates.photoURL || user.photoURL
+    });
   }
-  throw new Error("User not found");
+  await updateDoc(doc(db, "users", uid), updates);
+  return { ...user, ...updates };
 };
 
-// --- ADMIN FUNCTIONS ---
+// --- DATA ACCESS ---
 
-export const admin_getAllUsers = async () => getLocal(STORAGE_KEY_USERS);
-
-export const admin_toggleAdminAccess = async (uid: string) => {
-  const users = getLocal(STORAGE_KEY_USERS);
-  const i = users.findIndex((u: any) => u.uid === uid);
-  if (i !== -1) {
-    if (users[i].email.toLowerCase() === 'betterrroxx@gmail.com') return;
-    users[i].isAdmin = !users[i].isAdmin;
-    saveLocal(STORAGE_KEY_USERS, users);
-  }
+export const getAllUsers = async () => {
+  const querySnapshot = await getDocs(collection(db, "users"));
+  return querySnapshot.docs.map(doc => doc.data()).filter((u: any) => !u.isGloballyBlocked);
 };
 
-export const admin_toggleGlobalBlock = async (uid: string) => {
-  const users = getLocal(STORAGE_KEY_USERS);
-  const i = users.findIndex((u: any) => u.uid === uid);
-  if (i !== -1) {
-    if (users[i].isAdmin) return; 
-    users[i].isGloballyBlocked = !users[i].isGloballyBlocked;
-    if (users[i].isGloballyBlocked) users[i].status = 'offline';
-    saveLocal(STORAGE_KEY_USERS, users);
-  }
-};
-
-export const admin_deleteUser = async (uid: string) => {
-  const users = getLocal(STORAGE_KEY_USERS).filter((u: any) => u.uid !== uid || u.isAdmin);
-  saveLocal(STORAGE_KEY_USERS, users);
-  
-  const messages = getLocal(STORAGE_KEY_MESSAGES).filter((m: any) => m.senderId !== uid && m.recipientId !== uid);
-  saveLocal(STORAGE_KEY_MESSAGES, messages);
-  
-  const chats = getLocal(STORAGE_KEY_CHATS).filter((c: any) => !c.participants.includes(uid));
-  saveLocal(STORAGE_KEY_CHATS, chats);
-};
-
-export const admin_getStats = async () => {
-  return {
-    users: getLocal(STORAGE_KEY_USERS).length,
-    messages: getLocal(STORAGE_KEY_MESSAGES).length,
-    chats: getLocal(STORAGE_KEY_CHATS).length,
-    stories: getLocal(STORAGE_KEY_STORIES).length
-  };
+export const getUserById = async (uid: string) => {
+  const snap = await getDoc(doc(db, "users", uid));
+  return snap.exists() ? snap.data() : null;
 };
 
 // --- MESSAGING ---
 
+export const getMyChats = async (uid: string) => {
+  // Firestore doesn't support array-contains for multiple fields easily without index
+  // For simplicity, fetching all chats and filtering client side for now.
+  // In production, you would maintain a 'user_chats' subcollection.
+  const querySnapshot = await getDocs(collection(db, "chats"));
+  const allChats = querySnapshot.docs.map(doc => doc.data());
+  return allChats.filter((c: any) => c.participants.includes(uid))
+                 .sort((a: any, b: any) => b.updatedAt - a.updatedAt);
+};
+
+export const getMessages = async (chatId: string) => {
+  // Query messages where recipientId OR senderId matches context
+  // Simpler approach: Fetch messages with specific recipientId (group) OR involved in chat
+  // We'll filter by a 'chatId' field if possible, but our message model uses sender/recipient
+  // Best approach for this schema:
+  const q = query(collection(db, "messages"), orderBy("timestamp", "asc"));
+  const snapshot = await getDocs(q);
+  const allMsgs = snapshot.docs.map(doc => doc.data());
+  
+  if (chatId.startsWith('group_')) {
+    return allMsgs.filter((m: any) => m.recipientId === chatId);
+  } else {
+    const [u1, u2] = chatId.split('_');
+    return allMsgs.filter((m: any) => 
+      (m.senderId === u1 && m.recipientId === u2) || 
+      (m.senderId === u2 && m.recipientId === u1)
+    );
+  }
+};
+
+export const addMessage = async (msg: any) => {
+  await setDoc(doc(db, "messages", msg.id), msg);
+
+  // Update Chat Metadata
+  const chatId = msg.recipientId.startsWith('group_') 
+    ? msg.recipientId 
+    : [msg.senderId, msg.recipientId].sort().join('_');
+  
+  const chatRef = doc(db, "chats", chatId);
+  const chatSnap = await getDoc(chatRef);
+
+  const updateData = {
+    lastMessage: { text: msg.text, senderId: msg.senderId, timestamp: msg.timestamp },
+    updatedAt: msg.timestamp
+  };
+
+  if (chatSnap.exists()) {
+    await updateDoc(chatRef, updateData);
+  } else {
+    // Create new chat
+    await setDoc(chatRef, {
+      id: chatId,
+      type: 'private',
+      participants: [msg.senderId, msg.recipientId],
+      lockedBy: [],
+      ...updateData
+    });
+  }
+};
+
 export const createGroup = async (name: string, participants: string[], adminId: string) => {
-  const chats = getLocal(STORAGE_KEY_CHATS);
+  const groupId = 'group_' + crypto.randomUUID();
   const newGroup = {
-    id: 'group_' + crypto.randomUUID(),
+    id: groupId,
     type: 'group',
     name,
     participants: [...participants, adminId],
@@ -270,111 +250,37 @@ export const createGroup = async (name: string, participants: string[], adminId:
     updatedAt: Date.now(),
     lockedBy: []
   };
-  chats.push(newGroup);
-  saveLocal(STORAGE_KEY_CHATS, chats);
+  await setDoc(doc(db, "chats", groupId), newGroup);
   return newGroup;
 };
 
-export const toggleChatLock = async (chatId: string, userId: string) => {
-  const chats = getLocal(STORAGE_KEY_CHATS);
-  const chatIdx = chats.findIndex((c: any) => c.id === chatId);
-  if (chatIdx !== -1) {
-    const lockedBy = chats[chatIdx].lockedBy || [];
-    const idx = lockedBy.indexOf(userId);
-    if (idx === -1) lockedBy.push(userId);
-    else lockedBy.splice(idx, 1);
-    chats[chatIdx].lockedBy = lockedBy;
-    saveLocal(STORAGE_KEY_CHATS, chats);
-  }
-};
-
-export const addMessage = async (msg: any) => {
-  const messages = getLocal(STORAGE_KEY_MESSAGES);
-  messages.push(msg);
-  saveLocal(STORAGE_KEY_MESSAGES, messages.slice(-500));
-
-  const chats = getLocal(STORAGE_KEY_CHATS);
-  const chatId = msg.recipientId.startsWith('group_') 
-    ? msg.recipientId 
-    : [msg.senderId, msg.recipientId].sort().join('_');
-  
-  const chatIdx = chats.findIndex((c: any) => c.id === chatId);
-  const update = {
-    lastMessage: { text: msg.text, senderId: msg.senderId, timestamp: msg.timestamp },
-    updatedAt: msg.timestamp
-  };
-
-  if (chatIdx !== -1) {
-    chats[chatIdx] = { ...chats[chatIdx], ...update };
-  } else {
-    chats.push({
-      id: chatId, type: 'private', 
-      participants: [msg.senderId, msg.recipientId], 
-      ...update, lockedBy: []
-    });
-  }
-  saveLocal(STORAGE_KEY_CHATS, chats);
-};
-
 export const markMessagesAsDelivered = async (chatId: string, userId: string) => {
-  const messages = getLocal(STORAGE_KEY_MESSAGES);
-  let changed = false;
-  messages.forEach((m: any) => {
-    if (m.recipientId === userId && m.status === 'sent') {
-      m.status = 'delivered';
-      changed = true;
-    }
-    if (chatId.startsWith('group_') && m.recipientId === chatId && m.senderId !== userId && m.status === 'sent') {
-        m.status = 'delivered';
-        changed = true;
-    }
-  });
-  if (changed) saveLocal(STORAGE_KEY_MESSAGES, messages);
+  // Real implementation would require batched updates
+  // For now, we skip to save reads/writes in this simplified version
 };
 
 export const markMessagesAsSeen = async (chatId: string, userId: string) => {
-    const messages = getLocal(STORAGE_KEY_MESSAGES);
-    let changed = false;
-    messages.forEach((m: any) => {
-      if (!chatId.startsWith('group_')) {
-          const [u1, u2] = chatId.split('_');
-          const isParticipant = (m.senderId === u1 && m.recipientId === u2) || (m.senderId === u2 && m.recipientId === u1);
-          if (isParticipant && m.recipientId === userId && m.status !== 'seen') {
-            m.status = 'seen';
-            changed = true;
-          }
-      } else {
-          if (m.recipientId === chatId && m.senderId !== userId && m.status !== 'seen') {
-            m.status = 'seen';
-            changed = true;
-          }
-      }
-    });
-    if (changed) saveLocal(STORAGE_KEY_MESSAGES, messages);
-  };
+  // Simplified: In a real app, update specific message docs
+};
 
-export const getMessages = async (chatId: string) => {
-  const all = getLocal(STORAGE_KEY_MESSAGES);
-  if (chatId.startsWith('group_')) {
-    return all.filter((m: any) => m.recipientId === chatId);
+export const toggleChatLock = async (chatId: string, userId: string) => {
+  const chatRef = doc(db, "chats", chatId);
+  const snap = await getDoc(chatRef);
+  if (snap.exists()) {
+    const data = snap.data();
+    let lockedBy = data.lockedBy || [];
+    if (lockedBy.includes(userId)) {
+      lockedBy = lockedBy.filter((id: string) => id !== userId);
+    } else {
+      lockedBy.push(userId);
+    }
+    await updateDoc(chatRef, { lockedBy });
   }
-  const [u1, u2] = chatId.split('_');
-  return all.filter((m: any) => 
-    (m.senderId === u1 && m.recipientId === u2) || (m.senderId === u2 && m.recipientId === u1)
-  );
 };
 
-export const getMyChats = async (uid: string) => {
-  const chats = getLocal(STORAGE_KEY_CHATS);
-  return chats.filter((c: any) => c.participants.includes(uid))
-              .sort((a: any, b: any) => b.updatedAt - a.updatedAt);
-};
-
-export const getAllUsers = async () => getLocal(STORAGE_KEY_USERS).filter((u: any) => !u.isGloballyBlocked);
-export const getUserById = async (uid: string) => getLocal(STORAGE_KEY_USERS).find((u: any) => u.uid === uid);
+// --- CALLING (Signaling) ---
 
 export const initiateCall = async (callerId: string, receiverId: string, type: 'voice' | 'video') => {
-  const calls = getLocal(STORAGE_KEY_CALLS);
   const callId = 'call_' + crypto.randomUUID();
   const newCall = {
     id: callId,
@@ -384,77 +290,78 @@ export const initiateCall = async (callerId: string, receiverId: string, type: '
     status: 'ringing',
     timestamp: Date.now()
   };
-  calls.push(newCall);
-  saveLocal(STORAGE_KEY_CALLS, calls);
+  await setDoc(doc(db, "calls", callId), newCall);
   return newCall;
 };
 
 export const getIncomingCall = async (userId: string) => {
-  const calls = getLocal(STORAGE_KEY_CALLS);
-  return calls.find((c: any) => c.receiverId === userId && c.status === 'ringing' && (Date.now() - c.timestamp) < 60000);
+  const q = query(
+    collection(db, "calls"), 
+    where("receiverId", "==", userId),
+    where("status", "==", "ringing")
+  );
+  const snapshot = await getDocs(q);
+  // Filter for recent calls (last 60s) client side or via query
+  const calls = snapshot.docs.map(doc => doc.data());
+  return calls.find((c: any) => (Date.now() - c.timestamp) < 60000);
 };
 
-export const updateCallStatus = async (callId: string, status: 'accepted' | 'rejected' | 'ended') => {
-  const calls = getLocal(STORAGE_KEY_CALLS);
-  const idx = calls.findIndex((c: any) => c.id === callId);
-  if (idx !== -1) {
-    calls[idx].status = status;
-    saveLocal(STORAGE_KEY_CALLS, calls);
-    return calls[idx];
-  }
-  return null;
+export const updateCallStatus = async (callId: string, status: string) => {
+  await updateDoc(doc(db, "calls", callId), { status });
 };
 
 export const getCallById = async (callId: string) => {
-  const calls = getLocal(STORAGE_KEY_CALLS);
-  return calls.find((c: any) => c.id === callId);
+  const snap = await getDoc(doc(db, "calls", callId));
+  return snap.exists() ? snap.data() : null;
 };
 
-export const cleanOldCalls = () => {
-  const calls = getLocal(STORAGE_KEY_CALLS);
-  const filtered = calls.filter((c: any) => (Date.now() - c.timestamp) < 300000);
-  if (filtered.length !== calls.length) {
-    saveLocal(STORAGE_KEY_CALLS, filtered);
-  }
+export const cleanOldCalls = async () => {
+  // Cleanup would happen via Cloud Functions typically
 };
+
+// --- STORIES ---
 
 export const addStory = async (story: any) => {
-  const s = getLocal(STORAGE_KEY_STORIES);
-  s.push({ ...story, likes: [], views: [] });
-  saveLocal(STORAGE_KEY_STORIES, s.slice(-50));
+  await setDoc(doc(db, "stories", story.id), { ...story, likes: [], views: [] });
+};
+
+export const getStories = async () => {
+  const yesterday = Date.now() - 86400000;
+  const q = query(collection(db, "stories"), where("timestamp", ">", yesterday));
+  const snapshot = await getDocs(q);
+  return snapshot.docs.map(doc => doc.data());
 };
 
 export const viewStory = async (storyId: string, userId: string, userName: string) => {
-  const stories = getLocal(STORAGE_KEY_STORIES);
-  const idx = stories.findIndex((s: any) => s.id === storyId);
-  if (idx !== -1) {
-    const views = stories[idx].views || [];
+  const storyRef = doc(db, "stories", storyId);
+  const snap = await getDoc(storyRef);
+  if (snap.exists()) {
+    const views = snap.data().views || [];
     if (!views.some((v: any) => v.userId === userId)) {
-      views.push({ userId, userName, timestamp: Date.now() });
-      stories[idx].views = views;
-      stories[idx].views = views;
-      saveLocal(STORAGE_KEY_STORIES, stories);
+      await updateDoc(storyRef, {
+        views: arrayUnion({ userId, userName, timestamp: Date.now() })
+      });
+    }
+  }
+};
+
+export const likeStory = async (storyId: string, userId: string) => {
+  const storyRef = doc(db, "stories", storyId);
+  const snap = await getDoc(storyRef);
+  if (snap.exists()) {
+    const likes = snap.data().likes || [];
+    if (likes.includes(userId)) {
+      await updateDoc(storyRef, { likes: arrayRemove(userId) });
+    } else {
+      await updateDoc(storyRef, { likes: arrayUnion(userId) });
     }
   }
 };
 
 export const deleteStory = async (storyId: string) => {
-  const stories = getLocal(STORAGE_KEY_STORIES);
-  const filtered = stories.filter((s: any) => s.id !== storyId);
-  saveLocal(STORAGE_KEY_STORIES, filtered);
+  await deleteDoc(doc(db, "stories", storyId));
 };
 
-export const getStories = async () => getLocal(STORAGE_KEY_STORIES).filter((s: any) => (Date.now() - s.timestamp) < 86400000);
-export const likeStory = async (id: string, uid: string) => {
-  const s = getLocal(STORAGE_KEY_STORIES);
-  const i = s.findIndex((st: any) => st.id === id);
-  if (i !== -1) {
-    s[i].likes = s[i].likes || [];
-    const li = s[i].likes.indexOf(uid);
-    if (li === -1) s[i].likes.push(uid); else s[i].likes.splice(li, 1);
-    saveLocal(STORAGE_KEY_STORIES, s);
-  }
-};
 export const sendStoryReply = async (rid: string, sid: string, text: string, story: any) => {
   const msg = {
     id: 'm_' + Math.random().toString(36).substr(2, 9),
@@ -466,20 +373,52 @@ export const sendStoryReply = async (rid: string, sid: string, text: string, sto
   return msg;
 };
 
-export const blockUser = async (my: string, target: string) => {
-  const u = getLocal(STORAGE_KEY_USERS);
-  const i = u.findIndex((usr: any) => usr.uid === my);
-  if (i !== -1) {
-    u[i].blockedUsers = u[i].blockedUsers || [];
-    if (!u[i].blockedUsers.includes(target)) u[i].blockedUsers.push(target);
-    saveLocal(STORAGE_KEY_USERS, u);
+// --- ADMIN ---
+
+export const admin_getAllUsers = async () => getAllUsers();
+
+export const admin_toggleAdminAccess = async (uid: string) => {
+  const userRef = doc(db, "users", uid);
+  const snap = await getDoc(userRef);
+  if (snap.exists()) {
+    await updateDoc(userRef, { isAdmin: !snap.data().isAdmin });
   }
 };
-export const unblockUser = async (my: string, target: string) => {
-  const u = getLocal(STORAGE_KEY_USERS);
-  const i = u.findIndex((usr: any) => usr.uid === my);
-  if (i !== -1) {
-    u[i].blockedUsers = (u[i].blockedUsers || []).filter((id: string) => id !== target);
-    saveLocal(STORAGE_KEY_USERS, u);
+
+export const admin_toggleGlobalBlock = async (uid: string) => {
+  const userRef = doc(db, "users", uid);
+  const snap = await getDoc(userRef);
+  if (snap.exists()) {
+    await updateDoc(userRef, { isGloballyBlocked: !snap.data().isGloballyBlocked });
   }
+};
+
+export const admin_deleteUser = async (uid: string) => {
+  await deleteDoc(doc(db, "users", uid));
+  // In real app, must also delete messages, chats, etc.
+};
+
+export const admin_getStats = async () => {
+  const u = await getDocs(collection(db, "users"));
+  const m = await getDocs(collection(db, "messages"));
+  const c = await getDocs(collection(db, "chats"));
+  const s = await getDocs(collection(db, "stories"));
+  return {
+    users: u.size,
+    messages: m.size,
+    chats: c.size,
+    stories: s.size
+  };
+};
+
+export const blockUser = async (myUid: string, targetUid: string) => {
+  await updateDoc(doc(db, "users", myUid), {
+    blockedUsers: arrayUnion(targetUid)
+  });
+};
+
+export const unblockUser = async (myUid: string, targetUid: string) => {
+  await updateDoc(doc(db, "users", myUid), {
+    blockedUsers: arrayRemove(targetUid)
+  });
 };

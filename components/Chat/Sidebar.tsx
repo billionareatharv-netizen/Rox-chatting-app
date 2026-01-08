@@ -27,7 +27,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
       setChats(myChats);
     };
     sync();
-    const itv = setInterval(sync, 4000);
+    // Sync faster to find new users quickly
+    const itv = setInterval(sync, 2000);
     return () => clearInterval(itv);
   }, [currentUser]);
 
@@ -109,6 +110,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
         {searchResults.chats.length === 0 && searchResults.users.length === 0 && (
           <div className="py-20 text-center px-6">
             <p className="text-slate-400 dark:text-slate-500 text-sm font-medium">No conversations found.</p>
+            <button onClick={() => setShowGroupModal(true)} className="mt-4 text-indigo-500 font-bold text-xs hover:underline">Start a new chat</button>
           </div>
         )}
 
