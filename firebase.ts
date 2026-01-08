@@ -1,3 +1,4 @@
+
 import { initializeApp } from "firebase/app";
 import { 
   getAuth, 
@@ -180,9 +181,7 @@ export const getUserById = async (uid: string) => {
 // --- MESSAGING ---
 
 export const getMyChats = async (uid: string) => {
-  // Firestore doesn't support array-contains for multiple fields easily without index
-  // For simplicity, fetching all chats and filtering client side for now.
-  // In production, you would maintain a 'user_chats' subcollection.
+  // Fetch all chats and filter client side
   const querySnapshot = await getDocs(collection(db, "chats"));
   const allChats = querySnapshot.docs.map(doc => doc.data());
   return allChats.filter((c: any) => c.participants.includes(uid))
@@ -190,52 +189,74 @@ export const getMyChats = async (uid: string) => {
 };
 
 export const getMessages = async (chatId: string) => {
-  // Query messages where recipientId OR senderId matches context
-  // Simpler approach: Fetch messages with specific recipientId (group) OR involved in chat
-  // We'll filter by a 'chatId' field if possible, but our message model uses sender/recipient
-  // Best approach for this schema:
-  const q = query(collection(db, "messages"), orderBy("timestamp", "asc"));
-  const snapshot = await getDocs(q);
-  const allMsgs = snapshot.docs.map(doc => doc.data());
-  
-  if (chatId.startsWith('group_')) {
-    return allMsgs.filter((m: any) => m.recipientId === chatId);
-  } else {
-    const [u1, u2] = chatId.split('_');
-    return allMsgs.filter((m: any) => 
-      (m.senderId === u1 && m.recipientId === u2) || 
-      (m.senderId === u2 && m.recipientId === u1)
-    );
+  // Fetch ALL messages and filter/sort client side to avoid Index errors
+  try {
+    const snapshot = await getDocs(collection(db, "messages"));
+    const allMsgs = snapshot.docs.map(doc => doc.data());
+    
+    let filteredMsgs;
+    if (chatId.startsWith('group_')) {
+      filteredMsgs = allMsgs.filter((m: any) => m.recipientId === chatId);
+    } else {
+      const [u1, u2] = chatId.split('_');
+      filteredMsgs = allMsgs.filter((m: any) => 
+        (m.senderId === u1 && m.recipientId === u2) || 
+        (m.senderId === u2 && m.recipientId === u1)
+      );
+    }
+    
+    // Client-side sort
+    return filteredMsgs.sort((a: any, b: any) => a.timestamp - b.timestamp);
+  } catch (error) {
+    console.error("Error fetching messages:", error);
+    return [];
   }
 };
 
 export const addMessage = async (msg: any) => {
-  await setDoc(doc(db, "messages", msg.id), msg);
+  try {
+    // Sanitize the message object to remove any 'undefined' fields
+    // Firestore throws validation errors if fields are undefined
+    const safeMsg = JSON.parse(JSON.stringify(msg));
 
-  // Update Chat Metadata
-  const chatId = msg.recipientId.startsWith('group_') 
-    ? msg.recipientId 
-    : [msg.senderId, msg.recipientId].sort().join('_');
-  
-  const chatRef = doc(db, "chats", chatId);
-  const chatSnap = await getDoc(chatRef);
+    // 1. Save Message
+    await setDoc(doc(db, "messages", safeMsg.id), safeMsg);
 
-  const updateData = {
-    lastMessage: { text: msg.text, senderId: msg.senderId, timestamp: msg.timestamp },
-    updatedAt: msg.timestamp
-  };
-
-  if (chatSnap.exists()) {
-    await updateDoc(chatRef, updateData);
-  } else {
-    // Create new chat
-    await setDoc(chatRef, {
+    // 2. Determine Chat ID
+    const chatId = safeMsg.recipientId.startsWith('group_') 
+      ? safeMsg.recipientId 
+      : [safeMsg.senderId, safeMsg.recipientId].sort().join('_');
+    
+    const chatRef = doc(db, "chats", chatId);
+    
+    // 3. Update or Create Chat Document
+    // Using setDoc with merge: true is safer than checking exists() then update
+    const updateData = {
       id: chatId,
-      type: 'private',
-      participants: [msg.senderId, msg.recipientId],
-      lockedBy: [],
-      ...updateData
-    });
+      lastMessage: { text: safeMsg.text || 'Media', senderId: safeMsg.senderId, timestamp: safeMsg.timestamp },
+      updatedAt: safeMsg.timestamp,
+      // Ensure participants are set if creating new, but don't overwrite if existing
+      // We'll construct the participants list just in case it's new
+      participants: [safeMsg.senderId, safeMsg.recipientId], 
+      type: safeMsg.recipientId.startsWith('group_') ? 'group' : 'private'
+    };
+
+    // For groups, we don't want to overwrite participants array blindly if it already exists
+    // But for private chats, it's always just two people.
+    if (updateData.type === 'private') {
+       // Ensure unique participants
+       updateData.participants = [...new Set([safeMsg.senderId, safeMsg.recipientId])];
+    } else {
+       // For groups, remove participants from updateData so we don't reset the group list
+       // unless we specifically meant to (which we don't here)
+       delete (updateData as any).participants; 
+    }
+
+    await setDoc(chatRef, updateData, { merge: true });
+    console.log("Message sent and chat updated:", chatId);
+  } catch (e) {
+    console.error("Error adding message:", e);
+    throw e;
   }
 };
 
@@ -256,7 +277,6 @@ export const createGroup = async (name: string, participants: string[], adminId:
 
 export const markMessagesAsDelivered = async (chatId: string, userId: string) => {
   // Real implementation would require batched updates
-  // For now, we skip to save reads/writes in this simplified version
 };
 
 export const markMessagesAsSeen = async (chatId: string, userId: string) => {

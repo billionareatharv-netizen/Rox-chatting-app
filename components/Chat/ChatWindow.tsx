@@ -48,7 +48,11 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ chat, currentUser, onClo
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const isGroup = chat.type === 'group';
-  const otherId = !isGroup ? chat.participants.find(p => p !== currentUser.uid) || '' : chat.id;
+  
+  // Robust ID calculation: handle if participants is missing current user or if chatting with self
+  const otherId = !isGroup 
+    ? (chat.participants.find(p => p !== currentUser.uid) || (chat.participants.includes(currentUser.uid) ? currentUser.uid : '')) 
+    : chat.id;
 
   const loadSettings = () => {
     const saved = localStorage.getItem('roxx_settings');
@@ -68,14 +72,26 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ chat, currentUser, onClo
 
   useEffect(() => {
     const sync = async () => {
-      if (!isGroup && !otherUser) {
+      if (!isGroup && !otherUser && otherId) {
         const u = await getUserById(otherId);
         if (u) setOtherUser(u);
       }
       await markMessagesAsDelivered(chat.id, currentUser.uid);
       await markMessagesAsSeen(chat.id, currentUser.uid);
       const msgs = await getMessages(chat.id);
-      setMessages(prev => (JSON.stringify(prev) !== JSON.stringify(msgs) ? msgs : prev));
+      
+      // Safer comparison to avoid circular JSON errors and improve performance
+      setMessages(prev => {
+        if (prev.length !== msgs.length) return msgs;
+        
+        // Check for changes in IDs, status, or timestamp (common updates)
+        const hasChanged = prev.some((p, i) => {
+          const m = msgs[i];
+          return p.id !== m.id || p.status !== m.status || p.timestamp !== m.timestamp;
+        });
+        
+        return hasChanged ? msgs : prev;
+      });
     };
     sync();
     const itv = setInterval(sync, 2000);
@@ -92,6 +108,13 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ chat, currentUser, onClo
     e?.preventDefault();
     const text = inputText.trim();
     if (!text) return;
+    
+    // Safety check for recipient
+    const recipient = isGroup ? chat.id : otherId;
+    if (!recipient) {
+      console.error("No recipient ID found");
+      return;
+    }
 
     let replyContext = undefined;
     if (replyingTo) {
@@ -106,18 +129,29 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ chat, currentUser, onClo
     const msg: Message = {
       id: 'm_' + Math.random().toString(36).substr(2, 9),
       senderId: currentUser.uid, 
-      recipientId: isGroup ? chat.id : otherId,
+      recipientId: recipient,
       text, 
       type: 'text', 
       timestamp: Date.now(), 
-      status: 'sent',
-      replyContext
+      status: 'sent'
     };
 
+    // Only add replyContext if it exists to avoid 'undefined' error in Firestore
+    if (replyContext) {
+      msg.replyContext = replyContext;
+    }
+
+    // Optimistic update
     setMessages(prev => [...prev, msg]);
     setInputText('');
     setReplyingTo(null);
-    await addMessage(msg);
+    
+    try {
+      await addMessage(msg);
+    } catch (err) {
+      console.error("Failed to send message", err);
+      // Optionally show error to user or retry
+    }
 
     if (text.toLowerCase().startsWith('/ai')) {
       setIsTyping(true);
@@ -145,15 +179,17 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ chat, currentUser, onClo
       ? targetChat.id 
       : targetChat.participants.find(p => p !== currentUser.uid)!;
 
+    // Destructure to remove replyContext, preventing undefined field error
+    const { replyContext, ...msgContent } = forwardingMessage;
+
     const forwardMsg: Message = {
-      ...forwardingMessage,
+      ...msgContent,
       id: 'fwd_' + Math.random().toString(36).substr(2, 9),
       senderId: currentUser.uid,
       recipientId: targetId,
       timestamp: Date.now(),
       status: 'sent',
-      isForwarded: true,
-      replyContext: undefined // Remove context on forward
+      isForwarded: true
     };
 
     await addMessage(forwardMsg);
@@ -172,6 +208,10 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ chat, currentUser, onClo
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
+    
+    const recipient = isGroup ? chat.id : otherId;
+    if (!recipient) return;
+
     setIsUploading(true);
     const reader = new FileReader();
     reader.onload = async (event) => {
@@ -182,7 +222,7 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ chat, currentUser, onClo
       const msg: Message = {
         id: 'f_' + Math.random().toString(36).substr(2, 9), 
         senderId: currentUser.uid,
-        recipientId: isGroup ? chat.id : otherId, 
+        recipientId: recipient, 
         text: file.name, 
         type: messageType,
         timestamp: Date.now(), 
@@ -228,13 +268,13 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ chat, currentUser, onClo
       <div className="p-3 md:p-4 flex items-center justify-between glass z-10 border-b border-slate-200 dark:border-slate-800 shadow-sm">
         <div className="flex items-center gap-3">
           <button onClick={onClose} className="lg:hidden p-2 rounded-xl hover:bg-slate-200 dark:hover:bg-slate-800"><svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M15 19l-7-7 7-7" /></svg></button>
-          <div className="relative cursor-pointer group" onClick={() => onUserClick(isGroup ? ({} as User) : otherUser!)}>
+          <div className="relative cursor-pointer group" onClick={() => onUserClick(isGroup ? ({} as User) : (otherUser || {} as User))}>
             <img src={isGroup ? (chat.groupIcon || `https://picsum.photos/seed/${chat.id}/200`) : otherUser?.photoURL} className="w-10 h-10 rounded-2xl object-cover border border-slate-200 dark:border-slate-700 group-hover:scale-105 transition-transform" alt="" />
             {!isGroup && otherUser?.status === 'online' && <div className="absolute -bottom-1 -right-1 w-4 h-4 bg-green-500 rounded-full border-2 border-white dark:border-slate-900"></div>}
           </div>
-          <div className="min-w-0 cursor-pointer" onClick={() => onUserClick(isGroup ? ({} as User) : otherUser!)}>
+          <div className="min-w-0 cursor-pointer" onClick={() => onUserClick(isGroup ? ({} as User) : (otherUser || {} as User))}>
             <h3 className="font-bold text-sm leading-none flex items-center gap-1.5 truncate">
-              {isGroup ? chat.name : otherUser?.name}
+              {isGroup ? chat.name : (otherUser?.name || 'Loading...')}
               {isLocked && <svg className="w-3.5 h-3.5 text-indigo-500" fill="currentColor" viewBox="0 0 24 24"><path d="M12 17c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2zm6-9h-1V6c0-2.76-2.24-5-5-5S7 3.24 7 6v2H6c-1.1 0-2 .9-2 2v10c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V10c0-1.1-.9-2-2-2zm-6-5c1.66 0 3 1.34 3 3v2H9V6c0-1.66 1.34-3 3-3z"/></svg>}
             </h3>
             <span className="text-[10px] text-slate-500 font-bold uppercase tracking-widest mt-0.5">{isGroup ? `${chat.participants.length} members` : (otherUser?.status === 'online' ? 'Online Now' : 'Active status hidden')}</span>
