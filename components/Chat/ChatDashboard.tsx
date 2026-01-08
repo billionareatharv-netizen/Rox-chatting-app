@@ -114,10 +114,10 @@ export const ChatDashboard: React.FC<ChatDashboardProps> = ({ currentUser, toggl
   };
 
   return (
-    <div className="flex h-screen w-full bg-slate-50 dark:bg-slate-950 transition-colors duration-300 overflow-hidden">
+    <div className="flex h-[100dvh] w-full bg-slate-50 dark:bg-slate-950 transition-colors duration-300 overflow-hidden">
       {/* Sidebar/Main Navigation Area */}
       <div className={`${selectedChat ? 'hidden lg:flex' : 'flex'} w-full lg:w-96 h-full shrink-0 border-r border-slate-200 dark:border-slate-800 shadow-xl z-20 flex-col bg-white dark:bg-slate-900`}>
-        <div className="flex-1 overflow-hidden flex flex-col">
+        <div className="flex-1 overflow-hidden flex flex-col relative">
           {renderActiveView()}
         </div>
         <BottomNav activeTab={activeTab} onTabChange={setActiveTab} />

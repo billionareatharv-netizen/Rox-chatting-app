@@ -41,7 +41,7 @@ const App: React.FC = () => {
 
   if (loading) {
     return (
-      <div className="h-screen w-screen flex items-center justify-center bg-slate-50 dark:bg-slate-950">
+      <div className="h-[100dvh] w-screen flex items-center justify-center bg-slate-50 dark:bg-slate-950">
         <div className="flex flex-col items-center gap-4">
           <div className="w-12 h-12 border-4 border-indigo-500 border-t-transparent rounded-full animate-spin"></div>
           <p className="text-slate-500 animate-pulse font-medium text-sm">Initializing Secure Session...</p>
@@ -58,7 +58,7 @@ const App: React.FC = () => {
   // Role Selection Screen for Admins
   if (view === 'role_select') {
     return (
-      <div className="h-screen w-full flex items-center justify-center bg-gradient-to-br from-indigo-900 via-slate-900 to-black p-4">
+      <div className="h-[100dvh] w-full flex items-center justify-center bg-gradient-to-br from-indigo-900 via-slate-900 to-black p-4">
         <div className="glass w-full max-w-lg p-10 rounded-[3rem] shadow-2xl flex flex-col items-center text-center animate-in zoom-in-95 duration-500">
            <div className="w-20 h-20 bg-indigo-500/20 rounded-[2rem] flex items-center justify-center mb-8 border border-white/20">
               <svg className="w-10 h-10 text-indigo-400" fill="currentColor" viewBox="0 0 24 24"><path d="M12 1L3 5v6c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V5l-9-4zm0 10.99h7c-.53 4.12-3.28 7.79-7 8.94V12H5V6.3l7-3.11v8.8z"/></svg>
@@ -98,18 +98,18 @@ const App: React.FC = () => {
 
   // Main Dashboard or Admin Panel
   return (
-    <div className="h-screen overflow-hidden text-slate-900 dark:text-slate-100">
+    <div className="h-[100dvh] w-full overflow-hidden text-slate-900 dark:text-slate-100">
       {view === 'admin' ? (
         <AdminDashboard 
           currentUser={user} 
           onExit={() => setView('user')}
         />
       ) : (
-        <div className="relative h-full">
+        <div className="relative h-full w-full">
            {user.isAdmin && (
              <button 
               onClick={() => setView('role_select')}
-              className="fixed bottom-4 right-4 z-[200] bg-indigo-600 text-white px-4 py-2 rounded-full shadow-2xl font-bold text-[10px] uppercase tracking-widest hover:bg-indigo-700 transition-all flex items-center gap-2 border border-white/20"
+              className="fixed bottom-24 right-4 z-[200] bg-indigo-600 text-white px-4 py-2 rounded-full shadow-2xl font-bold text-[10px] uppercase tracking-widest hover:bg-indigo-700 transition-all flex items-center gap-2 border border-white/20"
              >
                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4" /></svg>
                Switch Workspace
