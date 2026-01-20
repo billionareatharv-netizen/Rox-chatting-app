@@ -1,4 +1,3 @@
-
 import React, { useState, useRef, useEffect } from 'react';
 import { User } from '../../types';
 import { useAuth } from '../../hooks/useAuth';
@@ -36,17 +35,31 @@ export const ProfilePanel: React.FC<ProfilePanelProps> = ({ user, onClose, toggl
   const wallpaperInputRef = useRef<HTMLInputElement>(null);
   
   const [settings, setSettings] = useState(() => {
-    const saved = localStorage.getItem('roxx_settings');
-    return saved ? JSON.parse(saved) : {
-      readReceipts: true,
-      lastSeen: 'everyone',
-      fontSize: 'medium',
-      notificationsEnabled: true,
-      notificationSound: true,
-      language: 'English (US)',
-      wallpaper: 'default',
-      customWallpaperUrl: null
-    };
+    try {
+      const saved = localStorage.getItem('roxx_settings');
+      return saved ? JSON.parse(saved) : {
+        readReceipts: true,
+        lastSeen: 'everyone',
+        fontSize: 'medium',
+        notificationsEnabled: true,
+        notificationSound: true,
+        language: 'English (US)',
+        wallpaper: 'default',
+        customWallpaperUrl: null
+      };
+    } catch (e) {
+      console.warn("Settings corrupted, using defaults");
+      return {
+        readReceipts: true,
+        lastSeen: 'everyone',
+        fontSize: 'medium',
+        notificationsEnabled: true,
+        notificationSound: true,
+        language: 'English (US)',
+        wallpaper: 'default',
+        customWallpaperUrl: null
+      };
+    }
   });
 
   useEffect(() => {

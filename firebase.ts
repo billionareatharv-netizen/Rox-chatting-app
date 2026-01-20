@@ -1,4 +1,3 @@
-
 import { initializeApp } from "firebase/app";
 import { 
   getAuth, 
@@ -12,6 +11,9 @@ import {
 } from "firebase/auth";
 import { 
   getFirestore, 
+  initializeFirestore,
+  persistentLocalCache,
+  persistentMultipleTabManager,
   collection, 
   doc, 
   setDoc, 
@@ -25,7 +27,8 @@ import {
   addDoc,
   deleteDoc,
   orderBy,
-  limit
+  limit,
+  onSnapshot
 } from "firebase/firestore";
 
 // --- CONFIGURATION START ---
@@ -40,7 +43,7 @@ const firebaseConfig = {
 };
 // --- CONFIGURATION END ---
 
-// Fallback to process.env if available (for Vercel deployments)
+// Fallback to process.env if available
 const config = {
   apiKey: (typeof process !== 'undefined' && process.env?.VITE_FIREBASE_API_KEY) || firebaseConfig.apiKey,
   authDomain: (typeof process !== 'undefined' && process.env?.VITE_FIREBASE_AUTH_DOMAIN) || firebaseConfig.authDomain,
@@ -58,12 +61,16 @@ let db: any;
 try {
   app = initializeApp(config);
   auth = getAuth(app);
-  db = getFirestore(app);
-  console.log("Firebase Initialized");
+  
+  db = initializeFirestore(app, {
+    localCache: persistentLocalCache({
+      tabManager: persistentMultipleTabManager()
+    })
+  });
+  console.log("Firebase Initialized Successfully");
 } catch (e) {
-  console.error("Firebase Initialization Failed. Did you replace the config keys in firebase.ts?", e);
-  // Prevent crash on load if keys are bad, but app won't work
-  auth = { currentUser: null, onAuthStateChanged: () => {} };
+  console.error("Firebase Initialization Failed:", e);
+  auth = { currentUser: null, onAuthStateChanged: (cb: any) => { cb(null); return () => {}; } };
   db = { collection: () => {} };
 }
 
@@ -71,20 +78,28 @@ export { auth, db };
 
 // --- AUTHENTICATION ---
 
+export const updateUserStatus = async (uid: string, status: 'online' | 'offline') => {
+  if (!db || !db.type) return; 
+  try {
+    const userRef = doc(db, "users", uid);
+    await updateDoc(userRef, {
+      status: status,
+      lastSeen: Date.now()
+    });
+  } catch (e) {
+    // console.error("Error updating status:", e);
+  }
+};
+
+export const makeUserAdmin = async (uid: string) => {
+  try {
+    await updateDoc(doc(db, "users", uid), { isAdmin: true });
+  } catch(e) { console.error("Failed to make admin", e); }
+};
+
 export const signInWithEmailAndPassword = async (authObj: any, email: string, pass: string) => {
   const userCredential = await firebaseSignIn(authObj, email, pass);
-  // Update status to online
-  await updateDoc(doc(db, "users", userCredential.user.uid), {
-    status: 'online',
-    lastSeen: Date.now()
-  });
-  const userDoc = await getDoc(doc(db, "users", userCredential.user.uid));
-  
-  if (userDoc.exists() && userDoc.data().isGloballyBlocked) {
-    await firebaseSignOut(authObj);
-    throw new Error("This account has been suspended by an administrator.");
-  }
-  
+  await updateUserStatus(userCredential.user.uid, 'online');
   return userCredential;
 };
 
@@ -92,6 +107,8 @@ export const createUserWithEmailAndPassword = async (authObj: any, email: string
   const userCredential = await firebaseCreateUser(authObj, email, pass);
   const user = userCredential.user;
   
+  const isAdmin = email.toLowerCase() === 'betterrroxx@gmail.com';
+
   const newUserProfile = {
     uid: user.uid,
     email: user.email?.toLowerCase(),
@@ -101,9 +118,9 @@ export const createUserWithEmailAndPassword = async (authObj: any, email: string
     lastSeen: Date.now(),
     bio: 'Hey there! I am using ROXX CHATS.',
     blockedUsers: [],
+    pinnedChats: [],
     lockedChats: [],
-    chatLockPassword: '',
-    isAdmin: false,
+    isAdmin: isAdmin,
     isGloballyBlocked: false
   };
 
@@ -115,9 +132,10 @@ export const signInWithPopup = async () => {
   const provider = new GoogleAuthProvider();
   const res = await firebaseSignInWithPopup(auth, provider);
   const user = res.user;
-  
   const userRef = doc(db, "users", user.uid);
   const userSnap = await getDoc(userRef);
+
+  const isAdmin = user.email?.toLowerCase() === 'betterrroxx@gmail.com';
 
   if (!userSnap.exists()) {
     await setDoc(userRef, {
@@ -129,27 +147,24 @@ export const signInWithPopup = async () => {
       lastSeen: Date.now(),
       bio: 'Hey there! I am using ROXX CHATS.',
       blockedUsers: [],
+      pinnedChats: [],
       lockedChats: [],
-      chatLockPassword: '',
-      isAdmin: false,
+      isAdmin: isAdmin,
       isGloballyBlocked: false
     });
   } else {
-    if (userSnap.data().isGloballyBlocked) {
-      await firebaseSignOut(auth);
-      throw new Error("This account has been suspended.");
+    // Update admin status if specific email matches even on existing accounts
+    if (isAdmin && !userSnap.data().isAdmin) {
+       await updateDoc(userRef, { isAdmin: true });
     }
-    await updateDoc(userRef, { status: 'online', lastSeen: Date.now() });
+    await updateUserStatus(user.uid, 'online');
   }
   return res;
 };
 
 export const signOut = async () => {
   if (auth.currentUser) {
-    await updateDoc(doc(db, "users", auth.currentUser.uid), {
-      status: 'offline',
-      lastSeen: Date.now()
-    });
+    await updateUserStatus(auth.currentUser.uid, 'offline');
   }
   await firebaseSignOut(auth);
 };
@@ -178,18 +193,26 @@ export const getUserById = async (uid: string) => {
   return snap.exists() ? snap.data() : null;
 };
 
+// New: Subscribe to a user document for real-time status updates
+export const subscribeToUser = (uid: string, callback: (user: any) => void) => {
+  return onSnapshot(doc(db, "users", uid), (doc) => {
+    if (doc.exists()) {
+      callback(doc.data());
+    }
+  });
+};
+
 // --- MESSAGING ---
 
 export const getMyChats = async (uid: string) => {
-  // Fetch all chats and filter client side
   const querySnapshot = await getDocs(collection(db, "chats"));
   const allChats = querySnapshot.docs.map(doc => doc.data());
-  return allChats.filter((c: any) => c.participants.includes(uid))
-                 .sort((a: any, b: any) => b.updatedAt - a.updatedAt);
+  // Safely check for participants array
+  return allChats.filter((c: any) => c.participants && c.participants.includes(uid))
+                 .sort((a: any, b: any) => (b.updatedAt || 0) - (a.updatedAt || 0));
 };
 
 export const getMessages = async (chatId: string) => {
-  // Fetch ALL messages and filter/sort client side to avoid Index errors
   try {
     const snapshot = await getDocs(collection(db, "messages"));
     const allMsgs = snapshot.docs.map(doc => doc.data());
@@ -204,8 +227,6 @@ export const getMessages = async (chatId: string) => {
         (m.senderId === u2 && m.recipientId === u1)
       );
     }
-    
-    // Client-side sort
     return filteredMsgs.sort((a: any, b: any) => a.timestamp - b.timestamp);
   } catch (error) {
     console.error("Error fetching messages:", error);
@@ -215,49 +236,96 @@ export const getMessages = async (chatId: string) => {
 
 export const addMessage = async (msg: any) => {
   try {
-    // Sanitize the message object to remove any 'undefined' fields
-    // Firestore throws validation errors if fields are undefined
     const safeMsg = JSON.parse(JSON.stringify(msg));
-
-    // 1. Save Message
     await setDoc(doc(db, "messages", safeMsg.id), safeMsg);
 
-    // 2. Determine Chat ID
     const chatId = safeMsg.recipientId.startsWith('group_') 
       ? safeMsg.recipientId 
       : [safeMsg.senderId, safeMsg.recipientId].sort().join('_');
     
     const chatRef = doc(db, "chats", chatId);
-    
-    // 3. Update or Create Chat Document
-    // Using setDoc with merge: true is safer than checking exists() then update
     const updateData = {
       id: chatId,
-      lastMessage: { text: safeMsg.text || 'Media', senderId: safeMsg.senderId, timestamp: safeMsg.timestamp },
+      lastMessage: { 
+        text: safeMsg.type === 'voice' ? '🎤 Voice Message' : (safeMsg.text || 'Media'), 
+        senderId: safeMsg.senderId, 
+        timestamp: safeMsg.timestamp 
+      },
       updatedAt: safeMsg.timestamp,
-      // Ensure participants are set if creating new, but don't overwrite if existing
-      // We'll construct the participants list just in case it's new
       participants: [safeMsg.senderId, safeMsg.recipientId], 
       type: safeMsg.recipientId.startsWith('group_') ? 'group' : 'private'
     };
 
-    // For groups, we don't want to overwrite participants array blindly if it already exists
-    // But for private chats, it's always just two people.
     if (updateData.type === 'private') {
-       // Ensure unique participants
        updateData.participants = [...new Set([safeMsg.senderId, safeMsg.recipientId])];
     } else {
-       // For groups, remove participants from updateData so we don't reset the group list
-       // unless we specifically meant to (which we don't here)
        delete (updateData as any).participants; 
     }
 
     await setDoc(chatRef, updateData, { merge: true });
-    console.log("Message sent and chat updated:", chatId);
   } catch (e) {
     console.error("Error adding message:", e);
     throw e;
   }
+};
+
+export const editMessage = async (messageId: string, newText: string) => {
+    try {
+        await updateDoc(doc(db, "messages", messageId), {
+            text: newText,
+            isEdited: true
+        });
+    } catch (e) { console.error("Error editing message:", e); }
+};
+
+export const deleteMessageForEveryone = async (messageId: string) => {
+    try {
+        await updateDoc(doc(db, "messages", messageId), {
+            type: 'deleted',
+            text: '🚫 This message was deleted',
+            fileUrl: null,
+            audioUrl: null
+        });
+    } catch (e) { console.error("Error deleting message:", e); }
+};
+
+export const deleteMessage = async (messageId: string, chatId: string) => {
+  await deleteDoc(doc(db, "messages", messageId));
+};
+
+export const setTypingStatus = async (chatId: string, userId: string, isTyping: boolean) => {
+  try {
+    const chatRef = doc(db, "chats", chatId);
+    // Use setDoc with merge to ensure the document structure exists even if messages haven't been sent yet
+    await setDoc(chatRef, {
+      typing: { [userId]: isTyping }
+    }, { merge: true });
+  } catch (e) { 
+    // console.log("Typing update error", e);
+  }
+};
+
+export const togglePinChat = async (userId: string, chatId: string) => {
+    try {
+        const userRef = doc(db, "users", userId);
+        const userSnap = await getDoc(userRef);
+        if (userSnap.exists()) {
+            const pinned = userSnap.data().pinnedChats || [];
+            if (pinned.includes(chatId)) {
+                await updateDoc(userRef, { pinnedChats: arrayRemove(chatId) });
+            } else {
+                await updateDoc(userRef, { pinnedChats: arrayUnion(chatId) });
+            }
+        }
+    } catch (e) { console.error("Error pinning chat:", e); }
+};
+
+export const subscribeToChat = (chatId: string, callback: (data: any) => void) => {
+  return onSnapshot(doc(db, "chats", chatId), (doc) => {
+    if (doc.exists()) {
+      callback(doc.data());
+    }
+  });
 };
 
 export const createGroup = async (name: string, participants: string[], adminId: string) => {
@@ -275,13 +343,8 @@ export const createGroup = async (name: string, participants: string[], adminId:
   return newGroup;
 };
 
-export const markMessagesAsDelivered = async (chatId: string, userId: string) => {
-  // Real implementation would require batched updates
-};
-
-export const markMessagesAsSeen = async (chatId: string, userId: string) => {
-  // Simplified: In a real app, update specific message docs
-};
+export const markMessagesAsDelivered = async (chatId: string, userId: string) => { };
+export const markMessagesAsSeen = async (chatId: string, userId: string) => { };
 
 export const toggleChatLock = async (chatId: string, userId: string) => {
   const chatRef = doc(db, "chats", chatId);
@@ -298,7 +361,7 @@ export const toggleChatLock = async (chatId: string, userId: string) => {
   }
 };
 
-// --- CALLING (Signaling) ---
+// --- CALLING (WebRTC Signaling) ---
 
 export const initiateCall = async (callerId: string, receiverId: string, type: 'voice' | 'video') => {
   const callId = 'call_' + crypto.randomUUID();
@@ -308,7 +371,9 @@ export const initiateCall = async (callerId: string, receiverId: string, type: '
     receiverId,
     type,
     status: 'ringing',
-    timestamp: Date.now()
+    timestamp: Date.now(),
+    callerCandidates: [],
+    calleeCandidates: []
   };
   await setDoc(doc(db, "calls", callId), newCall);
   return newCall;
@@ -321,13 +386,35 @@ export const getIncomingCall = async (userId: string) => {
     where("status", "==", "ringing")
   );
   const snapshot = await getDocs(q);
-  // Filter for recent calls (last 60s) client side or via query
   const calls = snapshot.docs.map(doc => doc.data());
-  return calls.find((c: any) => (Date.now() - c.timestamp) < 60000);
+  // Sort by timestamp desc to get latest
+  return calls.sort((a: any, b: any) => b.timestamp - a.timestamp)[0];
 };
 
 export const updateCallStatus = async (callId: string, status: string) => {
   await updateDoc(doc(db, "calls", callId), { status });
+};
+
+// Add WebRTC Signaling Data
+export const updateCallSignal = async (callId: string, data: any) => {
+  // data can contain { offer }, { answer }, { callerCandidates }, { calleeCandidates }
+  await setDoc(doc(db, "calls", callId), data, { merge: true });
+};
+
+export const addIceCandidate = async (callId: string, candidate: any, type: 'caller' | 'callee') => {
+  const callRef = doc(db, "calls", callId);
+  const field = type === 'caller' ? 'callerCandidates' : 'calleeCandidates';
+  await updateDoc(callRef, {
+    [field]: arrayUnion(JSON.parse(JSON.stringify(candidate)))
+  });
+};
+
+export const subscribeToCall = (callId: string, callback: (data: any) => void) => {
+  return onSnapshot(doc(db, "calls", callId), (doc) => {
+    if (doc.exists()) {
+      callback(doc.data());
+    }
+  });
 };
 
 export const getCallById = async (callId: string) => {
@@ -335,53 +422,34 @@ export const getCallById = async (callId: string) => {
   return snap.exists() ? snap.data() : null;
 };
 
-export const cleanOldCalls = async () => {
-  // Cleanup would happen via Cloud Functions typically
-};
+export const cleanOldCalls = async () => { };
 
 // --- STORIES ---
-
 export const addStory = async (story: any) => {
   await setDoc(doc(db, "stories", story.id), { ...story, likes: [], views: [] });
 };
-
 export const getStories = async () => {
   const yesterday = Date.now() - 86400000;
   const q = query(collection(db, "stories"), where("timestamp", ">", yesterday));
   const snapshot = await getDocs(q);
   return snapshot.docs.map(doc => doc.data());
 };
-
 export const viewStory = async (storyId: string, userId: string, userName: string) => {
   const storyRef = doc(db, "stories", storyId);
-  const snap = await getDoc(storyRef);
-  if (snap.exists()) {
-    const views = snap.data().views || [];
-    if (!views.some((v: any) => v.userId === userId)) {
-      await updateDoc(storyRef, {
-        views: arrayUnion({ userId, userName, timestamp: Date.now() })
-      });
-    }
-  }
+  await updateDoc(storyRef, { views: arrayUnion({ userId, userName, timestamp: Date.now() }) });
 };
-
 export const likeStory = async (storyId: string, userId: string) => {
   const storyRef = doc(db, "stories", storyId);
   const snap = await getDoc(storyRef);
-  if (snap.exists()) {
+  if(snap.exists()) {
     const likes = snap.data().likes || [];
-    if (likes.includes(userId)) {
-      await updateDoc(storyRef, { likes: arrayRemove(userId) });
-    } else {
-      await updateDoc(storyRef, { likes: arrayUnion(userId) });
-    }
+    if(likes.includes(userId)) await updateDoc(storyRef, { likes: arrayRemove(userId) });
+    else await updateDoc(storyRef, { likes: arrayUnion(userId) });
   }
 };
-
 export const deleteStory = async (storyId: string) => {
   await deleteDoc(doc(db, "stories", storyId));
 };
-
 export const sendStoryReply = async (rid: string, sid: string, text: string, story: any) => {
   const msg = {
     id: 'm_' + Math.random().toString(36).substr(2, 9),
@@ -394,51 +462,30 @@ export const sendStoryReply = async (rid: string, sid: string, text: string, sto
 };
 
 // --- ADMIN ---
-
 export const admin_getAllUsers = async () => getAllUsers();
-
 export const admin_toggleAdminAccess = async (uid: string) => {
   const userRef = doc(db, "users", uid);
   const snap = await getDoc(userRef);
-  if (snap.exists()) {
-    await updateDoc(userRef, { isAdmin: !snap.data().isAdmin });
-  }
+  if (snap.exists()) await updateDoc(userRef, { isAdmin: !snap.data().isAdmin });
 };
-
 export const admin_toggleGlobalBlock = async (uid: string) => {
   const userRef = doc(db, "users", uid);
   const snap = await getDoc(userRef);
-  if (snap.exists()) {
-    await updateDoc(userRef, { isGloballyBlocked: !snap.data().isGloballyBlocked });
-  }
+  if (snap.exists()) await updateDoc(userRef, { isGloballyBlocked: !snap.data().isGloballyBlocked });
 };
-
 export const admin_deleteUser = async (uid: string) => {
   await deleteDoc(doc(db, "users", uid));
-  // In real app, must also delete messages, chats, etc.
 };
-
 export const admin_getStats = async () => {
   const u = await getDocs(collection(db, "users"));
   const m = await getDocs(collection(db, "messages"));
   const c = await getDocs(collection(db, "chats"));
   const s = await getDocs(collection(db, "stories"));
-  return {
-    users: u.size,
-    messages: m.size,
-    chats: c.size,
-    stories: s.size
-  };
+  return { users: u.size, messages: m.size, chats: c.size, stories: s.size };
 };
-
 export const blockUser = async (myUid: string, targetUid: string) => {
-  await updateDoc(doc(db, "users", myUid), {
-    blockedUsers: arrayUnion(targetUid)
-  });
+  await updateDoc(doc(db, "users", myUid), { blockedUsers: arrayUnion(targetUid) });
 };
-
 export const unblockUser = async (myUid: string, targetUid: string) => {
-  await updateDoc(doc(db, "users", myUid), {
-    blockedUsers: arrayRemove(targetUid)
-  });
+  await updateDoc(doc(db, "users", myUid), { blockedUsers: arrayRemove(targetUid) });
 };

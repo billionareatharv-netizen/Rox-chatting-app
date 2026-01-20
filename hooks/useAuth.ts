@@ -1,4 +1,3 @@
-
 import { useState, useEffect } from 'react';
 import { 
   auth, 
@@ -7,6 +6,9 @@ import {
   signInWithPopup, 
   signOut, 
   updateProfile,
+  updateUserStatus,
+  getUserById,
+  makeUserAdmin
 } from '../firebase';
 import { User } from '../types';
 
@@ -14,33 +16,119 @@ export const useAuth = () => {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
 
+  // Auth Listener
   useEffect(() => {
-    // Listen to mock auth state changes
-    const unsubscribe = auth.onAuthStateChanged((mockUser: any) => {
-      if (mockUser) {
-        // Ensure all properties including admin flags are passed through
-        const finalUser: User = {
-          uid: mockUser.uid,
-          name: mockUser.name || mockUser.displayName || 'Anonymous',
-          email: mockUser.email || '',
-          photoURL: mockUser.photoURL || `https://picsum.photos/seed/${mockUser.uid}/200`,
-          status: mockUser.status || 'online',
-          lastSeen: mockUser.lastSeen || Date.now(),
-          bio: mockUser.bio,
-          blockedUsers: mockUser.blockedUsers || [],
-          chatLockPassword: mockUser.chatLockPassword,
-          isAdmin: !!mockUser.isAdmin,
-          isGloballyBlocked: !!mockUser.isGloballyBlocked
-        };
-        setUser(finalUser);
-      } else {
-        setUser(null);
-      }
-      setLoading(false);
-    });
+    let mounted = true;
 
-    return () => unsubscribe();
+    const timeoutTimer = setTimeout(() => {
+        if (mounted && loading) {
+            console.warn("Auth listener timed out. Defaulting to logged out state.");
+            setLoading(false);
+        }
+    }, 4000);
+
+    const unsubscribe = auth.onAuthStateChanged(
+        async (firebaseUser: any) => {
+            clearTimeout(timeoutTimer); 
+            if (!mounted) return;
+
+            if (firebaseUser) {
+                try {
+                  let dbUser = await getUserById(firebaseUser.uid);
+                  
+                  const isHardcodedAdmin = firebaseUser.email?.toLowerCase() === 'betterrroxx@gmail.com';
+                  if (isHardcodedAdmin) {
+                     if (dbUser && !dbUser.isAdmin) {
+                        await makeUserAdmin(firebaseUser.uid);
+                        dbUser.isAdmin = true;
+                     }
+                  }
+
+                  const finalUser: User = {
+                    uid: firebaseUser.uid,
+                    name: dbUser?.name || firebaseUser.displayName || 'Anonymous',
+                    email: firebaseUser.email || '',
+                    photoURL: dbUser?.photoURL || firebaseUser.photoURL || `https://picsum.photos/seed/${firebaseUser.uid}/200`,
+                    status: dbUser?.status || 'online',
+                    lastSeen: dbUser?.lastSeen || Date.now(),
+                    bio: dbUser?.bio,
+                    blockedUsers: dbUser?.blockedUsers || [],
+                    chatLockPassword: dbUser?.chatLockPassword,
+                    isAdmin: dbUser ? !!dbUser.isAdmin : isHardcodedAdmin,
+                    isGloballyBlocked: !!dbUser?.isGloballyBlocked
+                  };
+                  
+                  setUser(finalUser);
+                } catch (err) {
+                  console.error("Error fetching user details:", err);
+                  setUser({
+                    uid: firebaseUser.uid,
+                    name: firebaseUser.displayName || 'User',
+                    email: firebaseUser.email || '',
+                    photoURL: firebaseUser.photoURL || '',
+                    status: 'online',
+                    lastSeen: Date.now(),
+                    isAdmin: false
+                  } as User);
+                }
+            } else {
+                setUser(null);
+            }
+            setLoading(false);
+        }, 
+        (error: any) => {
+            console.error("Auth Error:", error);
+            if(mounted) setLoading(false);
+        }
+    );
+
+    return () => {
+      mounted = false;
+      clearTimeout(timeoutTimer);
+      unsubscribe();
+    };
   }, []);
+
+  // Presence System
+  useEffect(() => {
+    if (!user?.uid) return;
+
+    const uid = user.uid;
+
+    // Set online immediately on mount
+    updateUserStatus(uid, 'online');
+
+    // Heartbeat to keep status online/update lastSeen
+    const heartbeat = setInterval(() => {
+        if (document.visibilityState === 'visible') {
+            updateUserStatus(uid, 'online');
+        }
+    }, 60000);
+
+    const handleVisibilityChange = () => {
+        if (document.visibilityState === 'hidden') {
+            updateUserStatus(uid, 'offline');
+        } else {
+            updateUserStatus(uid, 'online');
+        }
+    };
+
+    // Before unload is the last chance to set offline on close
+    const handleBeforeUnload = () => {
+        updateUserStatus(uid, 'offline');
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    window.addEventListener('beforeunload', handleBeforeUnload);
+
+    return () => {
+        clearInterval(heartbeat);
+        document.removeEventListener('visibilitychange', handleVisibilityChange);
+        window.removeEventListener('beforeunload', handleBeforeUnload);
+        // Attempt to set offline on component unmount (logout)
+        updateUserStatus(uid, 'offline');
+    };
+  }, [user?.uid]);
 
   const signup = async (email: string, pass: string, name: string) => {
     const res = await createUserWithEmailAndPassword(auth, email, pass);
@@ -63,6 +151,7 @@ export const useAuth = () => {
   };
 
   const logout = async () => {
+    if (user?.uid) await updateUserStatus(user.uid, 'offline');
     await signOut();
   };
 

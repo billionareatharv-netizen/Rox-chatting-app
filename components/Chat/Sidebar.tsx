@@ -1,7 +1,6 @@
-
 import React, { useState, useMemo, useEffect } from 'react';
 import { User, Chat } from '../../types';
-import { getAllUsers, getMyChats } from '../../firebase';
+import { getAllUsers, getMyChats, togglePinChat, subscribeToUser } from '../../firebase';
 import { CreateGroupModal } from './CreateGroupModal';
 
 interface SidebarProps {
@@ -17,8 +16,14 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const [allUsers, setAllUsers] = useState<User[]>([]);
   const [chats, setChats] = useState<Chat[]>([]);
   const [showGroupModal, setShowGroupModal] = useState(false);
+  const [pinnedChats, setPinnedChats] = useState<string[]>([]); // Local state for pinned chats
 
   useEffect(() => {
+    // Sync pinned chats from user profile real-time
+    const unsub = subscribeToUser(currentUser.uid, (data) => {
+        setPinnedChats(data.pinnedChats || []);
+    });
+
     const sync = async () => {
       const users = await getAllUsers();
       const myBlocked = currentUser.blockedUsers || [];
@@ -27,20 +32,44 @@ export const Sidebar: React.FC<SidebarProps> = ({
       setChats(myChats);
     };
     sync();
-    // Sync faster to find new users quickly
     const itv = setInterval(sync, 2000);
-    return () => clearInterval(itv);
+    return () => {
+        clearInterval(itv);
+        unsub();
+    };
   }, [currentUser]);
 
   const isRevealingLocked = currentUser.chatLockPassword && search === currentUser.chatLockPassword;
 
+  // Helper to check if user is truly online (status online + heartbeat within last 3 mins)
+  const isUserOnline = (u: User | undefined) => {
+    if (!u) return false;
+    if (u.status !== 'online') return false;
+    const timeDiff = Date.now() - (u.lastSeen || 0);
+    return timeDiff < 3 * 60 * 1000; // 3 minutes timeout
+  };
+
+  const handlePinChat = async (e: React.MouseEvent, chatId: string) => {
+    e.stopPropagation();
+    await togglePinChat(currentUser.uid, chatId);
+  };
+
   const searchResults = useMemo(() => {
     const term = search.toLowerCase().trim();
     
-    const visibleChats = chats.filter(c => {
+    let visibleChats = chats.filter(c => {
       const isLocked = c.lockedBy?.includes(currentUser.uid);
       if (isRevealingLocked) return isLocked; 
       return !isLocked;
+    });
+
+    // SORTING LOGIC: Pinned first, then recent
+    visibleChats.sort((a, b) => {
+        const isAPinned = pinnedChats.includes(a.id);
+        const isBPinned = pinnedChats.includes(b.id);
+        if (isAPinned && !isBPinned) return -1;
+        if (!isAPinned && isBPinned) return 1;
+        return (b.updatedAt || 0) - (a.updatedAt || 0);
     });
 
     if (!term || isRevealingLocked) return { chats: visibleChats, users: [] };
@@ -54,7 +83,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
     });
 
     return { chats: matchedChats, users: matchedUsers.filter(u => !chats.some(c => c.type === 'private' && c.participants.includes(u.uid))) };
-  }, [search, allUsers, chats, currentUser.uid, isRevealingLocked]);
+  }, [search, allUsers, chats, currentUser.uid, isRevealingLocked, pinnedChats]);
 
   const handleStartNewChat = (user: User) => {
     const existing = chats.find(c => c.type === 'private' && c.participants.includes(user.uid));
@@ -71,7 +100,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
     if (chat.type === 'group') return { name: chat.name || 'Group', photo: chat.groupIcon || `https://picsum.photos/seed/${chat.id}/200` };
     const otherId = chat.participants.find(p => p !== currentUser.uid);
     const user = allUsers.find(u => u.uid === otherId);
-    return { name: user?.name || 'Contact', photo: user?.photoURL || `https://picsum.photos/seed/${otherId}/200`, status: user?.status };
+    return { name: user?.name || 'Contact', photo: user?.photoURL || `https://picsum.photos/seed/${otherId}/200`, status: user?.status, userObj: user };
   };
 
   return (
@@ -117,18 +146,24 @@ export const Sidebar: React.FC<SidebarProps> = ({
         {searchResults.chats.map(chat => {
           const info = getChatInfo(chat);
           const isActive = activeChatId === chat.id;
+          const isOnline = chat.type === 'private' && isUserOnline(info.userObj);
+          const isPinned = pinnedChats.includes(chat.id);
+
           return (
             <div 
               key={chat.id} onClick={() => { onChatSelect(chat); if(isRevealingLocked) setSearch(''); }}
-              className={`flex items-center gap-3.5 p-4 rounded-[2rem] cursor-pointer transition-all active:scale-[0.97] mb-1.5 ${isActive ? 'bg-indigo-600 text-white shadow-xl shadow-indigo-600/20' : 'hover:bg-slate-50 dark:hover:bg-slate-800/60'}`}
+              className={`relative flex items-center gap-3.5 p-4 rounded-[2rem] cursor-pointer transition-all active:scale-[0.97] mb-1.5 group ${isActive ? 'bg-indigo-600 text-white shadow-xl shadow-indigo-600/20' : 'hover:bg-slate-50 dark:hover:bg-slate-800/60'}`}
             >
               <div className="relative flex-shrink-0">
                 <img src={info.photo} className="w-14 h-14 rounded-2xl object-cover shadow-sm" alt="" />
-                {info.status === 'online' && !isActive && <div className="absolute -bottom-0.5 -right-0.5 w-4 h-4 bg-green-500 rounded-full border-2 border-white dark:border-slate-900 shadow-sm"></div>}
+                {isOnline && !isActive && <div className="absolute -bottom-0.5 -right-0.5 w-4 h-4 bg-green-500 rounded-full border-2 border-white dark:border-slate-900 shadow-sm"></div>}
               </div>
               <div className="flex-1 min-w-0">
                 <div className="flex justify-between items-center">
-                  <h4 className="font-bold text-[15px] truncate">{info.name}</h4>
+                  <h4 className="font-bold text-[15px] truncate flex items-center gap-2">
+                      {info.name}
+                      {isPinned && <svg className={`w-3 h-3 ${isActive ? 'text-white' : 'text-slate-400'}`} fill="currentColor" viewBox="0 0 24 24"><path d="M16 12V4H17V2H7V4H8V12L6 14V16H11V22H13V16H18V14L16 12Z"/></svg>}
+                  </h4>
                   <span className={`text-[9px] font-bold uppercase tracking-tight ${isActive ? 'text-white/70' : 'text-slate-400 dark:text-slate-500'}`}>
                     {chat.lastMessage ? new Date(chat.lastMessage.timestamp).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'}) : ''}
                   </span>
@@ -142,22 +177,35 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   )}
                 </div>
               </div>
+              {/* Pin Button visible on hover */}
+              <button 
+                onClick={(e) => handlePinChat(e, chat.id)}
+                className={`absolute right-2 top-1/2 -translate-y-1/2 p-2 rounded-full opacity-0 group-hover:opacity-100 transition-opacity ${isActive ? 'bg-white/20 text-white hover:bg-white/30' : 'bg-indigo-50 text-indigo-500 hover:bg-indigo-100'}`}
+                title={isPinned ? "Unpin Chat" : "Pin Chat"}
+              >
+                  <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24"><path d="M16 12V4H17V2H7V4H8V12L6 14V16H11V22H13V16H18V14L16 12Z"/></svg>
+              </button>
             </div>
           );
         })}
 
-        {searchResults.users.map(u => (
-          <div key={u.uid} onClick={() => handleStartNewChat(u)} className="flex items-center gap-3.5 p-4 rounded-[2rem] cursor-pointer hover:bg-indigo-50 dark:hover:bg-indigo-900/10 transition-all group">
-            <img src={u.photoURL} className="w-14 h-14 rounded-2xl object-cover shadow-sm group-hover:scale-105 transition-transform" alt="" />
-            <div className="flex-1 min-w-0">
-              <h4 className="font-bold text-[15px] truncate">{u.name}</h4>
-              <p className="text-[10px] text-slate-500 dark:text-slate-500 font-bold uppercase tracking-wider">{u.status === 'online' ? 'Available' : 'Last seen recently'}</p>
+        {searchResults.users.map(u => {
+          const isOnline = isUserOnline(u);
+          return (
+            <div key={u.uid} onClick={() => handleStartNewChat(u)} className="flex items-center gap-3.5 p-4 rounded-[2rem] cursor-pointer hover:bg-indigo-50 dark:hover:bg-indigo-900/10 transition-all group">
+              <img src={u.photoURL} className="w-14 h-14 rounded-2xl object-cover shadow-sm group-hover:scale-105 transition-transform" alt="" />
+              <div className="flex-1 min-w-0">
+                <h4 className="font-bold text-[15px] truncate">{u.name}</h4>
+                <p className={`text-[10px] font-bold uppercase tracking-wider ${isOnline ? 'text-green-500' : 'text-slate-500'}`}>
+                    {isOnline ? 'Online Now' : 'Offline'}
+                </p>
+              </div>
+              <div className="p-2 opacity-0 group-hover:opacity-100 transition-all translate-x-2 group-hover:translate-x-0">
+                 <svg className="w-5 h-5 text-indigo-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M9 5l7 7-7 7" /></svg>
+              </div>
             </div>
-            <div className="p-2 opacity-0 group-hover:opacity-100 transition-all translate-x-2 group-hover:translate-x-0">
-               <svg className="w-5 h-5 text-indigo-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M9 5l7 7-7 7" /></svg>
-            </div>
-          </div>
-        ))}
+          );
+        })}
       </div>
 
       {showGroupModal && <CreateGroupModal currentUser={currentUser} onClose={() => setShowGroupModal(false)} onCreated={onChatSelect} />}

@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../../hooks/useAuth';
 
@@ -49,10 +48,27 @@ export const AuthView: React.FC = () => {
   const handleDemoLogin = async () => {
     setIsLoading(true);
     setError(null);
+    const demoEmail = 'demo@roxx.chat';
+    const demoPass = 'roxx1234';
+
     try {
-      await login('demo@example.com', 'password123');
+      await login(demoEmail, demoPass);
     } catch (err: any) {
-      setError("The demo account is currently undergoing maintenance. Please try signing up.");
+      // If login fails (e.g. user not found), try to create the demo account
+      try {
+        await signup(demoEmail, demoPass, 'Demo Account');
+      } catch (signupErr: any) {
+        if (signupErr.message.includes('email-already-in-use')) {
+           // If creation failed because it exists (race condition), try login one last time
+           try {
+             await login(demoEmail, demoPass);
+           } catch (e) {
+             setError("Demo account is currently unavailable. Please sign up manually.");
+           }
+        } else {
+             setError("Could not initialize demo account.");
+        }
+      }
     } finally {
       setIsLoading(false);
     }
@@ -193,9 +209,14 @@ export const AuthView: React.FC = () => {
           <button 
             onClick={handleDemoLogin}
             disabled={isLoading}
-            className="w-full bg-indigo-500/20 border border-white/20 py-3 rounded-xl text-white text-sm font-bold hover:bg-indigo-500/40 transition-all flex items-center justify-center gap-2"
+            className="w-full bg-indigo-500/20 border border-white/20 py-3 rounded-xl text-white text-sm font-bold hover:bg-indigo-500/40 transition-all flex items-center justify-center gap-2 group"
           >
-            {isLoading ? 'Processing...' : '🚀 Use Demo Account'}
+            {isLoading ? 'Processing...' : (
+                <>
+                    <span>🚀</span>
+                    <span className="group-hover:underline">Use Demo Account</span>
+                </>
+            )}
           </button>
 
           <div className="flex items-center justify-center gap-4 py-2">

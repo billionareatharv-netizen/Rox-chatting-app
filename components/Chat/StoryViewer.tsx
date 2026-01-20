@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useRef } from 'react';
 import { Story, User } from '../../types';
 import { likeStory, sendStoryReply, viewStory, deleteStory } from '../../firebase';
@@ -215,15 +214,18 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({ stories: initialStorie
 
         <div className="w-full h-full flex items-center justify-center">
           {story.mediaType === 'video' ? (
-            <video 
-              key={story.id}
-              src={story.mediaUrl} 
-              className="max-h-full w-full object-contain" 
-              autoPlay 
-              playsInline 
-              muted={false}
-              onPlay={() => !isPaused && setIsPaused(false)}
-            />
+            story.mediaUrl ? (
+              <video 
+                key={story.id}
+                src={story.mediaUrl} 
+                className="max-h-full w-full object-contain" 
+                autoPlay 
+                playsInline 
+                muted={false}
+                onPlay={() => !isPaused && setIsPaused(false)}
+                onError={(e) => console.error("Story video load failed", e)}
+              />
+            ) : <div className="text-white text-sm font-bold opacity-70">Video Unavailable</div>
           ) : (
             <img 
               key={story.id}

@@ -1,9 +1,8 @@
-
 import React, { useState, useEffect, useRef } from 'react';
 import { User, Chat, Message } from '../../types';
 import { MessageBubble } from './MessageBubble';
 import { getAIResponse } from '../../gemini';
-import { getUserById, addMessage, getMessages, toggleChatLock, markMessagesAsSeen, markMessagesAsDelivered, getMyChats, getAllUsers } from '../../firebase';
+import { getUserById, addMessage, getMessages, toggleChatLock, markMessagesAsSeen, markMessagesAsDelivered, getMyChats, getAllUsers, setTypingStatus, subscribeToChat, deleteMessage, deleteMessageForEveryone, editMessage, subscribeToUser } from '../../firebase';
 
 interface ChatWindowProps {
   chat: Chat;
@@ -35,7 +34,13 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ chat, currentUser, onClo
   const [isLocked, setIsLocked] = useState(chat.lockedBy?.includes(currentUser.uid) || false);
   const [inputText, setInputText] = useState('');
   const [isTyping, setIsTyping] = useState(false);
+  const [typingUsers, setTypingUsers] = useState<string[]>([]);
   const [isUploading, setIsUploading] = useState(false);
+  const [isRecording, setIsRecording] = useState(false);
+  const [recordingDuration, setRecordingDuration] = useState(0);
+  const [mediaRecorder, setMediaRecorder] = useState<MediaRecorder | null>(null);
+  const [editingMessage, setEditingMessage] = useState<Message | null>(null); // New state for editing
+  
   const [wallpaper, setWallpaper] = useState('default');
   const [customUrl, setCustomUrl] = useState<string | null>(null);
   const [fontSize, setFontSize] = useState('medium');
@@ -46,21 +51,30 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ chat, currentUser, onClo
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const typingTimeoutRef = useRef<any>(null);
+  const timerRef = useRef<any>(null);
+  const audioChunksRef = useRef<Blob[]>([]);
+  const inputRef = useRef<HTMLInputElement>(null);
 
   const isGroup = chat.type === 'group';
-  
-  // Robust ID calculation: handle if participants is missing current user or if chatting with self
-  const otherId = !isGroup 
+  // Safe access to participants
+  const otherId = !isGroup && chat.participants 
     ? (chat.participants.find(p => p !== currentUser.uid) || (chat.participants.includes(currentUser.uid) ? currentUser.uid : '')) 
     : chat.id;
 
   const loadSettings = () => {
-    const saved = localStorage.getItem('roxx_settings');
-    if (saved) {
-      const parsed = JSON.parse(saved);
-      setWallpaper(parsed.wallpaper || 'default');
-      setCustomUrl(parsed.customWallpaperUrl || null);
-      setFontSize(parsed.fontSize || 'medium');
+    try {
+      const saved = localStorage.getItem('roxx_settings');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        setWallpaper(parsed.wallpaper || 'default');
+        setCustomUrl(parsed.customWallpaperUrl || null);
+        setFontSize(parsed.fontSize || 'medium');
+      }
+    } catch (e) {
+      console.warn("Settings corrupted, resetting");
+      localStorage.removeItem('roxx_settings');
+      setWallpaper('default');
     }
   };
 
@@ -70,51 +84,191 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ chat, currentUser, onClo
     return () => window.removeEventListener('roxx_settings_updated', loadSettings);
   }, []);
 
+  // Subscribe to Chat (Typing indicators & Metadata)
+  useEffect(() => {
+    const unsubscribe = subscribeToChat(chat.id, (data) => {
+      if (data.typing) {
+        const activeTypers = Object.entries(data.typing)
+          .filter(([uid, isTyping]) => uid !== currentUser.uid && isTyping)
+          .map(([uid]) => uid);
+        setTypingUsers(activeTypers);
+      } else {
+        setTypingUsers([]);
+      }
+    });
+    return () => unsubscribe();
+  }, [chat.id, currentUser.uid]);
+
+  // Subscribe to Other User (Online Status)
+  useEffect(() => {
+    if (isGroup || !otherId) return;
+    
+    // Initial fetch
+    getUserById(otherId).then(u => { if(u) setOtherUser(u); });
+
+    // Real-time listener
+    const unsubscribe = subscribeToUser(otherId, (userData) => {
+        setOtherUser(userData);
+    });
+    return () => unsubscribe();
+  }, [otherId, isGroup]);
+
+  // Messages Polling
   useEffect(() => {
     const sync = async () => {
-      if (!isGroup && !otherUser && otherId) {
-        const u = await getUserById(otherId);
-        if (u) setOtherUser(u);
-      }
-      await markMessagesAsDelivered(chat.id, currentUser.uid);
-      await markMessagesAsSeen(chat.id, currentUser.uid);
       const msgs = await getMessages(chat.id);
-      
-      // Safer comparison to avoid circular JSON errors and improve performance
       setMessages(prev => {
-        if (prev.length !== msgs.length) return msgs;
-        
-        // Check for changes in IDs, status, or timestamp (common updates)
-        const hasChanged = prev.some((p, i) => {
-          const m = msgs[i];
-          return p.id !== m.id || p.status !== m.status || p.timestamp !== m.timestamp;
-        });
-        
+        // Rudimentary deep comparison or just check lengths + last ID + status updates
+        // To properly update edits/deletes we need to check content too
+        const hasChanged = msgs.some((m, i) => {
+            const p = prev[i];
+            if (!p) return true;
+            return p.id !== m.id || p.status !== m.status || p.text !== m.text || p.type !== m.type;
+        }) || msgs.length !== prev.length;
+
         return hasChanged ? msgs : prev;
       });
     };
     sync();
     const itv = setInterval(sync, 2000);
     return () => clearInterval(itv);
-  }, [chat.id, otherId, isGroup, currentUser.uid]);
+  }, [chat.id]);
 
   useEffect(() => {
     if (scrollRef.current) {
       scrollRef.current.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' });
     }
-  }, [messages, isTyping, isUploading, replyingTo]);
+  }, [messages, isTyping, isUploading, replyingTo, typingUsers, isRecording, editingMessage]);
+
+  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setInputText(e.target.value);
+    if (!isTyping) {
+      setIsTyping(true);
+      setTypingStatus(chat.id, currentUser.uid, true);
+    }
+    if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
+    typingTimeoutRef.current = setTimeout(() => {
+      setIsTyping(false);
+      setTypingStatus(chat.id, currentUser.uid, false);
+    }, 2000);
+  };
+
+  // --- Voice Recording Logic ---
+  const startRecording = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      
+      let mimeType = 'audio/webm';
+      if (MediaRecorder.isTypeSupported('audio/webm;codecs=opus')) {
+          mimeType = 'audio/webm;codecs=opus';
+      } else if (MediaRecorder.isTypeSupported('audio/mp4')) {
+          mimeType = 'audio/mp4';
+      }
+
+      const recorder = new MediaRecorder(stream, { mimeType });
+      setMediaRecorder(recorder);
+      audioChunksRef.current = [];
+
+      recorder.ondataavailable = (e) => {
+        if (e.data.size > 0) audioChunksRef.current.push(e.data);
+      };
+
+      recorder.start();
+      setIsRecording(true);
+      setRecordingDuration(0);
+      timerRef.current = setInterval(() => setRecordingDuration(p => p + 1), 1000);
+    } catch (err) {
+      alert("Microphone access denied. Please enable permissions.");
+    }
+  };
+
+  const stopRecording = async (shouldSend: boolean) => {
+    if (mediaRecorder && isRecording) {
+      const mimeType = mediaRecorder.mimeType;
+      
+      mediaRecorder.onstop = async () => {
+        if (shouldSend && audioChunksRef.current.length > 0) {
+            const blob = new Blob(audioChunksRef.current, { type: mimeType });
+            const reader = new FileReader();
+            reader.readAsDataURL(blob);
+            reader.onloadend = async () => {
+                const base64Audio = reader.result as string;
+                const msg: Message = {
+                    id: 'v_' + Math.random().toString(36).substr(2, 9),
+                    senderId: currentUser.uid,
+                    recipientId: isGroup ? chat.id : otherId!,
+                    text: 'Voice Message',
+                    type: 'voice',
+                    timestamp: Date.now(),
+                    status: 'sent',
+                    audioUrl: base64Audio,
+                    duration: recordingDuration
+                };
+                setMessages(prev => [...prev, msg]);
+                await addMessage(msg);
+            };
+        }
+        mediaRecorder.stream.getTracks().forEach(track => track.stop());
+        setMediaRecorder(null);
+        audioChunksRef.current = [];
+      };
+
+      mediaRecorder.stop();
+      clearInterval(timerRef.current);
+      setIsRecording(false);
+    }
+  };
+
+  const formatDuration = (sec: number) => {
+    const m = Math.floor(sec / 60);
+    const s = sec % 60;
+    return `${m}:${s.toString().padStart(2, '0')}`;
+  };
+
+  // Enhanced Delete: Delete for everyone vs Delete for me
+  const handleDeleteMessage = async (msg: Message) => {
+    if (msg.senderId === currentUser.uid) {
+        const choice = window.confirm("Press OK to Delete for EVERYONE, Cancel to Cancel.");
+        if (choice) {
+            // Optimistic update
+            setMessages(prev => prev.map(m => m.id === msg.id ? { ...m, type: 'deleted', text: '🚫 This message was deleted' } : m));
+            await deleteMessageForEveryone(msg.id);
+        }
+    } else {
+        // Can only delete for me (locally hide or actual delete if local db existed, here we hard delete for now as per previous logic, or disable)
+         if (window.confirm("Delete this message for yourself?")) {
+             setMessages(prev => prev.filter(m => m.id !== msg.id));
+             await deleteMessage(msg.id, chat.id);
+         }
+    }
+  };
+
+  const handleEditMessage = (msg: Message) => {
+      setEditingMessage(msg);
+      setInputText(msg.text);
+      inputRef.current?.focus();
+  };
 
   const handleSend = async (e?: React.FormEvent) => {
     e?.preventDefault();
     const text = inputText.trim();
     if (!text) return;
-    
-    // Safety check for recipient
-    const recipient = isGroup ? chat.id : otherId;
-    if (!recipient) {
-      console.error("No recipient ID found");
-      return;
+
+    if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
+    setIsTyping(false);
+    setTypingStatus(chat.id, currentUser.uid, false);
+
+    // Handle Edit
+    if (editingMessage) {
+        setMessages(prev => prev.map(m => m.id === editingMessage.id ? { ...m, text: text, isEdited: true } : m));
+        await editMessage(editingMessage.id, text);
+        setEditingMessage(null);
+        setInputText('');
+        return;
     }
+    
+    const recipient = isGroup ? chat.id : otherId;
+    if (!recipient) return;
 
     let replyContext = undefined;
     if (replyingTo) {
@@ -133,28 +287,18 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ chat, currentUser, onClo
       text, 
       type: 'text', 
       timestamp: Date.now(), 
-      status: 'sent'
+      status: 'sent',
+      replyContext
     };
 
-    // Only add replyContext if it exists to avoid 'undefined' error in Firestore
-    if (replyContext) {
-      msg.replyContext = replyContext;
-    }
-
-    // Optimistic update
     setMessages(prev => [...prev, msg]);
     setInputText('');
     setReplyingTo(null);
     
-    try {
-      await addMessage(msg);
-    } catch (err) {
-      console.error("Failed to send message", err);
-      // Optionally show error to user or retry
-    }
+    await addMessage(msg);
 
     if (text.toLowerCase().startsWith('/ai')) {
-      setIsTyping(true);
+      setTypingUsers(prev => [...prev, 'gemini_ai']);
       try {
         const res = await getAIResponse(text.replace('/ai', '').trim());
         const aiMsg: Message = {
@@ -167,21 +311,15 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ chat, currentUser, onClo
           status: 'seen'
         };
         await addMessage(aiMsg);
-      } catch (err) { console.error("AI Error:", err); }
-      finally { setIsTyping(false); }
+      } catch (err) { }
+      finally { setTypingUsers(prev => prev.filter(id => id !== 'gemini_ai')); }
     }
   };
 
   const handleForward = async (targetChat: Chat) => {
     if (!forwardingMessage) return;
-    
-    const targetId = targetChat.type === 'group' 
-      ? targetChat.id 
-      : targetChat.participants.find(p => p !== currentUser.uid)!;
-
-    // Destructure to remove replyContext, preventing undefined field error
+    const targetId = targetChat.type === 'group' ? targetChat.id : targetChat.participants.find(p => p !== currentUser.uid)!;
     const { replyContext, ...msgContent } = forwardingMessage;
-
     const forwardMsg: Message = {
       ...msgContent,
       id: 'fwd_' + Math.random().toString(36).substr(2, 9),
@@ -191,7 +329,6 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ chat, currentUser, onClo
       status: 'sent',
       isForwarded: true
     };
-
     await addMessage(forwardMsg);
     setForwardingMessage(null);
     alert(`Forwarded to ${targetChat.name || 'Contact'}`);
@@ -239,14 +376,19 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ chat, currentUser, onClo
   };
 
   const renderDateSeparator = (timestamp: number, prevTimestamp?: number) => {
-    const date = new Date(timestamp).toDateString();
-    const prevDate = prevTimestamp ? new Date(prevTimestamp).toDateString() : null;
-    if (date !== prevDate) {
+    if (!timestamp) return null;
+    const date = new Date(timestamp);
+    if (isNaN(date.getTime())) return null;
+
+    const dateStr = date.toDateString();
+    const prevDateStr = prevTimestamp ? new Date(prevTimestamp).toDateString() : null;
+    
+    if (dateStr !== prevDateStr) {
       return (
         <div className="flex justify-center my-6 sticky top-2 z-10">
           <div className="px-4 py-1.5 bg-slate-900/10 dark:bg-white/10 backdrop-blur-xl border border-white/20 rounded-full">
             <span className="text-[10px] font-black uppercase tracking-widest text-slate-500 dark:text-slate-300">
-              {new Date(timestamp).toLocaleDateString(undefined, { weekday: 'long', month: 'short', day: 'numeric' })}
+              {date.toLocaleDateString(undefined, { weekday: 'long', month: 'short', day: 'numeric' })}
             </span>
           </div>
         </div>
@@ -255,60 +397,99 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ chat, currentUser, onClo
     return null;
   };
 
+  const isOnline = otherUser?.status === 'online' && (Date.now() - (otherUser.lastSeen || 0) < 3 * 60 * 1000);
+  const statusColor = !isGroup && isOnline ? 'text-green-500' : 'text-slate-500 dark:text-slate-400';
+  const statusText = !isGroup && isOnline ? 'Online Now' : 'Offline';
+
   return (
     <div className={`flex-1 flex flex-col h-full bg-white dark:bg-slate-900 animate-in fade-in duration-300 relative overflow-hidden ${FONT_SIZE_CLASSES[fontSize]}`}>
-      {/* Wallpapers */}
-      <div className={`absolute inset-0 z-0 transition-all duration-700 ${wallpaper !== 'custom' ? WALLPAPER_CLASSES[wallpaper] : ''}`}>
-        {wallpaper === 'custom' && customUrl && (
-          <img src={customUrl} className="absolute inset-0 w-full h-full object-cover" alt="" />
-        )}
+      <div className={`absolute inset-0 z-0 transition-all duration-700 ${wallpaper !== 'custom' ? WALLPAPER_CLASSES[wallpaper] || '' : ''}`}>
+        {wallpaper === 'custom' && customUrl && <img src={customUrl} className="absolute inset-0 w-full h-full object-cover" alt="" /> }
         <div className="absolute inset-0 opacity-[0.08] pointer-events-none" style={{ backgroundImage: `url('https://www.transparenttextures.com/patterns/asfalt-dark.png')` }}></div>
       </div>
 
+      {/* Header */}
       <div className="p-3 md:p-4 flex items-center justify-between glass z-10 border-b border-slate-200 dark:border-slate-800 shadow-sm">
         <div className="flex items-center gap-3">
           <button onClick={onClose} className="lg:hidden p-2 rounded-xl hover:bg-slate-200 dark:hover:bg-slate-800"><svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M15 19l-7-7 7-7" /></svg></button>
           <div className="relative cursor-pointer group" onClick={() => onUserClick(isGroup ? ({} as User) : (otherUser || {} as User))}>
             <img src={isGroup ? (chat.groupIcon || `https://picsum.photos/seed/${chat.id}/200`) : otherUser?.photoURL} className="w-10 h-10 rounded-2xl object-cover border border-slate-200 dark:border-slate-700 group-hover:scale-105 transition-transform" alt="" />
-            {!isGroup && otherUser?.status === 'online' && <div className="absolute -bottom-1 -right-1 w-4 h-4 bg-green-500 rounded-full border-2 border-white dark:border-slate-900"></div>}
+            {!isGroup && isOnline && <div className="absolute -bottom-1 -right-1 w-4 h-4 bg-green-500 rounded-full border-2 border-white dark:border-slate-900 animate-pulse"></div>}
           </div>
           <div className="min-w-0 cursor-pointer" onClick={() => onUserClick(isGroup ? ({} as User) : (otherUser || {} as User))}>
             <h3 className="font-bold text-sm leading-none flex items-center gap-1.5 truncate">
               {isGroup ? chat.name : (otherUser?.name || 'Loading...')}
               {isLocked && <svg className="w-3.5 h-3.5 text-indigo-500" fill="currentColor" viewBox="0 0 24 24"><path d="M12 17c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2zm6-9h-1V6c0-2.76-2.24-5-5-5S7 3.24 7 6v2H6c-1.1 0-2 .9-2 2v10c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V10c0-1.1-.9-2-2-2zm-6-5c1.66 0 3 1.34 3 3v2H9V6c0-1.66 1.34-3 3-3z"/></svg>}
             </h3>
-            <span className="text-[10px] text-slate-500 font-bold uppercase tracking-widest mt-0.5">{isGroup ? `${chat.participants.length} members` : (otherUser?.status === 'online' ? 'Online Now' : 'Active status hidden')}</span>
+            {typingUsers.length > 0 ? (
+               <span className="text-[10px] text-indigo-500 font-bold uppercase tracking-widest mt-0.5 animate-pulse flex items-center gap-1">
+                  <div className="flex gap-0.5">
+                    <span className="w-1 h-1 bg-indigo-500 rounded-full animate-bounce"></span>
+                    <span className="w-1 h-1 bg-indigo-500 rounded-full animate-bounce [animation-delay:0.1s]"></span>
+                    <span className="w-1 h-1 bg-indigo-500 rounded-full animate-bounce [animation-delay:0.2s]"></span>
+                  </div>
+                  {isGroup ? `${typingUsers.length} typing...` : typingUsers.includes('gemini_ai') ? 'AI thinking...' : 'Typing...'}
+               </span>
+            ) : (
+               <span className={`text-[10px] font-bold uppercase tracking-widest mt-0.5 ${statusColor}`}>
+                  {isGroup ? `${chat.participants?.length || 0} members` : statusText}
+               </span>
+            )}
           </div>
         </div>
         <div className="flex items-center gap-2">
           {!isGroup && otherUser && (
-            <button onClick={() => onCallStart?.(otherUser, 'video')} className="p-2.5 hover:bg-slate-200 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300 rounded-xl transition-colors"><svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" /></svg></button>
+            <>
+              <button onClick={() => onCallStart?.(otherUser, 'voice')} className="p-2.5 hover:bg-slate-200 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300 rounded-xl transition-colors"><svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z" /></svg></button>
+              <button onClick={() => onCallStart?.(otherUser, 'video')} className="p-2.5 hover:bg-slate-200 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300 rounded-xl transition-colors"><svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" /></svg></button>
+            </>
           )}
-          <button onClick={async () => { await toggleChatLock(chat.id, currentUser.uid); setIsLocked(!isLocked); }} className={`p-2.5 rounded-xl transition-all ${isLocked ? 'bg-indigo-500 text-white shadow-lg shadow-indigo-500/20' : 'hover:bg-slate-200 dark:hover:bg-slate-800 text-slate-400'}`}><svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" /></svg></button>
+          <button onClick={async () => { await toggleChatLock(chat.id, currentUser.uid); setIsLocked(!isLocked); }} className={`p-2.5 rounded-xl transition-all ${isLocked ? 'bg-indigo-500 text-white shadow-lg' : 'hover:bg-slate-200 dark:hover:bg-slate-800 text-slate-400'}`}><svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" /></svg></button>
         </div>
       </div>
 
       <div ref={scrollRef} className="flex-1 overflow-y-auto p-4 space-y-1 scroll-smooth z-[5] no-scrollbar">
-        <div className="flex justify-center mb-8 mt-2">
-           <div className="px-5 py-2 bg-yellow-500/10 dark:bg-yellow-500/5 border border-yellow-500/10 rounded-[1.5rem] flex items-center gap-2.5 backdrop-blur-md">
-              <svg className="w-4 h-4 text-yellow-600 dark:text-yellow-400" fill="currentColor" viewBox="0 0 24 24"><path d="M12 1L3 5v6c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V5l-9-4zm0 10.99h7c-.53 4.12-3.28 7.79-7 8.94V12H5V6.3l7-3.11v8.8z"/></svg>
-              <span className="text-[10px] font-black uppercase text-yellow-700 dark:text-yellow-400 tracking-[0.2em]">End-to-end Encrypted</span>
-           </div>
-        </div>
-
         {messages.map((msg, index) => (
           <React.Fragment key={msg.id || index}>
             {renderDateSeparator(msg.timestamp, messages[index-1]?.timestamp)}
-            <MessageBubble message={msg} isOwn={msg.senderId === currentUser.uid} isAI={msg.senderId === 'gemini_ai'} onReply={setReplyingTo} onForward={openForwardModal} />
+            <MessageBubble 
+              message={msg} 
+              isOwn={msg.senderId === currentUser.uid} 
+              isAI={msg.senderId === 'gemini_ai'} 
+              onReply={setReplyingTo} 
+              onForward={openForwardModal}
+              onDelete={handleDeleteMessage}
+              onEdit={handleEditMessage}
+            />
           </React.Fragment>
         ))}
-        {isTyping && <div className="flex items-center gap-1.5 ml-4 pb-4 animate-in slide-in-from-left-2"><div className="w-2 h-2 bg-indigo-400 rounded-full animate-bounce"></div><div className="w-2 h-2 bg-indigo-500 rounded-full animate-bounce [animation-delay:-0.15s]"></div><div className="w-2 h-2 bg-indigo-600 rounded-full animate-bounce [animation-delay:-0.3s]"></div></div>}
+        {/* Visible Typing Bubble */}
+        {typingUsers.length > 0 && (
+          <div className="flex items-end gap-2 px-2 py-2 animate-in slide-in-from-left-4 fade-in duration-300">
+             {!isGroup && <img src={otherUser?.photoURL || `https://picsum.photos/seed/${chat.id}/50`} className="w-8 h-8 rounded-full border border-white dark:border-slate-800" alt="" />}
+             <div className="bg-white dark:bg-slate-800 rounded-2xl rounded-bl-none px-4 py-3 flex items-center gap-1.5 shadow-sm border border-slate-100 dark:border-slate-700">
+                <div className="w-2 h-2 bg-indigo-400 rounded-full animate-bounce [animation-delay:-0.3s]"></div>
+                <div className="w-2 h-2 bg-indigo-400 rounded-full animate-bounce [animation-delay:-0.15s]"></div>
+                <div className="w-2 h-2 bg-indigo-400 rounded-full animate-bounce"></div>
+             </div>
+          </div>
+        )}
       </div>
 
-      {/* Input Area with Reply Preview */}
       <div className="glass border-t border-slate-200 dark:border-slate-800 z-10 flex flex-col">
+        {editingMessage && (
+             <div className="px-4 py-2 bg-indigo-50 dark:bg-indigo-900/20 border-l-4 border-indigo-500 flex items-center justify-between">
+                <div>
+                    <span className="text-xs font-bold text-indigo-500 uppercase tracking-widest">Editing Message</span>
+                    <p className="text-xs text-slate-500 dark:text-slate-400 line-clamp-1">{editingMessage.text}</p>
+                </div>
+                <button onClick={() => { setEditingMessage(null); setInputText(''); }} className="p-1 text-indigo-500 hover:bg-indigo-100 rounded-full">
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" /></svg>
+                </button>
+             </div>
+        )}
         {replyingTo && (
-          <div className="px-4 py-2 bg-slate-50 dark:bg-slate-800/80 border-l-4 border-indigo-500 flex items-center justify-between animate-in slide-in-from-bottom-2 duration-300">
+          <div className="px-4 py-2 bg-slate-50 dark:bg-slate-800/80 border-l-4 border-indigo-500 flex items-center justify-between">
              <div className="min-w-0">
                 <p className="text-[10px] font-black text-indigo-500 uppercase tracking-widest mb-0.5">Replying to {replyingTo.senderId === currentUser.uid ? 'Yourself' : 'Contact'}</p>
                 <p className="text-xs text-slate-500 truncate">{replyingTo.text || 'Media Message'}</p>
@@ -319,15 +500,53 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ chat, currentUser, onClo
           </div>
         )}
         
-        <form onSubmit={handleSend} className="p-3 md:p-4 flex gap-2.5 items-center">
-          <input type="file" ref={fileInputRef} onChange={handleFileChange} className="hidden" />
-          <button type="button" onClick={() => fileInputRef.current?.click()} className="p-3.5 text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-2xl shrink-0 transition-colors active:scale-90"><svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M12 4v16m8-8H4" /></svg></button>
-          <input type="text" value={inputText} onChange={e => setInputText(e.target.value)} placeholder="Type a message..." className="flex-1 bg-white/60 dark:bg-slate-800/80 rounded-[1.5rem] px-6 py-4 text-sm font-medium outline-none border border-slate-200 dark:border-slate-700 focus:ring-2 focus:ring-indigo-500/20 transition-all shadow-inner" />
-          <button type="submit" disabled={!inputText.trim()} className="p-4 bg-indigo-500 text-white rounded-2xl disabled:opacity-40 active:scale-90 shadow-xl shadow-indigo-500/20 transition-all shrink-0"><svg className="w-6 h-6 rotate-90" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" /></svg></button>
-        </form>
+        <div className="p-3 md:p-4 flex gap-2.5 items-center">
+          {isRecording ? (
+             <div className="flex-1 flex items-center justify-between bg-red-500 text-white rounded-[1.5rem] px-6 py-4 animate-pulse">
+                <div className="flex items-center gap-3">
+                   <div className="w-3 h-3 bg-white rounded-full animate-bounce"></div>
+                   <span className="font-bold text-sm tracking-widest">{formatDuration(recordingDuration)}</span>
+                </div>
+                <div className="flex items-center gap-3">
+                    <button onClick={() => stopRecording(false)} className="text-white/80 hover:text-white text-xs font-bold uppercase">Cancel</button>
+                    <button onClick={() => stopRecording(true)} className="p-2 bg-white text-red-500 rounded-full shadow-lg">
+                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M5 13l4 4L19 7" /></svg>
+                    </button>
+                </div>
+             </div>
+          ) : (
+            <>
+              <input type="file" ref={fileInputRef} onChange={handleFileChange} className="hidden" />
+              <button type="button" onClick={() => fileInputRef.current?.click()} className="p-3.5 text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-2xl shrink-0 transition-colors active:scale-90"><svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M12 4v16m8-8H4" /></svg></button>
+              
+              <form onSubmit={handleSend} className="flex-1 flex gap-2">
+                 <input 
+                    ref={inputRef}
+                    type="text" 
+                    value={inputText} 
+                    onChange={handleInputChange} 
+                    placeholder="Type a message..." 
+                    className="flex-1 bg-white/60 dark:bg-slate-800/80 rounded-[1.5rem] px-6 py-4 text-sm font-medium outline-none border border-slate-200 dark:border-slate-700 focus:ring-2 focus:ring-indigo-500/20 transition-all shadow-inner" 
+                />
+                {inputText.trim() ? (
+                    <button type="submit" className="p-4 bg-indigo-500 text-white rounded-2xl shadow-xl shadow-indigo-500/20 transition-all shrink-0 active:scale-95">
+                        {editingMessage ? (
+                             <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M5 13l4 4L19 7" /></svg>
+                        ) : (
+                             <svg className="w-6 h-6 rotate-90" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" /></svg>
+                        )}
+                    </button>
+                ) : (
+                    <button type="button" onClick={startRecording} className="p-4 bg-slate-100 dark:bg-slate-800 text-slate-500 hover:bg-red-500 hover:text-white rounded-2xl transition-all shrink-0 active:scale-95 group">
+                        <svg className="w-6 h-6 group-hover:scale-110 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" /></svg>
+                    </button>
+                )}
+              </form>
+            </>
+          )}
+        </div>
       </div>
 
-      {/* Forward Modal */}
       {forwardingMessage && (
         <div className="fixed inset-0 z-[200] flex items-center justify-center p-4">
           <div className="absolute inset-0 bg-slate-950/60 backdrop-blur-md" onClick={() => setForwardingMessage(null)}></div>
@@ -339,23 +558,13 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ chat, currentUser, onClo
                 </button>
              </div>
              <div className="flex-1 overflow-y-auto p-4 space-y-2 no-scrollbar">
-                <p className="text-[10px] font-black uppercase text-slate-400 px-2">Select a chat</p>
                 {availableChats.map(c => {
                    const isGrp = c.type === 'group';
                    const target = isGrp ? null : allUsers.find(u => u.uid === c.participants.find(p => p !== currentUser.uid));
-                   const name = isGrp ? c.name : target?.name || 'Contact';
-                   const photo = isGrp ? c.groupIcon : target?.photoURL;
                    return (
-                     <button 
-                      key={c.id} 
-                      onClick={() => handleForward(c)}
-                      className="w-full flex items-center gap-3 p-3 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-2xl transition-colors text-left"
-                     >
-                        <img src={photo || `https://picsum.photos/seed/${c.id}/100`} className="w-10 h-10 rounded-xl object-cover" alt="" />
-                        <span className="font-bold text-sm flex-1 truncate">{name}</span>
-                        <div className="p-2 bg-indigo-500/10 text-indigo-500 rounded-lg">
-                           <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M14 5l7 7m0 0l-7 7m7-7H3" /></svg>
-                        </div>
+                     <button key={c.id} onClick={() => handleForward(c)} className="w-full flex items-center gap-3 p-3 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-2xl transition-colors text-left">
+                        <img src={isGrp ? c.groupIcon : target?.photoURL || `https://picsum.photos/seed/${c.id}/100`} className="w-10 h-10 rounded-xl object-cover" alt="" />
+                        <span className="font-bold text-sm flex-1 truncate">{isGrp ? c.name : target?.name || 'Contact'}</span>
                      </button>
                    );
                 })}

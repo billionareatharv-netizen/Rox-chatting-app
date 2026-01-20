@@ -8,13 +8,13 @@ export interface User {
   lastSeen: number;
   bio?: string;
   blockedUsers?: string[];
+  pinnedChats?: string[]; // New: Array of chat IDs pinned by user
   chatLockPassword?: string; 
-  isAdmin?: boolean; // New flag for administrative access
-  isGloballyBlocked?: boolean; // Flag to disable user access platform-wide
+  isAdmin?: boolean; 
+  isGloballyBlocked?: boolean;
 }
 
-// Added 'video' to the MessageType union to support video messages and resolve type comparison issues in media filters
-export type MessageType = 'text' | 'image' | 'video' | 'file' | 'voice' | 'story_reply';
+export type MessageType = 'text' | 'image' | 'video' | 'file' | 'voice' | 'story_reply' | 'deleted'; // Added 'deleted'
 export type MessageStatus = 'sent' | 'delivered' | 'seen';
 
 export interface Message {
@@ -27,7 +27,10 @@ export interface Message {
   status: MessageStatus;
   fileUrl?: string;
   fileName?: string;
+  audioUrl?: string; 
+  duration?: number; 
   isForwarded?: boolean;
+  isEdited?: boolean; // New: Flag for edited messages
   replyContext?: {
     messageId: string;
     text: string;
@@ -94,4 +97,9 @@ export interface CallSession {
   partner: User;
   isIncoming: boolean;
   timestamp: number;
+  // WebRTC Signaling Data
+  offer?: any;
+  answer?: any;
+  callerCandidates?: any[];
+  calleeCandidates?: any[];
 }
