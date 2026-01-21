@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { User, Chat } from '../../types';
 import { getAllUsers, getMyChats, togglePinChat, subscribeToUser } from '../../firebase';
 import { CreateGroupModal } from './CreateGroupModal';
@@ -13,10 +13,12 @@ export const Sidebar: React.FC<SidebarProps> = ({
   currentUser, onChatSelect, activeChatId
 }) => {
   const [search, setSearch] = useState('');
+  const [isSearchOpen, setIsSearchOpen] = useState(false);
   const [allUsers, setAllUsers] = useState<User[]>([]);
   const [chats, setChats] = useState<Chat[]>([]);
   const [showGroupModal, setShowGroupModal] = useState(false);
   const [pinnedChats, setPinnedChats] = useState<string[]>([]); // Local state for pinned chats
+  const searchInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     // Sync pinned chats from user profile real-time
@@ -38,6 +40,15 @@ export const Sidebar: React.FC<SidebarProps> = ({
         unsub();
     };
   }, [currentUser]);
+
+  useEffect(() => {
+    if (isSearchOpen && searchInputRef.current) {
+        searchInputRef.current.focus();
+    }
+    if (!isSearchOpen) {
+        setSearch('');
+    }
+  }, [isSearchOpen]);
 
   const isRevealingLocked = currentUser.chatLockPassword && search === currentUser.chatLockPassword;
 
@@ -94,6 +105,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
       updatedAt: Date.now(), lockedBy: []
     });
     setSearch('');
+    setIsSearchOpen(false);
   };
 
   const getChatInfo = (chat: Chat) => {
@@ -105,31 +117,39 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
   return (
     <div className="w-full h-full flex flex-col bg-white dark:bg-slate-900 animate-in slide-in-from-left duration-300">
-      <div className="p-6 flex items-center justify-between border-b border-slate-100 dark:border-slate-800">
-        <h2 className="text-2xl font-black tracking-tight">Chats</h2>
-        <button onClick={() => setShowGroupModal(true)} className="p-3 bg-indigo-50 text-indigo-500 dark:bg-indigo-500/10 rounded-2xl hover:bg-indigo-100 transition-all shadow-sm active:scale-95">
-          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M12 4v16m8-8H4" /></svg>
-        </button>
+      
+      {/* Header with Toggleable Search */}
+      <div className="h-20 px-6 flex items-center justify-between border-b border-slate-100 dark:border-slate-800">
+        {isSearchOpen ? (
+            <div className="flex-1 flex items-center gap-3 animate-in fade-in slide-in-from-top-2">
+                <button onClick={() => setIsSearchOpen(false)} className="p-2 -ml-2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 rounded-full">
+                    <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M10 19l-7-7m0 0l7-7m-7 7h18" /></svg>
+                </button>
+                <input 
+                    ref={searchInputRef}
+                    type="text" 
+                    placeholder="Search..." 
+                    value={search}
+                    onChange={(e) => setSearch(e.target.value)}
+                    className="flex-1 bg-transparent border-none outline-none text-lg font-bold text-slate-900 dark:text-white placeholder-slate-400"
+                />
+            </div>
+        ) : (
+            <>
+                <h2 className="text-2xl font-black tracking-tight">Chats</h2>
+                <div className="flex items-center gap-2">
+                    <button onClick={() => setIsSearchOpen(true)} className="p-3 text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-2xl transition-all active:scale-95">
+                        <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
+                    </button>
+                    <button onClick={() => setShowGroupModal(true)} className="p-3 bg-indigo-50 text-indigo-500 dark:bg-indigo-500/10 rounded-2xl hover:bg-indigo-100 transition-all shadow-sm active:scale-95">
+                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M12 4v16m8-8H4" /></svg>
+                    </button>
+                </div>
+            </>
+        )}
       </div>
 
-      <div className="p-4">
-        <div className="relative group">
-          <span className="absolute inset-y-0 left-3.5 flex items-center text-slate-400 group-focus-within:text-indigo-500 transition-colors">
-            {isRevealingLocked ? (
-              <svg className="w-4 h-4 text-indigo-500 animate-pulse" fill="currentColor" viewBox="0 0 24 24"><path d="M12 17c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2zm6-9h-1V6c0-2.76-2.24-5-5-5S7 3.24 7 6v2H6c-1.1 0-2 .9-2 2v10c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V10c0-1.1-.9-2-2-2zm-6-5c1.66 0 3 1.34 3 3v2H9V6c0-1.66 1.34-3 3-3z"/></svg>
-            ) : (
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
-            )}
-          </span>
-          <input 
-            type="text" placeholder={isRevealingLocked ? "Secret Vault Unlocked" : "Search conversations..."}
-            value={search} onChange={(e) => setSearch(e.target.value)}
-            className={`w-full border-none rounded-2xl py-3.5 pl-11 pr-4 text-sm outline-none transition-all shadow-sm ${isRevealingLocked ? 'bg-indigo-50 dark:bg-indigo-900/30 ring-2 ring-indigo-500' : 'bg-slate-100/80 dark:bg-slate-800/80 focus:ring-2 focus:ring-indigo-500/40 focus:bg-white dark:focus:bg-slate-800'}`}
-          />
-        </div>
-      </div>
-
-      <div className="flex-1 overflow-y-auto space-y-0.5 px-3 pb-20 no-scrollbar">
+      <div className="flex-1 overflow-y-auto space-y-0.5 px-3 pb-20 no-scrollbar pt-2">
         {isRevealingLocked && (
           <div className="px-4 py-3 bg-indigo-500/10 rounded-2xl mb-4 border border-indigo-500/20 text-center animate-in fade-in slide-in-from-top-2">
              <span className="text-[10px] font-black text-indigo-500 dark:text-indigo-400 uppercase tracking-[0.25em]">Private Vault Unlocked</span>

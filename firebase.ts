@@ -76,6 +76,19 @@ try {
 
 export { auth, db };
 
+// Helper for generating UUIDs safely in all environments
+const generateUUID = () => {
+  if (typeof crypto !== 'undefined' && crypto.randomUUID) {
+    try {
+      return crypto.randomUUID();
+    } catch (e) { /* fallback */ }
+  }
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+    var r = Math.random() * 16 | 0, v = c == 'x' ? r : (r & 0x3 | 0x8);
+    return v.toString(16);
+  });
+};
+
 // --- AUTHENTICATION ---
 
 export const updateUserStatus = async (uid: string, status: 'online' | 'offline') => {
@@ -171,13 +184,32 @@ export const signOut = async () => {
 
 export const updateProfile = async (user: any, updates: any) => {
   const uid = user.uid || user.id;
-  if (auth.currentUser) {
-    await firebaseUpdateProfile(auth.currentUser, {
-      displayName: updates.name || user.name,
-      photoURL: updates.photoURL || user.photoURL
-    });
-  }
+  
+  // 1. Always update Firestore first (Database of Truth)
   await updateDoc(doc(db, "users", uid), updates);
+
+  // 2. Try to update Auth Profile (Optional)
+  // We wrap this in try/catch because if photoURL is a large Base64 string, 
+  // Firebase Auth updateProfile will FAIL. But we don't want to break the app.
+  // The app predominantly uses the Firestore photoURL anyway.
+  if (auth.currentUser) {
+    try {
+        const authUpdates: any = {};
+        if (updates.name) authUpdates.displayName = updates.name;
+        // Only attempt to update Auth photo if it's a URL (short) or null
+        // If it looks like base64 data, we skip updating Auth to prevent errors
+        if (updates.photoURL && !updates.photoURL.startsWith('data:')) {
+            authUpdates.photoURL = updates.photoURL;
+        }
+        
+        if (Object.keys(authUpdates).length > 0) {
+            await firebaseUpdateProfile(auth.currentUser, authUpdates);
+        }
+    } catch (e) {
+        console.warn("Auth profile sync skipped/failed (likely due to image size). Firestore updated successfully.");
+    }
+  }
+  
   return { ...user, ...updates };
 };
 
@@ -358,7 +390,7 @@ export const subscribeToChat = (chatId: string, callback: (data: any) => void) =
 };
 
 export const createGroup = async (name: string, participants: string[], adminId: string) => {
-  const groupId = 'group_' + crypto.randomUUID();
+  const groupId = 'group_' + generateUUID();
   const newGroup = {
     id: groupId,
     type: 'group',
@@ -425,7 +457,8 @@ export const toggleChatLock = async (chatId: string, userId: string) => {
 // --- CALLING (WebRTC Signaling) ---
 
 export const initiateCall = async (callerId: string, receiverId: string, type: 'voice' | 'video') => {
-  const callId = 'call_' + crypto.randomUUID();
+  // Use manual UUID generator instead of crypto.randomUUID for better compatibility
+  const callId = 'call_' + generateUUID();
   const newCall = {
     id: callId,
     callerId,
@@ -511,7 +544,7 @@ export const deleteStory = async (storyId: string) => {
 };
 export const sendStoryReply = async (rid: string, sid: string, text: string, story: any) => {
   const msg = {
-    id: 'm_' + Math.random().toString(36).substr(2, 9),
+    id: 'm_' + generateUUID(),
     senderId: sid, recipientId: rid, text, type: 'story_reply', 
     timestamp: Date.now(), status: 'sent',
     storyContext: { storyId: story.id, mediaUrl: story.mediaUrl, mediaType: story.mediaType }
