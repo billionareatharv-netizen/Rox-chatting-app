@@ -8,13 +8,13 @@ export interface User {
   lastSeen: number;
   bio?: string;
   blockedUsers?: string[];
-  pinnedChats?: string[]; // New: Array of chat IDs pinned by user
+  pinnedChats?: string[]; // Chat IDs pinned by user
   chatLockPassword?: string; 
   isAdmin?: boolean; 
   isGloballyBlocked?: boolean;
 }
 
-export type MessageType = 'text' | 'image' | 'video' | 'file' | 'voice' | 'story_reply' | 'deleted'; // Added 'deleted'
+export type MessageType = 'text' | 'image' | 'video' | 'file' | 'voice' | 'story_reply' | 'deleted';
 export type MessageStatus = 'sent' | 'delivered' | 'seen';
 
 export interface Message {
@@ -30,7 +30,9 @@ export interface Message {
   audioUrl?: string; 
   duration?: number; 
   isForwarded?: boolean;
-  isEdited?: boolean; // New: Flag for edited messages
+  isEdited?: boolean;
+  isPinned?: boolean; // Visual helper
+  deletedFor?: string[]; // New: IDs of users who deleted this for themselves
   replyContext?: {
     messageId: string;
     text: string;
@@ -69,6 +71,7 @@ export interface Chat {
   name?: string; 
   groupIcon?: string; 
   adminIds?: string[]; 
+  pinnedMessages?: string[]; // New: IDs of pinned messages in this chat
   lastMessage?: {
     text: string;
     senderId: string;

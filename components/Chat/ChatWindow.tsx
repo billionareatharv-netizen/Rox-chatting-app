@@ -1,8 +1,9 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { User, Chat, Message } from '../../types';
 import { MessageBubble } from './MessageBubble';
+import { GroupInfoModal } from './GroupInfoModal';
 import { getAIResponse } from '../../gemini';
-import { getUserById, addMessage, getMessages, toggleChatLock, markMessagesAsSeen, markMessagesAsDelivered, getMyChats, getAllUsers, setTypingStatus, subscribeToChat, deleteMessage, deleteMessageForEveryone, editMessage, subscribeToUser } from '../../firebase';
+import { getUserById, addMessage, getMessages, toggleChatLock, markMessagesAsSeen, markMessagesAsDelivered, getMyChats, getAllUsers, setTypingStatus, subscribeToChat, deleteMessage, deleteMessageForEveryone, deleteMessageForMe, editMessage, subscribeToUser, togglePinMessage } from '../../firebase';
 
 interface ChatWindowProps {
   chat: Chat;
@@ -39,8 +40,14 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ chat, currentUser, onClo
   const [isRecording, setIsRecording] = useState(false);
   const [recordingDuration, setRecordingDuration] = useState(0);
   const [mediaRecorder, setMediaRecorder] = useState<MediaRecorder | null>(null);
-  const [editingMessage, setEditingMessage] = useState<Message | null>(null); // New state for editing
+  const [editingMessage, setEditingMessage] = useState<Message | null>(null);
+  const [pinnedMessageIds, setPinnedMessageIds] = useState<string[]>([]);
+  const [showGroupInfo, setShowGroupInfo] = useState(false);
   
+  // UI State for Deletion
+  const [messageToDelete, setMessageToDelete] = useState<Message | null>(null);
+  const [showDeleteOptions, setShowDeleteOptions] = useState(false);
+
   const [wallpaper, setWallpaper] = useState('default');
   const [customUrl, setCustomUrl] = useState<string | null>(null);
   const [fontSize, setFontSize] = useState('medium');
@@ -84,9 +91,10 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ chat, currentUser, onClo
     return () => window.removeEventListener('roxx_settings_updated', loadSettings);
   }, []);
 
-  // Subscribe to Chat (Typing indicators & Metadata)
+  // Subscribe to Chat (Typing indicators, Pinned Messages)
   useEffect(() => {
     const unsubscribe = subscribeToChat(chat.id, (data) => {
+      // Typing
       if (data.typing) {
         const activeTypers = Object.entries(data.typing)
           .filter(([uid, isTyping]) => uid !== currentUser.uid && isTyping)
@@ -94,6 +102,12 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ chat, currentUser, onClo
         setTypingUsers(activeTypers);
       } else {
         setTypingUsers([]);
+      }
+      // Pinned Messages
+      if (data.pinnedMessages) {
+        setPinnedMessageIds(data.pinnedMessages);
+      } else {
+        setPinnedMessageIds([]);
       }
     });
     return () => unsubscribe();
@@ -103,10 +117,8 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ chat, currentUser, onClo
   useEffect(() => {
     if (isGroup || !otherId) return;
     
-    // Initial fetch
     getUserById(otherId).then(u => { if(u) setOtherUser(u); });
 
-    // Real-time listener
     const unsubscribe = subscribeToUser(otherId, (userData) => {
         setOtherUser(userData);
     });
@@ -118,15 +130,15 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ chat, currentUser, onClo
     const sync = async () => {
       const msgs = await getMessages(chat.id);
       setMessages(prev => {
-        // Rudimentary deep comparison or just check lengths + last ID + status updates
-        // To properly update edits/deletes we need to check content too
-        const hasChanged = msgs.some((m, i) => {
+        // Simple comparison to prevent excessive re-renders if nothing changed
+        // In prod, use deep compare or robust ID/timestamp checks
+        if (msgs.length !== prev.length) return msgs;
+        // Check for edits/deletes
+        const changed = msgs.some((m, i) => {
             const p = prev[i];
-            if (!p) return true;
             return p.id !== m.id || p.status !== m.status || p.text !== m.text || p.type !== m.type;
-        }) || msgs.length !== prev.length;
-
-        return hasChanged ? msgs : prev;
+        });
+        return changed ? msgs : prev;
       });
     };
     sync();
@@ -138,7 +150,7 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ chat, currentUser, onClo
     if (scrollRef.current) {
       scrollRef.current.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' });
     }
-  }, [messages, isTyping, isUploading, replyingTo, typingUsers, isRecording, editingMessage]);
+  }, [messages, isTyping, isUploading, replyingTo, typingUsers, isRecording, editingMessage, pinnedMessageIds]);
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setInputText(e.target.value);
@@ -153,12 +165,13 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ chat, currentUser, onClo
     }, 2000);
   };
 
-  // --- Voice Recording Logic ---
+  // --- Voice Recording Logic (Fixed) ---
   const startRecording = async () => {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       
       let mimeType = 'audio/webm';
+      // Prioritize supported types
       if (MediaRecorder.isTypeSupported('audio/webm;codecs=opus')) {
           mimeType = 'audio/webm;codecs=opus';
       } else if (MediaRecorder.isTypeSupported('audio/mp4')) {
@@ -184,10 +197,12 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ chat, currentUser, onClo
 
   const stopRecording = async (shouldSend: boolean) => {
     if (mediaRecorder && isRecording) {
-      const mimeType = mediaRecorder.mimeType;
+      // Capture mimeType before stopping
+      const mimeType = mediaRecorder.mimeType || 'audio/webm';
       
       mediaRecorder.onstop = async () => {
         if (shouldSend && audioChunksRef.current.length > 0) {
+            // Explicitly use the recorded mimetype
             const blob = new Blob(audioChunksRef.current, { type: mimeType });
             const reader = new FileReader();
             reader.readAsDataURL(blob);
@@ -225,22 +240,36 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ chat, currentUser, onClo
     return `${m}:${s.toString().padStart(2, '0')}`;
   };
 
-  // Enhanced Delete: Delete for everyone vs Delete for me
-  const handleDeleteMessage = async (msg: Message) => {
-    if (msg.senderId === currentUser.uid) {
-        const choice = window.confirm("Press OK to Delete for EVERYONE, Cancel to Cancel.");
-        if (choice) {
-            // Optimistic update
-            setMessages(prev => prev.map(m => m.id === msg.id ? { ...m, type: 'deleted', text: '🚫 This message was deleted' } : m));
-            await deleteMessageForEveryone(msg.id);
-        }
-    } else {
-        // Can only delete for me (locally hide or actual delete if local db existed, here we hard delete for now as per previous logic, or disable)
-         if (window.confirm("Delete this message for yourself?")) {
-             setMessages(prev => prev.filter(m => m.id !== msg.id));
-             await deleteMessage(msg.id, chat.id);
-         }
-    }
+  // --- Deletion UX Logic ---
+  const triggerDeleteFlow = (msg: Message) => {
+      setMessageToDelete(msg);
+      setShowDeleteOptions(true);
+  };
+
+  const confirmDelete = async (type: 'me' | 'everyone') => {
+      if (!messageToDelete) return;
+      
+      const confirmText = type === 'everyone' 
+        ? "Are you sure you want to delete this message for EVERYONE?" 
+        : "Delete this message from your chat history?";
+      
+      if (window.confirm(confirmText)) {
+          if (type === 'everyone') {
+              // Optimistic
+              setMessages(prev => prev.map(m => m.id === messageToDelete.id ? { ...m, type: 'deleted', text: '🚫 This message was deleted' } : m));
+              await deleteMessageForEveryone(messageToDelete.id);
+          } else {
+              // Optimistic: remove from local view
+              setMessages(prev => prev.filter(m => m.id !== messageToDelete.id));
+              await deleteMessageForMe(messageToDelete.id, currentUser.uid);
+          }
+      }
+      setShowDeleteOptions(false);
+      setMessageToDelete(null);
+  };
+
+  const handlePinMessage = async (msg: Message) => {
+      await togglePinMessage(chat.id, msg.id);
   };
 
   const handleEditMessage = (msg: Message) => {
@@ -375,6 +404,14 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ chat, currentUser, onClo
     e.target.value = '';
   };
 
+  const handleHeaderClick = () => {
+    if (isGroup) {
+      setShowGroupInfo(true);
+    } else {
+      onUserClick(otherUser || {} as User);
+    }
+  };
+
   const renderDateSeparator = (timestamp: number, prevTimestamp?: number) => {
     if (!timestamp) return null;
     const date = new Date(timestamp);
@@ -401,6 +438,10 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ chat, currentUser, onClo
   const statusColor = !isGroup && isOnline ? 'text-green-500' : 'text-slate-500 dark:text-slate-400';
   const statusText = !isGroup && isOnline ? 'Online Now' : 'Offline';
 
+  // Get Latest Pinned Message content
+  const latestPinnedId = pinnedMessageIds[pinnedMessageIds.length - 1];
+  const pinnedMessage = messages.find(m => m.id === latestPinnedId);
+
   return (
     <div className={`flex-1 flex flex-col h-full bg-white dark:bg-slate-900 animate-in fade-in duration-300 relative overflow-hidden ${FONT_SIZE_CLASSES[fontSize]}`}>
       <div className={`absolute inset-0 z-0 transition-all duration-700 ${wallpaper !== 'custom' ? WALLPAPER_CLASSES[wallpaper] || '' : ''}`}>
@@ -409,14 +450,14 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ chat, currentUser, onClo
       </div>
 
       {/* Header */}
-      <div className="p-3 md:p-4 flex items-center justify-between glass z-10 border-b border-slate-200 dark:border-slate-800 shadow-sm">
+      <div className="p-3 md:p-4 flex items-center justify-between glass z-10 border-b border-slate-200 dark:border-slate-800 shadow-sm relative">
         <div className="flex items-center gap-3">
           <button onClick={onClose} className="lg:hidden p-2 rounded-xl hover:bg-slate-200 dark:hover:bg-slate-800"><svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M15 19l-7-7 7-7" /></svg></button>
-          <div className="relative cursor-pointer group" onClick={() => onUserClick(isGroup ? ({} as User) : (otherUser || {} as User))}>
+          <div className="relative cursor-pointer group" onClick={handleHeaderClick}>
             <img src={isGroup ? (chat.groupIcon || `https://picsum.photos/seed/${chat.id}/200`) : otherUser?.photoURL} className="w-10 h-10 rounded-2xl object-cover border border-slate-200 dark:border-slate-700 group-hover:scale-105 transition-transform" alt="" />
             {!isGroup && isOnline && <div className="absolute -bottom-1 -right-1 w-4 h-4 bg-green-500 rounded-full border-2 border-white dark:border-slate-900 animate-pulse"></div>}
           </div>
-          <div className="min-w-0 cursor-pointer" onClick={() => onUserClick(isGroup ? ({} as User) : (otherUser || {} as User))}>
+          <div className="min-w-0 cursor-pointer" onClick={handleHeaderClick}>
             <h3 className="font-bold text-sm leading-none flex items-center gap-1.5 truncate">
               {isGroup ? chat.name : (otherUser?.name || 'Loading...')}
               {isLocked && <svg className="w-3.5 h-3.5 text-indigo-500" fill="currentColor" viewBox="0 0 24 24"><path d="M12 17c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2zm6-9h-1V6c0-2.76-2.24-5-5-5S7 3.24 7 6v2H6c-1.1 0-2 .9-2 2v10c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V10c0-1.1-.9-2-2-2zm-6-5c1.66 0 3 1.34 3 3v2H9V6c0-1.66 1.34-3 3-3z"/></svg>}
@@ -448,6 +489,30 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ chat, currentUser, onClo
         </div>
       </div>
 
+      {/* Pinned Message Header */}
+      {pinnedMessage && (
+        <div 
+            onClick={() => {
+                const el = document.getElementById(`msg-${pinnedMessage.id}`);
+                el?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                el?.classList.add('bg-indigo-100', 'dark:bg-indigo-900');
+                setTimeout(() => el?.classList.remove('bg-indigo-100', 'dark:bg-indigo-900'), 1000);
+            }}
+            className="absolute top-[4.5rem] left-4 right-4 z-20 bg-white/95 dark:bg-slate-800/95 backdrop-blur-md rounded-xl p-3 border-l-4 border-indigo-500 shadow-lg flex items-center justify-between cursor-pointer animate-in slide-in-from-top-2"
+        >
+            <div className="min-w-0">
+                <p className="text-[10px] font-black text-indigo-500 uppercase tracking-widest mb-0.5">Pinned Message</p>
+                <p className="text-xs text-slate-600 dark:text-slate-300 truncate font-medium">{pinnedMessage.text || 'Media File'}</p>
+            </div>
+            <button 
+                onClick={(e) => { e.stopPropagation(); togglePinMessage(chat.id, pinnedMessage.id); }}
+                className="p-2 text-slate-400 hover:text-indigo-500 transition-colors"
+            >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" /></svg>
+            </button>
+        </div>
+      )}
+
       <div ref={scrollRef} className="flex-1 overflow-y-auto p-4 space-y-1 scroll-smooth z-[5] no-scrollbar">
         {messages.map((msg, index) => (
           <React.Fragment key={msg.id || index}>
@@ -458,8 +523,10 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ chat, currentUser, onClo
               isAI={msg.senderId === 'gemini_ai'} 
               onReply={setReplyingTo} 
               onForward={openForwardModal}
-              onDelete={handleDeleteMessage}
+              onDelete={triggerDeleteFlow}
               onEdit={handleEditMessage}
+              onPin={handlePinMessage}
+              isPinned={pinnedMessageIds.includes(msg.id)}
             />
           </React.Fragment>
         ))}
@@ -546,6 +613,51 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ chat, currentUser, onClo
           )}
         </div>
       </div>
+
+      {/* Group Info Modal */}
+      {showGroupInfo && (
+        <GroupInfoModal 
+          chat={chat}
+          currentUser={currentUser}
+          onClose={() => setShowGroupInfo(false)}
+        />
+      )}
+
+      {/* Delete Options Bottom Sheet / Modal */}
+      {showDeleteOptions && messageToDelete && (
+        <div className="fixed inset-0 z-[200] flex items-end justify-center sm:items-center">
+            <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => setShowDeleteOptions(false)}></div>
+            <div className="relative w-full max-w-sm bg-white dark:bg-slate-900 rounded-t-[2rem] sm:rounded-[2rem] p-6 shadow-2xl animate-in slide-in-from-bottom duration-300">
+                <div className="w-12 h-1.5 bg-slate-200 dark:bg-slate-700 rounded-full mx-auto mb-6"></div>
+                <h3 className="text-lg font-bold mb-4 text-center">Delete Message?</h3>
+                
+                <div className="flex flex-col gap-3">
+                    {messageToDelete.senderId === currentUser.uid && (
+                        <button 
+                            onClick={() => confirmDelete('everyone')}
+                            className="w-full p-4 rounded-2xl bg-slate-100 dark:bg-slate-800 text-red-500 font-bold hover:bg-red-50 dark:hover:bg-red-900/10 transition-colors flex items-center justify-between group"
+                        >
+                            <span>Delete for everyone</span>
+                            <svg className="w-5 h-5 opacity-0 group-hover:opacity-100 transition-opacity" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+                        </button>
+                    )}
+                    <button 
+                        onClick={() => confirmDelete('me')}
+                        className="w-full p-4 rounded-2xl bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 font-bold hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors flex items-center justify-between"
+                    >
+                        <span>Delete for me</span>
+                        <svg className="w-5 h-5 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" /></svg>
+                    </button>
+                    <button 
+                        onClick={() => setShowDeleteOptions(false)}
+                        className="w-full p-4 rounded-2xl border-2 border-slate-100 dark:border-slate-800 text-slate-500 font-bold hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors mt-2"
+                    >
+                        Cancel
+                    </button>
+                </div>
+            </div>
+        </div>
+      )}
 
       {forwardingMessage && (
         <div className="fixed inset-0 z-[200] flex items-center justify-center p-4">

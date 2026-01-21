@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useRef } from 'react';
 import { CallSession, CallStatus } from '../../types';
 import { updateCallStatus, getCallById, updateCallSignal, addIceCandidate, subscribeToCall } from '../../firebase';
@@ -22,8 +21,33 @@ export const CallModal: React.FC<CallModalProps> = ({ session, onHangUp }) => {
   
   const localVideoRef = useRef<HTMLVideoElement>(null);
   const remoteVideoRef = useRef<HTMLVideoElement>(null);
+  const remoteAudioRef = useRef<HTMLAudioElement>(null);
+  const ringtoneRef = useRef<HTMLAudioElement | null>(null);
+  
   const pc = useRef<RTCPeerConnection | null>(null);
   const localStream = useRef<MediaStream | null>(null);
+
+  // Initialize Ringtone for incoming calls
+  useEffect(() => {
+    if (session.isIncoming && status === 'ringing') {
+      try {
+        const audio = new Audio("https://cdn.pixabay.com/download/audio/2022/03/24/audio_c8c8a73467.mp3?filename=smartphone-ringtone-6260.mp3");
+        audio.loop = true;
+        audio.play().catch(e => console.warn("Autoplay blocked for ringtone", e));
+        ringtoneRef.current = audio;
+      } catch (e) {}
+    } else {
+      if (ringtoneRef.current) {
+        ringtoneRef.current.pause();
+        ringtoneRef.current = null;
+      }
+    }
+    return () => {
+      if (ringtoneRef.current) {
+        ringtoneRef.current.pause();
+      }
+    };
+  }, [session.isIncoming, status]);
 
   // 1. Initialize Peer Connection & Local Stream
   useEffect(() => {
@@ -31,11 +55,15 @@ export const CallModal: React.FC<CallModalProps> = ({ session, onHangUp }) => {
       try {
         const stream = await navigator.mediaDevices.getUserMedia({ 
             audio: true, 
-            video: session.type === 'video' 
+            video: session.type === 'video' ? { facingMode: 'user' } : false 
         });
         localStream.current = stream;
         
-        if (localVideoRef.current) localVideoRef.current.srcObject = stream;
+        // IMPORTANT: Local video must be muted to prevent feedback loop
+        if (localVideoRef.current) {
+            localVideoRef.current.srcObject = stream;
+            localVideoRef.current.muted = true;
+        }
 
         pc.current = new RTCPeerConnection(SERVERS);
 
@@ -46,8 +74,17 @@ export const CallModal: React.FC<CallModalProps> = ({ session, onHangUp }) => {
 
         // Handle remote stream
         pc.current.ontrack = (event) => {
-            if (remoteVideoRef.current) {
-                remoteVideoRef.current.srcObject = event.streams[0];
+            const track = event.track;
+            const remoteStream = new MediaStream([track]);
+
+            if (track.kind === 'video') {
+                if (remoteVideoRef.current) remoteVideoRef.current.srcObject = remoteStream;
+            } else if (track.kind === 'audio') {
+                // IMPORTANT: Audio goes to a separate audio element that is always active
+                if (remoteAudioRef.current) {
+                    remoteAudioRef.current.srcObject = remoteStream;
+                    remoteAudioRef.current.play().catch(e => console.error("Remote audio play error", e));
+                }
             }
         };
 
@@ -71,10 +108,13 @@ export const CallModal: React.FC<CallModalProps> = ({ session, onHangUp }) => {
       }
     };
 
-    init();
+    // Only init WebRTC immediately if we are the Caller. 
+    // If Incoming, wait until Accept.
+    if (!session.isIncoming) {
+        init();
+    }
 
     return () => {
-       // Cleanup
        if(localStream.current) localStream.current.getTracks().forEach(t => t.stop());
        if(pc.current) pc.current.close();
     };
@@ -99,9 +139,6 @@ export const CallModal: React.FC<CallModalProps> = ({ session, onHangUp }) => {
             // Caller receives Answer
             const answer = new RTCSessionDescription(data.answer);
             await pc.current.setRemoteDescription(answer);
-        } else if (session.isIncoming && data.offer && !pc.current.remoteDescription) {
-            // Callee receives Offer (usually implicitly handled in init but strictly checks here)
-            // Logic moved to "Accept" button action to avoid auto-answering signaling before UI accept
         }
 
         // Handle Candidates
@@ -116,18 +153,51 @@ export const CallModal: React.FC<CallModalProps> = ({ session, onHangUp }) => {
   }, [session.id, session.isIncoming]);
 
   const handleAccept = async () => {
-    if (!pc.current) return;
-    
-    // Fetch latest offer to be sure
-    const callData = await getCallById(session.id);
-    if (callData?.offer) {
-        await pc.current.setRemoteDescription(new RTCSessionDescription(callData.offer));
-        const answer = await pc.current.createAnswer();
-        await pc.current.setLocalDescription(answer);
+    // Initialize WebRTC for the Callee now
+    try {
+        const stream = await navigator.mediaDevices.getUserMedia({ 
+            audio: true, 
+            video: session.type === 'video' 
+        });
+        localStream.current = stream;
+        if (localVideoRef.current) {
+            localVideoRef.current.srcObject = stream;
+            localVideoRef.current.muted = true;
+        }
+
+        pc.current = new RTCPeerConnection(SERVERS);
         
-        await updateCallSignal(session.id, { answer });
-        await updateCallStatus(session.id, 'accepted');
-        setStatus('accepted');
+        stream.getTracks().forEach(track => pc.current?.addTrack(track, stream));
+
+        pc.current.ontrack = (event) => {
+            const track = event.track;
+            const remoteStream = new MediaStream([track]);
+            if (track.kind === 'video' && remoteVideoRef.current) {
+                remoteVideoRef.current.srcObject = remoteStream;
+            } else if (track.kind === 'audio' && remoteAudioRef.current) {
+                remoteAudioRef.current.srcObject = remoteStream;
+                remoteAudioRef.current.play().catch(console.error);
+            }
+        };
+
+        pc.current.onicecandidate = (event) => {
+            if (event.candidate) addIceCandidate(session.id, event.candidate, 'callee');
+        };
+
+        // Fetch Offer
+        const callData = await getCallById(session.id);
+        if (callData?.offer) {
+            await pc.current.setRemoteDescription(new RTCSessionDescription(callData.offer));
+            const answer = await pc.current.createAnswer();
+            await pc.current.setLocalDescription(answer);
+            
+            await updateCallSignal(session.id, { answer });
+            await updateCallStatus(session.id, 'accepted');
+            setStatus('accepted');
+        }
+    } catch(err) {
+        console.error("Accept Error", err);
+        setStatus('denied');
     }
   };
 
@@ -169,6 +239,7 @@ export const CallModal: React.FC<CallModalProps> = ({ session, onHangUp }) => {
 
   return (
     <div className="fixed inset-0 z-[1000] bg-slate-950 flex flex-col items-center justify-center text-white overflow-hidden animate-in fade-in duration-500">
+      
       {/* Remote Video (Full Screen) */}
       <video 
         ref={remoteVideoRef} 
@@ -177,6 +248,9 @@ export const CallModal: React.FC<CallModalProps> = ({ session, onHangUp }) => {
         className={`absolute inset-0 w-full h-full object-cover z-0 ${session.type === 'voice' ? 'hidden' : ''}`}
       />
       
+      {/* Dedicated Audio Element for Voice */}
+      <audio ref={remoteAudioRef} autoPlay />
+
       {/* Background Partner Blur (if voice or waiting) */}
       <div className={`absolute inset-0 opacity-40 blur-[50px] pointer-events-none bg-slate-900 z-0 ${status === 'accepted' && session.type === 'video' ? 'opacity-0' : 'opacity-100'}`}>
         <img src={session.partner.photoURL} className="w-full h-full object-cover" alt="" />
@@ -194,13 +268,13 @@ export const CallModal: React.FC<CallModalProps> = ({ session, onHangUp }) => {
             )}
             <h2 className="text-3xl font-black tracking-tight drop-shadow-md">{session.partner.name}</h2>
             <p className="text-white/80 font-bold tracking-[0.2em] uppercase text-xs mt-2 bg-black/20 inline-block px-4 py-1 rounded-full backdrop-blur-md">
-                {status === 'accepted' ? formatDuration(duration) : status === 'calling' ? 'Calling...' : 'Incoming...'}
+                {status === 'accepted' ? formatDuration(duration) : status === 'calling' ? 'Calling...' : 'Incoming Call...'}
             </p>
         </div>
 
-        {/* Local Video Preview */}
-        {session.type === 'video' && (
-             <div className="w-32 h-48 bg-black rounded-2xl overflow-hidden shadow-2xl border border-white/20 absolute top-4 right-4 z-20">
+        {/* Local Video Preview - Show only if accepted & video type */}
+        {status === 'accepted' && session.type === 'video' && (
+             <div className="w-32 h-48 bg-black rounded-2xl overflow-hidden shadow-2xl border border-white/20 absolute top-6 right-6 z-20">
                 <video ref={localVideoRef} autoPlay muted playsInline className={`w-full h-full object-cover mirror ${isVideoOff ? 'hidden' : ''}`} />
                 {isVideoOff && <div className="w-full h-full flex items-center justify-center text-xs text-white/50 uppercase font-bold">Cam Off</div>}
              </div>
@@ -208,12 +282,24 @@ export const CallModal: React.FC<CallModalProps> = ({ session, onHangUp }) => {
 
         {/* Controls */}
         <div className="flex items-center gap-6 mb-8">
+            {/* INCOMING CALL UI */}
             {status === 'ringing' && session.isIncoming ? (
                 <>
-                    <button onClick={handleDecline} className="p-6 bg-red-600 rounded-full shadow-lg hover:scale-110 transition-transform"><svg className="w-8 h-8 rotate-[135deg]" fill="currentColor" viewBox="0 0 24 24"><path d="M6.62 10.79c1.44 2.83 3.76 5.14 6.59 6.59l2.2-2.2c.27-.27.67-.36 1.02-.24 1.12.37 2.33.57 3.57.57.55 0 1 .45 1 1V20c0 .55-.45 1-1 1-9.39 0-17-7.61-17-17 0-.55.45-1 1-1h3.5c.55 0 1 .45 1 1 0 1.25.2 2.45.57 3.57.11.35.03.74-.25 1.02l-2.2 2.2z" /></svg></button>
-                    <button onClick={handleAccept} className="p-6 bg-green-500 rounded-full shadow-lg hover:scale-110 transition-transform animate-bounce"><svg className="w-8 h-8" fill="currentColor" viewBox="0 0 24 24"><path d="M6.62 10.79c1.44 2.83 3.76 5.14 6.59 6.59l2.2-2.2c.27-.27.67-.36 1.02-.24 1.12.37 2.33.57 3.57.57.55 0 1 .45 1 1V20c0 .55-.45 1-1 1-9.39 0-17-7.61-17-17 0-.55.45-1 1-1h3.5c.55 0 1 .45 1 1 0 1.25.2 2.45.57 3.57.11.35.03.74-.25 1.02l-2.2 2.2z" /></svg></button>
+                    <button onClick={handleDecline} className="flex flex-col items-center gap-2 group">
+                        <div className="p-6 bg-red-600 rounded-full shadow-lg group-hover:scale-110 transition-transform">
+                            <svg className="w-8 h-8 rotate-[135deg]" fill="currentColor" viewBox="0 0 24 24"><path d="M6.62 10.79c1.44 2.83 3.76 5.14 6.59 6.59l2.2-2.2c.27-.27.67-.36 1.02-.24 1.12.37 2.33.57 3.57.57.55 0 1 .45 1 1V20c0 .55-.45 1-1 1-9.39 0-17-7.61-17-17 0-.55.45-1 1-1h3.5c.55 0 1 .45 1 1 0 1.25.2 2.45.57 3.57.11.35.03.74-.25 1.02l-2.2 2.2z" /></svg>
+                        </div>
+                        <span className="text-xs font-bold uppercase tracking-widest">Decline</span>
+                    </button>
+                    <button onClick={handleAccept} className="flex flex-col items-center gap-2 group">
+                        <div className="p-6 bg-green-500 rounded-full shadow-lg group-hover:scale-110 transition-transform animate-pulse">
+                            <svg className="w-8 h-8" fill="currentColor" viewBox="0 0 24 24"><path d="M6.62 10.79c1.44 2.83 3.76 5.14 6.59 6.59l2.2-2.2c.27-.27.67-.36 1.02-.24 1.12.37 2.33.57 3.57.57.55 0 1 .45 1 1V20c0 .55-.45 1-1 1-9.39 0-17-7.61-17-17 0-.55.45-1 1-1h3.5c.55 0 1 .45 1 1 0 1.25.2 2.45.57 3.57.11.35.03.74-.25 1.02l-2.2 2.2z" /></svg>
+                        </div>
+                        <span className="text-xs font-bold uppercase tracking-widest">Accept</span>
+                    </button>
                 </>
             ) : (
+                /* ONGOING / OUTGOING UI */
                 <>
                     <button onClick={toggleMute} className={`p-4 rounded-full ${isMuted ? 'bg-white text-slate-900' : 'bg-white/20 hover:bg-white/30 backdrop-blur-md'}`}><svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d={isMuted ? "M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3zM5.5 5.5l13 13" : "M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z"} /></svg></button>
                     <button onClick={handleDecline} className="p-6 bg-red-600 rounded-full shadow-lg hover:scale-110 transition-transform"><svg className="w-8 h-8 rotate-[135deg]" fill="currentColor" viewBox="0 0 24 24"><path d="M6.62 10.79c1.44 2.83 3.76 5.14 6.59 6.59l2.2-2.2c.27-.27.67-.36 1.02-.24 1.12.37 2.33.57 3.57.57.55 0 1 .45 1 1V20c0 .55-.45 1-1 1-9.39 0-17-7.61-17-17 0-.55.45-1 1-1h3.5c.55 0 1 .45 1 1 0 1.25.2 2.45.57 3.57.11.35.03.74-.25 1.02l-2.2 2.2z" /></svg></button>

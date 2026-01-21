@@ -216,6 +216,7 @@ export const getMessages = async (chatId: string) => {
   try {
     const snapshot = await getDocs(collection(db, "messages"));
     const allMsgs = snapshot.docs.map(doc => doc.data());
+    const currentUid = auth.currentUser?.uid;
     
     let filteredMsgs;
     if (chatId.startsWith('group_')) {
@@ -227,6 +228,12 @@ export const getMessages = async (chatId: string) => {
         (m.senderId === u2 && m.recipientId === u1)
       );
     }
+
+    // Filter out messages deleted by the current user ("Delete for me")
+    if (currentUid) {
+      filteredMsgs = filteredMsgs.filter((m: any) => !m.deletedFor?.includes(currentUid));
+    }
+
     return filteredMsgs.sort((a: any, b: any) => a.timestamp - b.timestamp);
   } catch (error) {
     console.error("Error fetching messages:", error);
@@ -289,6 +296,14 @@ export const deleteMessageForEveryone = async (messageId: string) => {
     } catch (e) { console.error("Error deleting message:", e); }
 };
 
+export const deleteMessageForMe = async (messageId: string, userId: string) => {
+    try {
+        await updateDoc(doc(db, "messages", messageId), {
+            deletedFor: arrayUnion(userId)
+        });
+    } catch (e) { console.error("Error deleting message for me:", e); }
+};
+
 export const deleteMessage = async (messageId: string, chatId: string) => {
   await deleteDoc(doc(db, "messages", messageId));
 };
@@ -296,13 +311,10 @@ export const deleteMessage = async (messageId: string, chatId: string) => {
 export const setTypingStatus = async (chatId: string, userId: string, isTyping: boolean) => {
   try {
     const chatRef = doc(db, "chats", chatId);
-    // Use setDoc with merge to ensure the document structure exists even if messages haven't been sent yet
     await setDoc(chatRef, {
       typing: { [userId]: isTyping }
     }, { merge: true });
-  } catch (e) { 
-    // console.log("Typing update error", e);
-  }
+  } catch (e) { }
 };
 
 export const togglePinChat = async (userId: string, chatId: string) => {
@@ -318,6 +330,23 @@ export const togglePinChat = async (userId: string, chatId: string) => {
             }
         }
     } catch (e) { console.error("Error pinning chat:", e); }
+};
+
+export const togglePinMessage = async (chatId: string, messageId: string) => {
+    try {
+        const chatRef = doc(db, "chats", chatId);
+        const chatSnap = await getDoc(chatRef);
+        if(chatSnap.exists()) {
+            const pinned = chatSnap.data().pinnedMessages || [];
+            // For now, let's limit to pinning only the latest one or allowing array toggling.
+            // Requirement says "Pinned Messages", let's use array.
+            if(pinned.includes(messageId)) {
+                await updateDoc(chatRef, { pinnedMessages: arrayRemove(messageId) });
+            } else {
+                await updateDoc(chatRef, { pinnedMessages: arrayUnion(messageId) });
+            }
+        }
+    } catch (e) { console.error("Error pinning message", e); }
 };
 
 export const subscribeToChat = (chatId: string, callback: (data: any) => void) => {
@@ -341,6 +370,38 @@ export const createGroup = async (name: string, participants: string[], adminId:
   };
   await setDoc(doc(db, "chats", groupId), newGroup);
   return newGroup;
+};
+
+// --- GROUP MANAGEMENT ---
+
+export const leaveGroup = async (chatId: string, userId: string) => {
+  const chatRef = doc(db, "chats", chatId);
+  await updateDoc(chatRef, {
+    participants: arrayRemove(userId),
+    adminIds: arrayRemove(userId)
+  });
+};
+
+export const removeGroupMember = async (chatId: string, userId: string) => {
+  const chatRef = doc(db, "chats", chatId);
+  await updateDoc(chatRef, {
+    participants: arrayRemove(userId),
+    adminIds: arrayRemove(userId)
+  });
+};
+
+export const makeGroupAdmin = async (chatId: string, userId: string) => {
+  const chatRef = doc(db, "chats", chatId);
+  await updateDoc(chatRef, {
+    adminIds: arrayUnion(userId)
+  });
+};
+
+export const updateGroupInfo = async (chatId: string, name: string, iconUrl?: string) => {
+  const chatRef = doc(db, "chats", chatId);
+  const data: any = { name };
+  if (iconUrl) data.groupIcon = iconUrl;
+  await updateDoc(chatRef, data);
 };
 
 export const markMessagesAsDelivered = async (chatId: string, userId: string) => { };
@@ -387,7 +448,6 @@ export const getIncomingCall = async (userId: string) => {
   );
   const snapshot = await getDocs(q);
   const calls = snapshot.docs.map(doc => doc.data());
-  // Sort by timestamp desc to get latest
   return calls.sort((a: any, b: any) => b.timestamp - a.timestamp)[0];
 };
 
@@ -397,7 +457,6 @@ export const updateCallStatus = async (callId: string, status: string) => {
 
 // Add WebRTC Signaling Data
 export const updateCallSignal = async (callId: string, data: any) => {
-  // data can contain { offer }, { answer }, { callerCandidates }, { calleeCandidates }
   await setDoc(doc(db, "calls", callId), data, { merge: true });
 };
 
