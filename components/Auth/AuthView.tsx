@@ -8,6 +8,7 @@ export const AuthView: React.FC = () => {
   const [name, setName] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+  const [showSavePrompt, setShowSavePrompt] = useState(false);
   
   const { login, signup, googleSignIn } = useAuth();
 
@@ -18,60 +19,34 @@ export const AuthView: React.FC = () => {
 
   const getFriendlyErrorMessage = (errCode: string) => {
     if (!errCode) return "An unexpected error occurred.";
-    
-    // Check for raw error codes or messages containing codes
     const code = errCode.toLowerCase();
-    
-    if (code.includes('wrong-password') || code.includes('incorrect-password')) {
-      return "Incorrect password. Please double-check your credentials.";
-    }
-    if (code.includes('user-not-found')) {
-      return "No account found with this email. Please sign up or check for typos.";
-    }
-    if (code.includes('email-already-in-use')) {
-      return "This email is already registered. Try signing in instead.";
-    }
-    if (code.includes('invalid-email')) {
-      return "Please enter a valid email address.";
-    }
-    if (code.includes('weak-password')) {
-      return "Password should be at least 6 characters.";
-    }
-    if (code.includes('suspended') || code.includes('blocked')) {
-      return "This account has been suspended by an administrator.";
-    }
-
-    // Default cleanup for other error strings
+    if (code.includes('wrong-password') || code.includes('incorrect-password')) return "Incorrect password. Please double-check your credentials.";
+    if (code.includes('user-not-found')) return "No account found with this email. Please sign up or check for typos.";
+    if (code.includes('email-already-in-use')) return "This email is already registered. Try signing in instead.";
+    if (code.includes('invalid-email')) return "Please enter a valid email address.";
+    if (code.includes('weak-password')) return "Password should be at least 6 characters.";
+    if (code.includes('suspended') || code.includes('blocked')) return "This account has been suspended by an administrator.";
     return errCode.replace('Firebase: ', '').replace('auth/', '').split('-').join(' ');
   };
 
-  const handleDemoLogin = async () => {
-    setIsLoading(true);
-    setError(null);
-    const demoEmail = 'demo@roxx.chat';
-    const demoPass = 'roxx1234';
-
+  const handleSaveAccount = (user: any) => {
+    if (!password) return; // Google sign in doesn't have password, so we can't save plain credentials securely easily here
     try {
-      await login(demoEmail, demoPass);
-    } catch (err: any) {
-      // If login fails (e.g. user not found), try to create the demo account
-      try {
-        await signup(demoEmail, demoPass, 'Demo Account');
-      } catch (signupErr: any) {
-        if (signupErr.message.includes('email-already-in-use')) {
-           // If creation failed because it exists (race condition), try login one last time
-           try {
-             await login(demoEmail, demoPass);
-           } catch (e) {
-             setError("Demo account is currently unavailable. Please sign up manually.");
-           }
-        } else {
-             setError("Could not initialize demo account.");
+        const stored = localStorage.getItem('roxx_accounts');
+        let accounts = stored ? JSON.parse(stored) : [];
+        // Check if exists
+        if (!accounts.find((a: any) => a.uid === user.uid)) {
+            accounts.push({
+                uid: user.uid,
+                email: user.email,
+                name: user.displayName || name || user.email.split('@')[0],
+                photoURL: user.photoURL,
+                pass: password // Storing password locally as requested for fast switching simulation
+            });
+            localStorage.setItem('roxx_accounts', JSON.stringify(accounts));
         }
-      }
-    } finally {
-      setIsLoading(false);
-    }
+    } catch(e) { console.error(e); }
+    setShowSavePrompt(false);
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -80,37 +55,41 @@ export const AuthView: React.FC = () => {
     setIsLoading(true);
 
     try {
+      let userRes;
       if (isLogin) {
-        await login(email, password);
+        userRes = await login(email, password);
       } else {
         if (name.trim().length < 2) throw new Error("Please enter your full name.");
-        
+        // Try signup
         try {
-          await signup(email, password, name);
+            const res = await signup(email, password, name);
+            userRes = res.user;
         } catch (err: any) {
-          // If signup fails because email exists, try logging in
-          if (err.message.includes('email-already-in-use')) {
-            setIsLogin(true);
-            try {
-              await login(email, password);
-            } catch (loginErr: any) {
-              throw new Error("This email is already registered, but the password you provided doesn't match our records.");
-            }
-          } else {
-            throw err;
-          }
+            if (err.message.includes('email-already-in-use')) {
+                setIsLogin(true);
+                const res = await login(email, password);
+                userRes = res;
+            } else throw err;
         }
       }
-    } catch (err: any) {
-      // We only log to console if it's NOT a standard auth error to keep the console clean
-      const isAuthError = err.message.includes('auth/') || 
-                          err.message.includes('password') || 
-                          err.message.includes('user-not-found');
-      
-      if (!isAuthError) {
-        console.error("Auth Exception:", err);
+
+      if (userRes) {
+          // Check if saved
+          const stored = localStorage.getItem('roxx_accounts');
+          const accounts = stored ? JSON.parse(stored) : [];
+          if (!accounts.find((a: any) => a.uid === userRes.uid)) {
+              // Ask to save
+              // Note: Since App component listens to auth state, it might unmount this view immediately.
+              // We need to save BEFORE auth state listener fully redirects, or rely on a global modal.
+              // Given the architecture, we'll try a window.confirm or auto-save if this was a "Switch" action.
+              // For better UX as requested:
+              if (window.confirm("Save your information for fast account switching?")) {
+                  handleSaveAccount({ ...userRes, displayName: name || userRes.displayName });
+              }
+          }
       }
-      
+
+    } catch (err: any) {
       const message = getFriendlyErrorMessage(err.message);
       setError(message.charAt(0).toUpperCase() + message.slice(1));
     } finally {
@@ -206,19 +185,6 @@ export const AuthView: React.FC = () => {
         </form>
 
         <div className="mt-6 flex flex-col gap-3">
-          <button 
-            onClick={handleDemoLogin}
-            disabled={isLoading}
-            className="w-full bg-indigo-500/20 border border-white/20 py-3 rounded-xl text-white text-sm font-bold hover:bg-indigo-500/40 transition-all flex items-center justify-center gap-2 group"
-          >
-            {isLoading ? 'Processing...' : (
-                <>
-                    <span>🚀</span>
-                    <span className="group-hover:underline">Use Demo Account</span>
-                </>
-            )}
-          </button>
-
           <div className="flex items-center justify-center gap-4 py-2">
             <div className="h-px bg-white/10 flex-1"></div>
             <span className="text-white/30 text-[9px] font-black uppercase tracking-[0.2em]">Social Connect</span>

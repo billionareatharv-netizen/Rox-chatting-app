@@ -64,6 +64,24 @@ export interface Story {
   views?: StoryView[];
 }
 
+export interface Note {
+  id: string;
+  userId: string;
+  userName: string;
+  userPhoto: string;
+  text: string;
+  timestamp: number;
+}
+
+export interface SavedMedia {
+  id: string;
+  userId: string; // The user who saved it
+  mediaUrl: string;
+  mediaType: 'image' | 'video';
+  savedAt: number;
+  originalSenderName: string;
+}
+
 export interface Chat {
   id: string;
   type: 'private' | 'group';

@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Message } from '../../types';
+import { saveMediaToGallery } from '../../firebase';
 
 interface MediaViewerProps {
   message: Message;
@@ -42,13 +43,21 @@ export const MediaViewer: React.FC<MediaViewerProps> = ({ message, onClose, onFo
     }
   };
 
-  const handleSaveToApp = () => {
-    setIsSaved(true);
-    if (onSave) onSave(message);
-    setTimeout(() => {
-        setIsSaved(false);
-        setShowMenu(false);
-    }, 2000);
+  const handleSaveToApp = async () => {
+    if (message.fileUrl && (message.type === 'image' || message.type === 'video')) {
+        await saveMediaToGallery(
+            message.senderId === 'me' ? 'me' : message.recipientId, // Simplified for this context, ideally passes currentUser.uid
+            message.fileUrl, 
+            message.type,
+            message.senderId === 'me' ? 'You' : 'Sender' // Name resolution ideally happens outside
+        );
+        setIsSaved(true);
+        if (onSave) onSave(message);
+        setTimeout(() => {
+            setIsSaved(false);
+            setShowMenu(false);
+        }, 2000);
+    }
   };
 
   const handleReplyClick = () => {

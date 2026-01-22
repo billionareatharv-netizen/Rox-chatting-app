@@ -189,15 +189,10 @@ export const updateProfile = async (user: any, updates: any) => {
   await updateDoc(doc(db, "users", uid), updates);
 
   // 2. Try to update Auth Profile (Optional)
-  // We wrap this in try/catch because if photoURL is a large Base64 string, 
-  // Firebase Auth updateProfile will FAIL. But we don't want to break the app.
-  // The app predominantly uses the Firestore photoURL anyway.
   if (auth.currentUser) {
     try {
         const authUpdates: any = {};
         if (updates.name) authUpdates.displayName = updates.name;
-        // Only attempt to update Auth photo if it's a URL (short) or null
-        // If it looks like base64 data, we skip updating Auth to prevent errors
         if (updates.photoURL && !updates.photoURL.startsWith('data:')) {
             authUpdates.photoURL = updates.photoURL;
         }
@@ -206,7 +201,7 @@ export const updateProfile = async (user: any, updates: any) => {
             await firebaseUpdateProfile(auth.currentUser, authUpdates);
         }
     } catch (e) {
-        console.warn("Auth profile sync skipped/failed (likely due to image size). Firestore updated successfully.");
+        console.warn("Auth profile sync skipped/failed. Firestore updated successfully.");
     }
   }
   
@@ -225,7 +220,6 @@ export const getUserById = async (uid: string) => {
   return snap.exists() ? snap.data() : null;
 };
 
-// New: Subscribe to a user document for real-time status updates
 export const subscribeToUser = (uid: string, callback: (user: any) => void) => {
   return onSnapshot(doc(db, "users", uid), (doc) => {
     if (doc.exists()) {
@@ -239,7 +233,6 @@ export const subscribeToUser = (uid: string, callback: (user: any) => void) => {
 export const getMyChats = async (uid: string) => {
   const querySnapshot = await getDocs(collection(db, "chats"));
   const allChats = querySnapshot.docs.map(doc => doc.data());
-  // Safely check for participants array
   return allChats.filter((c: any) => c.participants && c.participants.includes(uid))
                  .sort((a: any, b: any) => (b.updatedAt || 0) - (a.updatedAt || 0));
 };
@@ -261,7 +254,6 @@ export const getMessages = async (chatId: string) => {
       );
     }
 
-    // Filter out messages deleted by the current user ("Delete for me")
     if (currentUid) {
       filteredMsgs = filteredMsgs.filter((m: any) => !m.deletedFor?.includes(currentUid));
     }
@@ -370,8 +362,6 @@ export const togglePinMessage = async (chatId: string, messageId: string) => {
         const chatSnap = await getDoc(chatRef);
         if(chatSnap.exists()) {
             const pinned = chatSnap.data().pinnedMessages || [];
-            // For now, let's limit to pinning only the latest one or allowing array toggling.
-            // Requirement says "Pinned Messages", let's use array.
             if(pinned.includes(messageId)) {
                 await updateDoc(chatRef, { pinnedMessages: arrayRemove(messageId) });
             } else {
@@ -457,7 +447,6 @@ export const toggleChatLock = async (chatId: string, userId: string) => {
 // --- CALLING (WebRTC Signaling) ---
 
 export const initiateCall = async (callerId: string, receiverId: string, type: 'voice' | 'video') => {
-  // Use manual UUID generator instead of crypto.randomUUID for better compatibility
   const callId = 'call_' + generateUUID();
   const newCall = {
     id: callId,
@@ -488,7 +477,6 @@ export const updateCallStatus = async (callId: string, status: string) => {
   await updateDoc(doc(db, "calls", callId), { status });
 };
 
-// Add WebRTC Signaling Data
 export const updateCallSignal = async (callId: string, data: any) => {
   await setDoc(doc(db, "calls", callId), data, { merge: true });
 };
@@ -516,7 +504,7 @@ export const getCallById = async (callId: string) => {
 
 export const cleanOldCalls = async () => { };
 
-// --- STORIES ---
+// --- STORIES & NOTES ---
 export const addStory = async (story: any) => {
   await setDoc(doc(db, "stories", story.id), { ...story, likes: [], views: [] });
 };
@@ -551,6 +539,53 @@ export const sendStoryReply = async (rid: string, sid: string, text: string, sto
   };
   await addMessage(msg);
   return msg;
+};
+
+// --- NOTES ---
+export const addNote = async (userId: string, userName: string, userPhoto: string, text: string) => {
+  // Use a predictable ID for the user's note so they only have one at a time
+  const noteId = `note_${userId}`;
+  const note = {
+    id: noteId,
+    userId,
+    userName,
+    userPhoto,
+    text,
+    timestamp: Date.now()
+  };
+  await setDoc(doc(db, "notes", noteId), note);
+  return note;
+};
+
+export const getNotes = async () => {
+  const yesterday = Date.now() - 86400000; // Notes last 24 hours
+  const q = query(collection(db, "notes"), where("timestamp", ">", yesterday));
+  const snapshot = await getDocs(q);
+  return snapshot.docs.map(doc => doc.data());
+};
+
+// --- SAVED MEDIA (APP GALLERY) ---
+export const saveMediaToGallery = async (userId: string, mediaUrl: string, mediaType: 'image' | 'video', senderName: string) => {
+  const id = 'saved_' + generateUUID();
+  const item = {
+    id,
+    userId,
+    mediaUrl,
+    mediaType,
+    savedAt: Date.now(),
+    originalSenderName: senderName
+  };
+  await setDoc(doc(db, "saved_media", id), item);
+};
+
+export const getSavedGallery = async (userId: string) => {
+  const q = query(collection(db, "saved_media"), where("userId", "==", userId));
+  const snapshot = await getDocs(q);
+  return snapshot.docs.map(doc => doc.data()).sort((a: any, b: any) => b.savedAt - a.savedAt);
+};
+
+export const deleteSavedMedia = async (id: string) => {
+  await deleteDoc(doc(db, "saved_media", id));
 };
 
 // --- ADMIN ---
