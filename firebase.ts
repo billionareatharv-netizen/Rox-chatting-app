@@ -76,6 +76,16 @@ try {
 
 export { auth, db };
 
+// Helper to abstract Auth State Change for both Modular SDK and Mock object
+export const observeAuthState = (callback: (user: any) => void) => {
+  // If auth is our mock object or legacy compat, it has the method
+  if (auth && (auth as any).onAuthStateChanged) {
+    return (auth as any).onAuthStateChanged(callback);
+  }
+  // Otherwise use the Modular SDK standalone function
+  return onAuthStateChanged(auth, callback);
+};
+
 // Helper for generating UUIDs safely in all environments
 const generateUUID = () => {
   if (typeof crypto !== 'undefined' && crypto.randomUUID) {

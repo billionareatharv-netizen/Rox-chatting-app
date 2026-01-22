@@ -349,7 +349,7 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({ message, isOwn, is
                         <span key={emoji} className="text-[10px] leading-none" title={`${(users as string[]).length} reaction(s)`}>{emoji}</span>
                     ))}
                     <span className="text-[9px] font-bold text-slate-500 px-1">
-                        {Object.values(message.reactions || {}).reduce((acc: number, u: any) => acc + (u as string[]).length, 0)}
+                        {Object.values(message.reactions || {}).reduce((acc: number, u: any) => acc + (u?.length || 0), 0)}
                     </span>
                 </div>
             </div>

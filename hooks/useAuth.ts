@@ -8,7 +8,8 @@ import {
   updateProfile,
   updateUserStatus,
   getUserById,
-  makeUserAdmin
+  makeUserAdmin,
+  observeAuthState
 } from '../firebase';
 import { User } from '../types';
 
@@ -27,60 +28,55 @@ export const useAuth = () => {
         }
     }, 4000);
 
-    const unsubscribe = auth.onAuthStateChanged(
-        async (firebaseUser: any) => {
-            clearTimeout(timeoutTimer); 
-            if (!mounted) return;
+    const unsubscribe = observeAuthState(async (firebaseUser: any) => {
+        clearTimeout(timeoutTimer); 
+        if (!mounted) return;
 
-            if (firebaseUser) {
-                try {
-                  let dbUser = await getUserById(firebaseUser.uid);
-                  
-                  const isHardcodedAdmin = firebaseUser.email?.toLowerCase() === 'betterrroxx@gmail.com';
-                  if (isHardcodedAdmin) {
-                     if (dbUser && !dbUser.isAdmin) {
-                        await makeUserAdmin(firebaseUser.uid);
-                        dbUser.isAdmin = true;
-                     }
-                  }
+        if (firebaseUser) {
+            try {
+              let dbUser = await getUserById(firebaseUser.uid);
+              
+              const isHardcodedAdmin = firebaseUser.email?.toLowerCase() === 'betterrroxx@gmail.com';
+              if (isHardcodedAdmin) {
+                 if (dbUser && !dbUser.isAdmin) {
+                    await makeUserAdmin(firebaseUser.uid);
+                    dbUser.isAdmin = true;
+                 }
+              }
 
-                  const finalUser: User = {
-                    uid: firebaseUser.uid,
-                    name: dbUser?.name || firebaseUser.displayName || 'Anonymous',
-                    email: firebaseUser.email || '',
-                    photoURL: dbUser?.photoURL || firebaseUser.photoURL || `https://picsum.photos/seed/${firebaseUser.uid}/200`,
-                    status: dbUser?.status || 'online',
-                    lastSeen: dbUser?.lastSeen || Date.now(),
-                    bio: dbUser?.bio,
-                    blockedUsers: dbUser?.blockedUsers || [],
-                    chatLockPassword: dbUser?.chatLockPassword,
-                    isAdmin: dbUser ? !!dbUser.isAdmin : isHardcodedAdmin,
-                    isGloballyBlocked: !!dbUser?.isGloballyBlocked
-                  };
-                  
-                  setUser(finalUser);
-                } catch (err) {
-                  console.error("Error fetching user details:", err);
-                  setUser({
-                    uid: firebaseUser.uid,
-                    name: firebaseUser.displayName || 'User',
-                    email: firebaseUser.email || '',
-                    photoURL: firebaseUser.photoURL || '',
-                    status: 'online',
-                    lastSeen: Date.now(),
-                    isAdmin: false
-                  } as User);
-                }
-            } else {
-                setUser(null);
+              const finalUser: User = {
+                uid: firebaseUser.uid,
+                name: dbUser?.name || firebaseUser.displayName || 'Anonymous',
+                email: firebaseUser.email || '',
+                photoURL: dbUser?.photoURL || firebaseUser.photoURL || `https://picsum.photos/seed/${firebaseUser.uid}/200`,
+                status: dbUser?.status || 'online',
+                lastSeen: dbUser?.lastSeen || Date.now(),
+                bio: dbUser?.bio,
+                blockedUsers: dbUser?.blockedUsers || [],
+                chatLockPassword: dbUser?.chatLockPassword,
+                isAdmin: dbUser ? !!dbUser.isAdmin : isHardcodedAdmin,
+                isGloballyBlocked: !!dbUser?.isGloballyBlocked,
+                privacySettings: dbUser?.privacySettings
+              };
+              
+              setUser(finalUser);
+            } catch (err) {
+              console.error("Error fetching user details:", err);
+              setUser({
+                uid: firebaseUser.uid,
+                name: firebaseUser.displayName || 'User',
+                email: firebaseUser.email || '',
+                photoURL: firebaseUser.photoURL || '',
+                status: 'online',
+                lastSeen: Date.now(),
+                isAdmin: false
+              } as User);
             }
-            setLoading(false);
-        }, 
-        (error: any) => {
-            console.error("Auth Error:", error);
-            if(mounted) setLoading(false);
+        } else {
+            setUser(null);
         }
-    );
+        setLoading(false);
+    });
 
     return () => {
       mounted = false;
