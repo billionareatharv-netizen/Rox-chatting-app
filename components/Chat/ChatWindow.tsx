@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { User, Chat, Message } from '../../types';
 import { MessageBubble } from './MessageBubble';
 import { GroupInfoModal } from './GroupInfoModal';
+import { MediaViewer } from './MediaViewer';
 import { getAIResponse } from '../../gemini';
 import { getUserById, addMessage, getMessages, toggleChatLock, markMessagesAsSeen, markMessagesAsDelivered, getMyChats, getAllUsers, setTypingStatus, subscribeToChat, deleteMessage, deleteMessageForEveryone, deleteMessageForMe, editMessage, subscribeToUser, togglePinMessage } from '../../firebase';
 
@@ -47,6 +48,9 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ chat, currentUser, onClo
   // UI State for Deletion
   const [messageToDelete, setMessageToDelete] = useState<Message | null>(null);
   const [showDeleteOptions, setShowDeleteOptions] = useState(false);
+
+  // UI State for Media Viewing
+  const [viewingMedia, setViewingMedia] = useState<Message | null>(null);
 
   const [wallpaper, setWallpaper] = useState('default');
   const [customUrl, setCustomUrl] = useState<string | null>(null);
@@ -130,10 +134,7 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ chat, currentUser, onClo
     const sync = async () => {
       const msgs = await getMessages(chat.id);
       setMessages(prev => {
-        // Simple comparison to prevent excessive re-renders if nothing changed
-        // In prod, use deep compare or robust ID/timestamp checks
         if (msgs.length !== prev.length) return msgs;
-        // Check for edits/deletes
         const changed = msgs.some((m, i) => {
             const p = prev[i];
             return p.id !== m.id || p.status !== m.status || p.text !== m.text || p.type !== m.type;
@@ -171,7 +172,6 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ chat, currentUser, onClo
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       
       let mimeType = 'audio/webm';
-      // Prioritize supported types
       if (MediaRecorder.isTypeSupported('audio/webm;codecs=opus')) {
           mimeType = 'audio/webm;codecs=opus';
       } else if (MediaRecorder.isTypeSupported('audio/mp4')) {
@@ -197,12 +197,10 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ chat, currentUser, onClo
 
   const stopRecording = async (shouldSend: boolean) => {
     if (mediaRecorder && isRecording) {
-      // Capture mimeType before stopping
       const mimeType = mediaRecorder.mimeType || 'audio/webm';
       
       mediaRecorder.onstop = async () => {
         if (shouldSend && audioChunksRef.current.length > 0) {
-            // Explicitly use the recorded mimetype
             const blob = new Blob(audioChunksRef.current, { type: mimeType });
             const reader = new FileReader();
             reader.readAsDataURL(blob);
@@ -255,11 +253,9 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ chat, currentUser, onClo
       
       if (window.confirm(confirmText)) {
           if (type === 'everyone') {
-              // Optimistic
               setMessages(prev => prev.map(m => m.id === messageToDelete.id ? { ...m, type: 'deleted', text: '🚫 This message was deleted' } : m));
               await deleteMessageForEveryone(messageToDelete.id);
           } else {
-              // Optimistic: remove from local view
               setMessages(prev => prev.filter(m => m.id !== messageToDelete.id));
               await deleteMessageForMe(messageToDelete.id, currentUser.uid);
           }
@@ -278,6 +274,10 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ chat, currentUser, onClo
       inputRef.current?.focus();
   };
 
+  const handleMediaClick = (msg: Message) => {
+      setViewingMedia(msg);
+  };
+
   const handleSend = async (e?: React.FormEvent) => {
     e?.preventDefault();
     const text = inputText.trim();
@@ -287,7 +287,6 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ chat, currentUser, onClo
     setIsTyping(false);
     setTypingStatus(chat.id, currentUser.uid, false);
 
-    // Handle Edit
     if (editingMessage) {
         setMessages(prev => prev.map(m => m.id === editingMessage.id ? { ...m, text: text, isEdited: true } : m));
         await editMessage(editingMessage.id, text);
@@ -438,7 +437,6 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ chat, currentUser, onClo
   const statusColor = !isGroup && isOnline ? 'text-green-500' : 'text-slate-500 dark:text-slate-400';
   const statusText = !isGroup && isOnline ? 'Online Now' : 'Offline';
 
-  // Get Latest Pinned Message content
   const latestPinnedId = pinnedMessageIds[pinnedMessageIds.length - 1];
   const pinnedMessage = messages.find(m => m.id === latestPinnedId);
 
@@ -449,7 +447,6 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ chat, currentUser, onClo
         <div className="absolute inset-0 opacity-[0.08] pointer-events-none" style={{ backgroundImage: `url('https://www.transparenttextures.com/patterns/asfalt-dark.png')` }}></div>
       </div>
 
-      {/* Header */}
       <div className="p-3 md:p-4 flex items-center justify-between glass z-10 border-b border-slate-200 dark:border-slate-800 shadow-sm relative">
         <div className="flex items-center gap-3">
           <button onClick={onClose} className="lg:hidden p-2 rounded-xl hover:bg-slate-200 dark:hover:bg-slate-800"><svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M15 19l-7-7 7-7" /></svg></button>
@@ -489,7 +486,6 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ chat, currentUser, onClo
         </div>
       </div>
 
-      {/* Pinned Message Header */}
       {pinnedMessage && (
         <div 
             onClick={() => {
@@ -527,10 +523,10 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ chat, currentUser, onClo
               onEdit={handleEditMessage}
               onPin={handlePinMessage}
               isPinned={pinnedMessageIds.includes(msg.id)}
+              onMediaClick={handleMediaClick}
             />
           </React.Fragment>
         ))}
-        {/* Visible Typing Bubble */}
         {typingUsers.length > 0 && (
           <div className="flex items-end gap-2 px-2 py-2 animate-in slide-in-from-left-4 fade-in duration-300">
              {!isGroup && <img src={otherUser?.photoURL || `https://picsum.photos/seed/${chat.id}/50`} className="w-8 h-8 rounded-full border border-white dark:border-slate-800" alt="" />}
@@ -614,7 +610,6 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ chat, currentUser, onClo
         </div>
       </div>
 
-      {/* Group Info Modal */}
       {showGroupInfo && (
         <GroupInfoModal 
           chat={chat}
@@ -623,7 +618,16 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ chat, currentUser, onClo
         />
       )}
 
-      {/* Delete Options Bottom Sheet / Modal */}
+      {/* Media Viewer Modal */}
+      {viewingMedia && (
+        <MediaViewer 
+           message={viewingMedia}
+           onClose={() => setViewingMedia(null)}
+           onForward={openForwardModal}
+           onReply={(msg) => setReplyingTo(msg)}
+        />
+      )}
+
       {showDeleteOptions && messageToDelete && (
         <div className="fixed inset-0 z-[200] flex items-end justify-center sm:items-center">
             <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => setShowDeleteOptions(false)}></div>

@@ -11,9 +11,10 @@ interface MessageBubbleProps {
   onEdit?: (msg: Message) => void;
   onPin?: (msg: Message) => void;
   isPinned?: boolean;
+  onMediaClick?: (msg: Message) => void;
 }
 
-export const MessageBubble: React.FC<MessageBubbleProps> = ({ message, isOwn, isAI, onReply, onForward, onDelete, onEdit, onPin, isPinned }) => {
+export const MessageBubble: React.FC<MessageBubbleProps> = ({ message, isOwn, isAI, onReply, onForward, onDelete, onEdit, onPin, isPinned, onMediaClick }) => {
   const [showMenu, setShowMenu] = useState(false);
   const [swipeOffset, setSwipeOffset] = useState(0);
   const [isPlaying, setIsPlaying] = useState(false);
@@ -50,7 +51,6 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({ message, isOwn, is
       if (isPlaying) {
         audio.pause();
       } else {
-        // Reset all other audios if needed, or just play this one
         document.querySelectorAll('audio').forEach(a => { if(a !== audio) a.pause() });
         const playPromise = audio.play();
         if (playPromise !== undefined) {
@@ -191,10 +191,29 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({ message, isOwn, is
                 )}
              </div>
           ) : message.type === 'image' && message.fileUrl ? (
-            <div className="relative mb-2 -mx-1 -mt-1 overflow-hidden rounded-2xl"><img src={message.fileUrl} className="max-h-80 w-full object-cover" alt="" /></div>
+            <div 
+                className="relative mb-2 -mx-1 -mt-1 overflow-hidden rounded-2xl cursor-zoom-in"
+                onClick={(e) => { 
+                    e.stopPropagation(); // Prevent menu toggle
+                    if(onMediaClick) onMediaClick(message); 
+                }}
+            >
+                <img src={message.fileUrl} className="max-h-80 w-full object-cover" alt="" />
+            </div>
           ) : message.type === 'video' && message.fileUrl ? (
-            <div className="relative mb-2 -mx-1 -mt-1 overflow-hidden rounded-2xl bg-black">
-                <video src={message.fileUrl} controls playsInline className="max-h-80 w-full object-contain" onError={(e) => console.error("Video load failed", e)} />
+            <div 
+                className="relative mb-2 -mx-1 -mt-1 overflow-hidden rounded-2xl bg-black cursor-pointer"
+                onClick={(e) => { 
+                    e.stopPropagation(); 
+                    if(onMediaClick) onMediaClick(message); 
+                }}
+            >
+                <video src={message.fileUrl} className="max-h-80 w-full object-contain pointer-events-none" onError={(e) => console.error("Video load failed", e)} />
+                <div className="absolute inset-0 flex items-center justify-center bg-black/20 group-hover:bg-black/10 transition-colors">
+                     <div className="p-3 bg-white/20 backdrop-blur-md rounded-full text-white border border-white/30 shadow-xl">
+                        <svg className="w-6 h-6 ml-1" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
+                     </div>
+                </div>
             </div>
           ) : (
             <p className="text-[14.5px] leading-[1.45] font-medium whitespace-pre-wrap">{message.text}</p>
