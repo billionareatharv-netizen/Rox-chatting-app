@@ -89,19 +89,34 @@ const generateUUID = () => {
   });
 };
 
-// Helper to remove undefined values and avoid circular dependency errors (replacing JSON.stringify)
-const sanitizeData = (data: any): any => {
+// Helper to remove undefined values, DOM nodes, and avoid circular dependency errors
+const sanitizeData = (data: any, seen = new WeakSet()): any => {
   if (data === null || data === undefined) return null;
   if (typeof data !== 'object') return data;
-  if (data instanceof Date) return data.getTime(); // Convert dates to timestamps
-  if (Array.isArray(data)) return data.map(sanitizeData);
+  if (data instanceof Date) return data.getTime();
+  
+  // Detect DOM nodes
+  if (data.nodeType && typeof data.cloneNode === 'function') return '[DOM Node]';
+  // Detect React Fiber/Internal objects
+  if (data.$$typeof) return '[React Element]';
+  if (data._reactInternals) return '[React Internals]';
+
+  if (seen.has(data)) return '[Circular]';
+  seen.add(data);
+
+  if (Array.isArray(data)) {
+    return data.map(item => sanitizeData(item, seen));
+  }
   
   const out: any = {};
   for (const k in data) {
+    // Skip React internal properties which often cause circular refs
+    if (k.startsWith('__react') || k === '_owner' || k === 'stateNode') continue;
+
     if (Object.prototype.hasOwnProperty.call(data, k)) {
       const val = data[k];
       if (val !== undefined) {
-        out[k] = sanitizeData(val);
+        out[k] = sanitizeData(val, seen);
       }
     }
   }
@@ -153,7 +168,11 @@ export const createUserWithEmailAndPassword = async (authObj: any, email: string
     pinnedChats: [],
     lockedChats: [],
     isAdmin: isAdmin,
-    isGloballyBlocked: false
+    isGloballyBlocked: false,
+    privacySettings: {
+      lastSeen: 'everyone',
+      readReceipts: true
+    }
   };
 
   await setDoc(doc(db, "users", user.uid), newUserProfile);
@@ -182,10 +201,10 @@ export const signInWithPopup = async () => {
       pinnedChats: [],
       lockedChats: [],
       isAdmin: isAdmin,
-      isGloballyBlocked: false
+      isGloballyBlocked: false,
+      privacySettings: { lastSeen: 'everyone', readReceipts: true }
     });
   } else {
-    // Update admin status if specific email matches even on existing accounts
     if (isAdmin && !userSnap.data().isAdmin) {
        await updateDoc(userRef, { isAdmin: true });
     }
@@ -203,11 +222,7 @@ export const signOut = async () => {
 
 export const updateProfile = async (user: any, updates: any) => {
   const uid = user.uid || user.id;
-  
-  // 1. Always update Firestore first (Database of Truth)
   await updateDoc(doc(db, "users", uid), updates);
-
-  // 2. Try to update Auth Profile (Optional)
   if (auth.currentUser) {
     try {
         const authUpdates: any = {};
@@ -215,15 +230,11 @@ export const updateProfile = async (user: any, updates: any) => {
         if (updates.photoURL && !updates.photoURL.startsWith('data:')) {
             authUpdates.photoURL = updates.photoURL;
         }
-        
         if (Object.keys(authUpdates).length > 0) {
             await firebaseUpdateProfile(auth.currentUser, authUpdates);
         }
-    } catch (e) {
-        console.warn("Auth profile sync skipped/failed. Firestore updated successfully.");
-    }
+    } catch (e) { }
   }
-  
   return { ...user, ...updates };
 };
 
@@ -286,7 +297,24 @@ export const getMessages = async (chatId: string) => {
 
 export const addMessage = async (msg: any) => {
   try {
-    const safeMsg = sanitizeData(msg); // USE SANITIZE INSTEAD OF JSON.STRINGIFY
+    const safeMsg = sanitizeData(msg); 
+    
+    // Blocking Logic Check
+    if (!safeMsg.recipientId.startsWith('group_')) {
+        const recipientRef = doc(db, "users", safeMsg.recipientId);
+        const recipientSnap = await getDoc(recipientRef);
+        
+        if (recipientSnap.exists()) {
+            const recipientData = recipientSnap.data();
+            const blockedUsers = recipientData.blockedUsers || [];
+            
+            if (blockedUsers.includes(safeMsg.senderId)) {
+                await setDoc(doc(db, "messages", safeMsg.id), safeMsg);
+                return; 
+            }
+        }
+    }
+
     await setDoc(doc(db, "messages", safeMsg.id), safeMsg);
 
     const chatId = safeMsg.recipientId.startsWith('group_') 
@@ -297,7 +325,7 @@ export const addMessage = async (msg: any) => {
     const updateData = {
       id: chatId,
       lastMessage: { 
-        text: safeMsg.type === 'voice' ? '🎤 Voice Message' : (safeMsg.text || 'Media'), 
+        text: safeMsg.type === 'voice' ? '🎤 Voice' : safeMsg.type === 'image' ? '📷 Image' : safeMsg.type === 'poll' ? '📊 Poll' : safeMsg.type === 'sticker' ? '👾 Sticker' : (safeMsg.text || 'Media'), 
         senderId: safeMsg.senderId, 
         timestamp: safeMsg.timestamp 
       },
@@ -319,6 +347,56 @@ export const addMessage = async (msg: any) => {
   }
 };
 
+export const toggleMessageReaction = async (messageId: string, emoji: string, userId: string) => {
+  const msgRef = doc(db, "messages", messageId);
+  try {
+    const snap = await getDoc(msgRef);
+    if (!snap.exists()) return;
+    const data = snap.data();
+    const reactions = data.reactions || {};
+    
+    const userList = reactions[emoji] || [];
+    if (userList.includes(userId)) {
+      reactions[emoji] = userList.filter((id: string) => id !== userId);
+      if (reactions[emoji].length === 0) delete reactions[emoji];
+    } else {
+      reactions[emoji] = [...userList, userId];
+    }
+    
+    await updateDoc(msgRef, { reactions });
+  } catch (e) { console.error("Reaction error", e); }
+};
+
+export const voteOnPoll = async (messageId: string, optionId: string, userId: string) => {
+  const msgRef = doc(db, "messages", messageId);
+  try {
+    const snap = await getDoc(msgRef);
+    if (!snap.exists()) return;
+    const data = snap.data();
+    if (data.type !== 'poll' || !data.poll) return;
+
+    const poll = data.poll;
+    if (!poll.allowMultiple) {
+      poll.options.forEach((opt: any) => {
+        if (opt.id !== optionId) {
+          opt.votes = opt.votes.filter((uid: string) => uid !== userId);
+        }
+      });
+    }
+
+    const targetOpt = poll.options.find((o: any) => o.id === optionId);
+    if (targetOpt) {
+      if (targetOpt.votes.includes(userId)) {
+        targetOpt.votes = targetOpt.votes.filter((uid: string) => uid !== userId);
+      } else {
+        targetOpt.votes.push(userId);
+      }
+    }
+
+    await updateDoc(msgRef, { poll });
+  } catch (e) { console.error("Voting error", e); }
+};
+
 export const editMessage = async (messageId: string, newText: string) => {
     try {
         await updateDoc(doc(db, "messages", messageId), {
@@ -334,7 +412,9 @@ export const deleteMessageForEveryone = async (messageId: string) => {
             type: 'deleted',
             text: '🚫 This message was deleted',
             fileUrl: null,
-            audioUrl: null
+            audioUrl: null,
+            poll: null,
+            stickerUrl: null
         });
     } catch (e) { console.error("Error deleting message:", e); }
 };
@@ -404,6 +484,7 @@ export const createGroup = async (name: string, participants: string[], adminId:
     id: groupId,
     type: 'group',
     name,
+    description: 'Welcome to the group!',
     participants: [...participants, adminId],
     adminIds: [adminId],
     updatedAt: Date.now(),
@@ -438,10 +519,11 @@ export const makeGroupAdmin = async (chatId: string, userId: string) => {
   });
 };
 
-export const updateGroupInfo = async (chatId: string, name: string, iconUrl?: string) => {
+export const updateGroupInfo = async (chatId: string, name: string, iconUrl?: string, description?: string) => {
   const chatRef = doc(db, "chats", chatId);
   const data: any = { name };
   if (iconUrl) data.groupIcon = iconUrl;
+  if (description !== undefined) data.description = description;
   await updateDoc(chatRef, data);
 };
 
@@ -503,7 +585,6 @@ export const updateCallSignal = async (callId: string, data: any) => {
 export const addIceCandidate = async (callId: string, candidate: any, type: 'caller' | 'callee') => {
   const callRef = doc(db, "calls", callId);
   const field = type === 'caller' ? 'callerCandidates' : 'calleeCandidates';
-  // Use sanitizeData instead of JSON.stringify to be safe
   await updateDoc(callRef, {
     [field]: arrayUnion(sanitizeData(candidate))
   });
@@ -563,7 +644,6 @@ export const sendStoryReply = async (rid: string, sid: string, text: string, sto
 
 // --- NOTES ---
 export const addNote = async (userId: string, userName: string, userPhoto: string, text: string) => {
-  // Use a predictable ID for the user's note so they only have one at a time
   const noteId = `note_${userId}`;
   const note = {
     id: noteId,

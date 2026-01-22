@@ -12,10 +12,31 @@ export interface User {
   chatLockPassword?: string; 
   isAdmin?: boolean; 
   isGloballyBlocked?: boolean;
+  privacySettings?: {
+    lastSeen: 'everyone' | 'contacts' | 'nobody';
+    readReceipts: boolean;
+  };
 }
 
-export type MessageType = 'text' | 'image' | 'video' | 'file' | 'voice' | 'story_reply' | 'deleted';
+export type MessageType = 'text' | 'image' | 'video' | 'file' | 'voice' | 'story_reply' | 'deleted' | 'poll' | 'sticker';
 export type MessageStatus = 'sent' | 'delivered' | 'seen';
+
+export interface Reaction {
+  emoji: string;
+  userIds: string[];
+}
+
+export interface PollOption {
+  id: string;
+  text: string;
+  votes: string[]; // array of userIds
+}
+
+export interface PollData {
+  question: string;
+  options: PollOption[];
+  allowMultiple: boolean;
+}
 
 export interface Message {
   id: string;
@@ -32,7 +53,7 @@ export interface Message {
   isForwarded?: boolean;
   isEdited?: boolean;
   isPinned?: boolean; // Visual helper
-  deletedFor?: string[]; // New: IDs of users who deleted this for themselves
+  deletedFor?: string[]; // IDs of users who deleted this for themselves
   replyContext?: {
     messageId: string;
     text: string;
@@ -43,6 +64,9 @@ export interface Message {
     mediaUrl: string;
     mediaType: 'image' | 'video';
   };
+  reactions?: { [emoji: string]: string[] }; // Map emoji -> array of userIds
+  poll?: PollData;
+  stickerUrl?: string;
 }
 
 export interface StoryView {
@@ -87,9 +111,10 @@ export interface Chat {
   type: 'private' | 'group';
   participants: string[];
   name?: string; 
+  description?: string;
   groupIcon?: string; 
   adminIds?: string[]; 
-  pinnedMessages?: string[]; // New: IDs of pinned messages in this chat
+  pinnedMessages?: string[]; 
   lastMessage?: {
     text: string;
     senderId: string;

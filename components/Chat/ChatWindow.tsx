@@ -1,10 +1,25 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { User, Chat, Message } from '../../types';
+import { User, Chat, Message, PollData } from '../../types';
 import { MessageBubble } from './MessageBubble';
 import { GroupInfoModal } from './GroupInfoModal';
 import { MediaViewer } from './MediaViewer';
 import { getAIResponse } from '../../gemini';
-import { getUserById, addMessage, getMessages, toggleChatLock, markMessagesAsSeen, markMessagesAsDelivered, getMyChats, getAllUsers, setTypingStatus, subscribeToChat, deleteMessage, deleteMessageForEveryone, deleteMessageForMe, editMessage, subscribeToUser, togglePinMessage } from '../../firebase';
+import { 
+  getUserById, 
+  addMessage, 
+  getMessages, 
+  toggleChatLock, 
+  editMessage, 
+  subscribeToChat, 
+  deleteMessage, 
+  deleteMessageForEveryone, 
+  deleteMessageForMe, 
+  subscribeToUser, 
+  togglePinMessage, 
+  setTypingStatus,
+  getMyChats,
+  getAllUsers
+} from '../../firebase';
 
 interface ChatWindowProps {
   chat: Chat;
@@ -14,8 +29,19 @@ interface ChatWindowProps {
   onCallStart?: (user: User, type: 'voice' | 'video') => void;
 }
 
+const STICKERS = [
+    'https://cdn-icons-png.flaticon.com/512/742/742751.png', // Happy
+    'https://cdn-icons-png.flaticon.com/512/742/742752.png', // Sad
+    'https://cdn-icons-png.flaticon.com/512/742/742923.png', // Heart
+    'https://cdn-icons-png.flaticon.com/512/742/742823.png', // Cool
+    'https://cdn-icons-png.flaticon.com/512/742/742760.png', // Laugh
+    'https://cdn-icons-png.flaticon.com/512/742/742940.png', // Angry
+    'https://cdn-icons-png.flaticon.com/512/4712/4712109.png', // Thumbs Up
+    'https://cdn-icons-png.flaticon.com/512/4712/4712139.png', // Party
+];
+
 const WALLPAPER_CLASSES: Record<string, string> = {
-  default: 'bg-slate-100 dark:bg-slate-950',
+  default: 'bg-slate-50 dark:bg-slate-950',
   indigo: 'bg-indigo-600',
   emerald: 'bg-emerald-700',
   rose: 'bg-rose-500',
@@ -45,12 +71,25 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ chat, currentUser, onClo
   const [pinnedMessageIds, setPinnedMessageIds] = useState<string[]>([]);
   const [showGroupInfo, setShowGroupInfo] = useState(false);
   
+  // Block State
+  const [isBlockedByMe, setIsBlockedByMe] = useState(false);
+  const [isBlockedByThem, setIsBlockedByThem] = useState(false);
+
   // UI State for Deletion
   const [messageToDelete, setMessageToDelete] = useState<Message | null>(null);
   const [showDeleteOptions, setShowDeleteOptions] = useState(false);
 
   // UI State for Media Viewing
   const [viewingMedia, setViewingMedia] = useState<Message | null>(null);
+
+  // UI State for Attachments
+  const [showAttachMenu, setShowAttachMenu] = useState(false);
+  const [showPollModal, setShowPollModal] = useState(false);
+  const [showStickerPicker, setShowStickerPicker] = useState(false);
+
+  // Poll State
+  const [pollQuestion, setPollQuestion] = useState('');
+  const [pollOptions, setPollOptions] = useState(['', '']);
 
   const [wallpaper, setWallpaper] = useState('default');
   const [customUrl, setCustomUrl] = useState<string | null>(null);
@@ -66,12 +105,22 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ chat, currentUser, onClo
   const timerRef = useRef<any>(null);
   const audioChunksRef = useRef<Blob[]>([]);
   const inputRef = useRef<HTMLInputElement>(null);
+  const attachMenuRef = useRef<HTMLDivElement>(null);
 
   const isGroup = chat.type === 'group';
-  // Safe access to participants
   const otherId = !isGroup && chat.participants 
     ? (chat.participants.find(p => p !== currentUser.uid) || (chat.participants.includes(currentUser.uid) ? currentUser.uid : '')) 
     : chat.id;
+
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (attachMenuRef.current && !attachMenuRef.current.contains(event.target as Node)) {
+        setShowAttachMenu(false);
+      }
+    };
+    if (showAttachMenu) document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [showAttachMenu]);
 
   const loadSettings = () => {
     try {
@@ -98,7 +147,6 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ chat, currentUser, onClo
   // Subscribe to Chat (Typing indicators, Pinned Messages)
   useEffect(() => {
     const unsubscribe = subscribeToChat(chat.id, (data) => {
-      // Typing
       if (data.typing) {
         const activeTypers = Object.entries(data.typing)
           .filter(([uid, isTyping]) => uid !== currentUser.uid && isTyping)
@@ -107,7 +155,6 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ chat, currentUser, onClo
       } else {
         setTypingUsers([]);
       }
-      // Pinned Messages
       if (data.pinnedMessages) {
         setPinnedMessageIds(data.pinnedMessages);
       } else {
@@ -117,33 +164,39 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ chat, currentUser, onClo
     return () => unsubscribe();
   }, [chat.id, currentUser.uid]);
 
-  // Subscribe to Other User (Online Status)
+  // Subscribe to Other User (Online Status & Blocking)
   useEffect(() => {
     if (isGroup || !otherId) return;
     
-    getUserById(otherId).then(u => { if(u) setOtherUser(u); });
+    getUserById(otherId).then(u => { 
+        if(u) {
+            setOtherUser(u); 
+            // Check blocking status on load
+            setIsBlockedByThem(u.blockedUsers?.includes(currentUser.uid) || false);
+        }
+    });
+
+    // Also check if I blocked them
+    setIsBlockedByMe(currentUser.blockedUsers?.includes(otherId) || false);
 
     const unsubscribe = subscribeToUser(otherId, (userData) => {
         setOtherUser(userData);
+        setIsBlockedByThem(userData.blockedUsers?.includes(currentUser.uid) || false);
     });
     return () => unsubscribe();
-  }, [otherId, isGroup]);
+  }, [otherId, isGroup, currentUser.uid, currentUser.blockedUsers]);
 
   // Messages Polling
   useEffect(() => {
     const sync = async () => {
       const msgs = await getMessages(chat.id);
       setMessages(prev => {
-        if (msgs.length !== prev.length) return msgs;
-        const changed = msgs.some((m, i) => {
-            const p = prev[i];
-            return p.id !== m.id || p.status !== m.status || p.text !== m.text || p.type !== m.type;
-        });
-        return changed ? msgs : prev;
+        if (JSON.stringify(msgs) !== JSON.stringify(prev)) return msgs;
+        return prev;
       });
     };
     sync();
-    const itv = setInterval(sync, 2000);
+    const itv = setInterval(sync, 1500); 
     return () => clearInterval(itv);
   }, [chat.id]);
 
@@ -151,7 +204,7 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ chat, currentUser, onClo
     if (scrollRef.current) {
       scrollRef.current.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' });
     }
-  }, [messages, isTyping, isUploading, replyingTo, typingUsers, isRecording, editingMessage, pinnedMessageIds]);
+  }, [messages.length, isTyping, replyingTo, editingMessage]);
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setInputText(e.target.value);
@@ -166,17 +219,13 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ chat, currentUser, onClo
     }, 2000);
   };
 
-  // --- Voice Recording Logic (Fixed) ---
+  // --- Voice Recording Logic ---
   const startRecording = async () => {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      
       let mimeType = 'audio/webm';
-      if (MediaRecorder.isTypeSupported('audio/webm;codecs=opus')) {
-          mimeType = 'audio/webm;codecs=opus';
-      } else if (MediaRecorder.isTypeSupported('audio/mp4')) {
-          mimeType = 'audio/mp4';
-      }
+      if (MediaRecorder.isTypeSupported('audio/webm;codecs=opus')) mimeType = 'audio/webm;codecs=opus';
+      else if (MediaRecorder.isTypeSupported('audio/mp4')) mimeType = 'audio/mp4';
 
       const recorder = new MediaRecorder(stream, { mimeType });
       setMediaRecorder(recorder);
@@ -190,15 +239,12 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ chat, currentUser, onClo
       setIsRecording(true);
       setRecordingDuration(0);
       timerRef.current = setInterval(() => setRecordingDuration(p => p + 1), 1000);
-    } catch (err) {
-      alert("Microphone access denied. Please enable permissions.");
-    }
+    } catch (err) { alert("Microphone access denied."); }
   };
 
   const stopRecording = async (shouldSend: boolean) => {
     if (mediaRecorder && isRecording) {
       const mimeType = mediaRecorder.mimeType || 'audio/webm';
-      
       mediaRecorder.onstop = async () => {
         if (shouldSend && audioChunksRef.current.length > 0) {
             const blob = new Blob(audioChunksRef.current, { type: mimeType });
@@ -225,7 +271,6 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ chat, currentUser, onClo
         setMediaRecorder(null);
         audioChunksRef.current = [];
       };
-
       mediaRecorder.stop();
       clearInterval(timerRef.current);
       setIsRecording(false);
@@ -246,12 +291,7 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ chat, currentUser, onClo
 
   const confirmDelete = async (type: 'me' | 'everyone') => {
       if (!messageToDelete) return;
-      
-      const confirmText = type === 'everyone' 
-        ? "Are you sure you want to delete this message for EVERYONE?" 
-        : "Delete this message from your chat history?";
-      
-      if (window.confirm(confirmText)) {
+      if (window.confirm(type === 'everyone' ? "Delete for everyone?" : "Delete for me?")) {
           if (type === 'everyone') {
               setMessages(prev => prev.map(m => m.id === messageToDelete.id ? { ...m, type: 'deleted', text: '🚫 This message was deleted' } : m));
               await deleteMessageForEveryone(messageToDelete.id);
@@ -298,6 +338,18 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ chat, currentUser, onClo
     const recipient = isGroup ? chat.id : otherId;
     if (!recipient) return;
 
+    // Check blocked status
+    if (!isGroup && (isBlockedByMe || isBlockedByThem)) {
+        // If blocked, we might simulate sending but not actually deliver (ghost message handled in backend logic usually)
+        // Or simply block the UI. The requirement says: "message deliver nahi hoga".
+        // In firebase.ts addMessage we handle logic. Here we just proceed.
+        // But for UX, if *I* blocked them, maybe show alert.
+        if (isBlockedByMe) {
+            if(!window.confirm("You blocked this user. Unblock to send message?")) return;
+            // Logic to unblock would go here or redirect
+        }
+    }
+
     let replyContext = undefined;
     if (replyingTo) {
       const sender = await getUserById(replyingTo.senderId);
@@ -342,6 +394,55 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ chat, currentUser, onClo
       } catch (err) { }
       finally { setTypingUsers(prev => prev.filter(id => id !== 'gemini_ai')); }
     }
+  };
+
+  const handleCreatePoll = async () => {
+    if (!pollQuestion.trim() || pollOptions.filter(o => o.trim()).length < 2) return;
+    
+    const poll: PollData = {
+        question: pollQuestion,
+        options: pollOptions.filter(o => o.trim()).map((text, i) => ({
+            id: `opt_${i}`,
+            text,
+            votes: []
+        })),
+        allowMultiple: false
+    };
+
+    const recipient = isGroup ? chat.id : otherId!;
+    const msg: Message = {
+        id: 'poll_' + Math.random().toString(36).substr(2, 9),
+        senderId: currentUser.uid,
+        recipientId: recipient,
+        text: '📊 Poll',
+        type: 'poll',
+        timestamp: Date.now(),
+        status: 'sent',
+        poll
+    };
+
+    await addMessage(msg);
+    setMessages(prev => [...prev, msg]);
+    setShowPollModal(false);
+    setPollQuestion('');
+    setPollOptions(['', '']);
+  };
+
+  const handleSendSticker = async (url: string) => {
+    const recipient = isGroup ? chat.id : otherId!;
+    const msg: Message = {
+        id: 'sticker_' + Math.random().toString(36).substr(2, 9),
+        senderId: currentUser.uid,
+        recipientId: recipient,
+        text: '👾 Sticker',
+        type: 'sticker',
+        timestamp: Date.now(),
+        status: 'sent',
+        stickerUrl: url
+    };
+    await addMessage(msg);
+    setMessages(prev => [...prev, msg]);
+    setShowStickerPicker(false);
   };
 
   const handleForward = async (targetChat: Chat) => {
@@ -401,6 +502,7 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ chat, currentUser, onClo
     };
     reader.readAsDataURL(file);
     e.target.value = '';
+    setShowAttachMenu(false);
   };
 
   const handleHeaderClick = () => {
@@ -422,7 +524,7 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ chat, currentUser, onClo
     if (dateStr !== prevDateStr) {
       return (
         <div className="flex justify-center my-6 sticky top-2 z-10">
-          <div className="px-4 py-1.5 bg-slate-900/10 dark:bg-white/10 backdrop-blur-xl border border-white/20 rounded-full">
+          <div className="px-4 py-1.5 bg-slate-900/10 dark:bg-white/10 backdrop-blur-md border border-white/20 rounded-full shadow-sm">
             <span className="text-[10px] font-black uppercase tracking-widest text-slate-500 dark:text-slate-300">
               {date.toLocaleDateString(undefined, { weekday: 'long', month: 'short', day: 'numeric' })}
             </span>
@@ -433,29 +535,39 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ chat, currentUser, onClo
     return null;
   };
 
+  // Block Logic for Privacy (Hide Last Seen/Online status if blocked by them)
   const isOnline = otherUser?.status === 'online' && (Date.now() - (otherUser.lastSeen || 0) < 3 * 60 * 1000);
-  const statusColor = !isGroup && isOnline ? 'text-green-500' : 'text-slate-500 dark:text-slate-400';
-  const statusText = !isGroup && isOnline ? 'Online Now' : 'Offline';
+  const canSeeStatus = isGroup || (!isBlockedByThem && otherUser?.privacySettings?.lastSeen !== 'nobody');
+  
+  const statusColor = !isGroup && isOnline && canSeeStatus ? 'text-green-500' : 'text-slate-500 dark:text-slate-400';
+  const statusText = !isGroup && canSeeStatus ? (isOnline ? 'Online Now' : 'Offline') : '';
+
+  // Block Logic for Profile Photo
+  const displayPhoto = (!isGroup && isBlockedByThem) 
+    ? 'https://ui-avatars.com/api/?name=User&background=random' 
+    : (isGroup ? (chat.groupIcon || `https://picsum.photos/seed/${chat.id}/200`) : otherUser?.photoURL);
 
   const latestPinnedId = pinnedMessageIds[pinnedMessageIds.length - 1];
   const pinnedMessage = messages.find(m => m.id === latestPinnedId);
 
   return (
     <div className={`flex-1 flex flex-col h-full bg-white dark:bg-slate-900 animate-in fade-in duration-300 relative overflow-hidden ${FONT_SIZE_CLASSES[fontSize]}`}>
+      {/* Background with optimized transparency to reduce lag */}
       <div className={`absolute inset-0 z-0 transition-all duration-700 ${wallpaper !== 'custom' ? WALLPAPER_CLASSES[wallpaper] || '' : ''}`}>
         {wallpaper === 'custom' && customUrl && <img src={customUrl} className="absolute inset-0 w-full h-full object-cover" alt="" /> }
-        <div className="absolute inset-0 opacity-[0.08] pointer-events-none" style={{ backgroundImage: `url('https://www.transparenttextures.com/patterns/asfalt-dark.png')` }}></div>
+        <div className="absolute inset-0 opacity-[0.03] pointer-events-none" style={{ backgroundImage: `url('https://www.transparenttextures.com/patterns/asfalt-dark.png')` }}></div>
       </div>
 
-      <div className="p-3 md:p-4 flex items-center justify-between glass z-10 border-b border-slate-200 dark:border-slate-800 shadow-sm relative">
+      {/* Header - Removed glass effect for performance on low end devices, used solid translucent */}
+      <div className="p-3 md:p-4 flex items-center justify-between bg-white/90 dark:bg-slate-900/90 backdrop-blur-sm z-10 border-b border-slate-200 dark:border-slate-800 shadow-sm relative">
         <div className="flex items-center gap-3">
           <button onClick={onClose} className="lg:hidden p-2 rounded-xl hover:bg-slate-200 dark:hover:bg-slate-800"><svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M15 19l-7-7 7-7" /></svg></button>
           <div className="relative cursor-pointer group" onClick={handleHeaderClick}>
-            <img src={isGroup ? (chat.groupIcon || `https://picsum.photos/seed/${chat.id}/200`) : otherUser?.photoURL} className="w-10 h-10 rounded-2xl object-cover border border-slate-200 dark:border-slate-700 group-hover:scale-105 transition-transform" alt="" />
-            {!isGroup && isOnline && <div className="absolute -bottom-1 -right-1 w-4 h-4 bg-green-500 rounded-full border-2 border-white dark:border-slate-900 animate-pulse"></div>}
+            <img src={displayPhoto} className="w-10 h-10 rounded-full object-cover border border-slate-200 dark:border-slate-700 group-hover:scale-105 transition-transform" alt="" />
+            {!isGroup && isOnline && canSeeStatus && <div className="absolute -bottom-0.5 -right-0.5 w-3.5 h-3.5 bg-green-500 rounded-full border-2 border-white dark:border-slate-900 animate-pulse"></div>}
           </div>
           <div className="min-w-0 cursor-pointer" onClick={handleHeaderClick}>
-            <h3 className="font-bold text-sm leading-none flex items-center gap-1.5 truncate">
+            <h3 className="font-bold text-sm leading-none flex items-center gap-1.5 truncate text-slate-900 dark:text-white">
               {isGroup ? chat.name : (otherUser?.name || 'Loading...')}
               {isLocked && <svg className="w-3.5 h-3.5 text-indigo-500" fill="currentColor" viewBox="0 0 24 24"><path d="M12 17c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2zm6-9h-1V6c0-2.76-2.24-5-5-5S7 3.24 7 6v2H6c-1.1 0-2 .9-2 2v10c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V10c0-1.1-.9-2-2-2zm-6-5c1.66 0 3 1.34 3 3v2H9V6c0-1.66 1.34-3 3-3z"/></svg>}
             </h3>
@@ -476,7 +588,7 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ chat, currentUser, onClo
           </div>
         </div>
         <div className="flex items-center gap-2">
-          {!isGroup && otherUser && (
+          {!isGroup && otherUser && !isBlockedByThem && !isBlockedByMe && (
             <>
               <button onClick={() => onCallStart?.(otherUser, 'voice')} className="p-2.5 hover:bg-slate-200 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300 rounded-xl transition-colors"><svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z" /></svg></button>
               <button onClick={() => onCallStart?.(otherUser, 'video')} className="p-2.5 hover:bg-slate-200 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300 rounded-xl transition-colors"><svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" /></svg></button>
@@ -529,7 +641,7 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ chat, currentUser, onClo
         ))}
         {typingUsers.length > 0 && (
           <div className="flex items-end gap-2 px-2 py-2 animate-in slide-in-from-left-4 fade-in duration-300">
-             {!isGroup && <img src={otherUser?.photoURL || `https://picsum.photos/seed/${chat.id}/50`} className="w-8 h-8 rounded-full border border-white dark:border-slate-800" alt="" />}
+             {!isGroup && <img src={displayPhoto} className="w-8 h-8 rounded-full border border-white dark:border-slate-800" alt="" />}
              <div className="bg-white dark:bg-slate-800 rounded-2xl rounded-bl-none px-4 py-3 flex items-center gap-1.5 shadow-sm border border-slate-100 dark:border-slate-700">
                 <div className="w-2 h-2 bg-indigo-400 rounded-full animate-bounce [animation-delay:-0.3s]"></div>
                 <div className="w-2 h-2 bg-indigo-400 rounded-full animate-bounce [animation-delay:-0.15s]"></div>
@@ -539,7 +651,8 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ chat, currentUser, onClo
         )}
       </div>
 
-      <div className="glass border-t border-slate-200 dark:border-slate-800 z-10 flex flex-col">
+      {/* Input Area */}
+      <div className="bg-white/95 dark:bg-slate-900/95 backdrop-blur-sm border-t border-slate-200 dark:border-slate-800 z-10 flex flex-col">
         {editingMessage && (
              <div className="px-4 py-2 bg-indigo-50 dark:bg-indigo-900/20 border-l-4 border-indigo-500 flex items-center justify-between">
                 <div>
@@ -563,50 +676,79 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ chat, currentUser, onClo
           </div>
         )}
         
-        <div className="p-3 md:p-4 flex gap-2.5 items-center">
-          {isRecording ? (
-             <div className="flex-1 flex items-center justify-between bg-red-500 text-white rounded-[1.5rem] px-6 py-4 animate-pulse">
-                <div className="flex items-center gap-3">
-                   <div className="w-3 h-3 bg-white rounded-full animate-bounce"></div>
-                   <span className="font-bold text-sm tracking-widest">{formatDuration(recordingDuration)}</span>
+        {/* Blocked Overlay for Input */}
+        {(!isGroup && (isBlockedByMe || isBlockedByThem)) ? (
+            <div className="p-4 bg-slate-50 dark:bg-slate-800 text-center">
+                <p className="text-sm font-medium text-slate-500">
+                    {isBlockedByMe ? "You have blocked this contact." : "You cannot message this contact."}
+                </p>
+            </div>
+        ) : (
+            <div className="p-3 md:p-4 flex gap-2.5 items-center relative">
+            {isRecording ? (
+                <div className="flex-1 flex items-center justify-between bg-red-500 text-white rounded-[1.5rem] px-6 py-4 animate-pulse">
+                    <div className="flex items-center gap-3">
+                    <div className="w-3 h-3 bg-white rounded-full animate-bounce"></div>
+                    <span className="font-bold text-sm tracking-widest">{formatDuration(recordingDuration)}</span>
+                    </div>
+                    <div className="flex items-center gap-3">
+                        <button onClick={() => stopRecording(false)} className="text-white/80 hover:text-white text-xs font-bold uppercase">Cancel</button>
+                        <button onClick={() => stopRecording(true)} className="p-2 bg-white text-red-500 rounded-full shadow-lg">
+                            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M5 13l4 4L19 7" /></svg>
+                        </button>
+                    </div>
                 </div>
-                <div className="flex items-center gap-3">
-                    <button onClick={() => stopRecording(false)} className="text-white/80 hover:text-white text-xs font-bold uppercase">Cancel</button>
-                    <button onClick={() => stopRecording(true)} className="p-2 bg-white text-red-500 rounded-full shadow-lg">
-                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M5 13l4 4L19 7" /></svg>
+            ) : (
+                <>
+                {/* Attachment Button & Menu */}
+                <div className="relative" ref={attachMenuRef}>
+                    <button onClick={() => setShowAttachMenu(!showAttachMenu)} className="p-3.5 text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-2xl shrink-0 transition-colors active:scale-90 bg-slate-50 dark:bg-slate-800/50">
+                        <svg className={`w-6 h-6 transition-transform ${showAttachMenu ? 'rotate-45' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M12 4v16m8-8H4" /></svg>
                     </button>
+                    {showAttachMenu && (
+                        <div className="absolute bottom-full left-0 mb-3 bg-white dark:bg-slate-900 rounded-2xl shadow-xl border border-slate-100 dark:border-slate-800 p-2 flex flex-col gap-1 min-w-[160px] animate-in slide-in-from-bottom-2 fade-in duration-200 z-50">
+                            <button onClick={() => fileInputRef.current?.click()} className="flex items-center gap-3 px-4 py-3 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-xl text-sm font-bold text-slate-600 dark:text-slate-300">
+                                <svg className="w-5 h-5 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
+                                Photos & Video
+                            </button>
+                            <button onClick={() => { setShowPollModal(true); setShowAttachMenu(false); }} className="flex items-center gap-3 px-4 py-3 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-xl text-sm font-bold text-slate-600 dark:text-slate-300">
+                                <svg className="w-5 h-5 text-orange-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" /></svg>
+                                Create Poll
+                            </button>
+                            <button onClick={() => { setShowStickerPicker(true); setShowAttachMenu(false); }} className="flex items-center gap-3 px-4 py-3 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-xl text-sm font-bold text-slate-600 dark:text-slate-300">
+                                <svg className="w-5 h-5 text-pink-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M14.828 14.828a4 4 0 01-5.656 0M9 10h.01M15 10h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                                Stickers
+                            </button>
+                        </div>
+                    )}
                 </div>
-             </div>
-          ) : (
-            <>
-              <input type="file" ref={fileInputRef} onChange={handleFileChange} className="hidden" />
-              <button type="button" onClick={() => fileInputRef.current?.click()} className="p-3.5 text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-2xl shrink-0 transition-colors active:scale-90"><svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M12 4v16m8-8H4" /></svg></button>
-              
-              <form onSubmit={handleSend} className="flex-1 flex gap-2">
-                 <input 
-                    ref={inputRef}
-                    type="text" 
-                    value={inputText} 
-                    onChange={handleInputChange} 
-                    placeholder="Type a message..." 
-                    className="flex-1 bg-white/60 dark:bg-slate-800/80 rounded-[1.5rem] px-6 py-4 text-sm font-medium outline-none border border-slate-200 dark:border-slate-700 focus:ring-2 focus:ring-indigo-500/20 transition-all shadow-inner" 
-                />
-                {inputText.trim() ? (
-                    <button type="submit" className="p-4 bg-indigo-500 text-white rounded-2xl shadow-xl shadow-indigo-500/20 transition-all shrink-0 active:scale-95">
-                        {editingMessage ? (
-                             <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M5 13l4 4L19 7" /></svg>
-                        ) : (
-                             <svg className="w-6 h-6 rotate-90" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" /></svg>
-                        )}
-                    </button>
-                ) : (
-                    <button type="button" onClick={startRecording} className="p-4 bg-slate-100 dark:bg-slate-800 text-slate-500 hover:bg-red-500 hover:text-white rounded-2xl transition-all shrink-0 active:scale-95 group">
-                        <svg className="w-6 h-6 group-hover:scale-110 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" /></svg>
-                    </button>
-                )}
-              </form>
-            </>
-          )}
+                <input type="file" ref={fileInputRef} onChange={handleFileChange} className="hidden" />
+                
+                <form onSubmit={handleSend} className="flex-1 flex gap-2">
+                    <input 
+                        ref={inputRef}
+                        type="text" 
+                        value={inputText} 
+                        onChange={handleInputChange} 
+                        placeholder="Type a message..." 
+                        className="flex-1 bg-slate-50 dark:bg-slate-800/80 rounded-[1.5rem] px-6 py-4 text-sm font-medium outline-none border border-slate-200 dark:border-slate-700 focus:ring-2 focus:ring-indigo-500/20 transition-all shadow-inner text-slate-900 dark:text-white" 
+                    />
+                    {inputText.trim() ? (
+                        <button type="submit" className="p-4 bg-indigo-500 text-white rounded-2xl shadow-xl shadow-indigo-500/20 transition-all shrink-0 active:scale-95">
+                            {editingMessage ? (
+                                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M5 13l4 4L19 7" /></svg>
+                            ) : (
+                                <svg className="w-6 h-6 rotate-90" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" /></svg>
+                            )}
+                        </button>
+                    ) : (
+                        <button type="button" onClick={startRecording} className="p-4 bg-slate-100 dark:bg-slate-800 text-slate-500 hover:bg-red-500 hover:text-white rounded-2xl transition-all shrink-0 active:scale-95 group">
+                            <svg className="w-6 h-6 group-hover:scale-110 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" /></svg>
+                        </button>
+                    )}
+                </form>
+                </>
+            )}
         </div>
       </div>
 
@@ -629,12 +771,72 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ chat, currentUser, onClo
         />
       )}
 
+      {/* Poll Creation Modal */}
+      {showPollModal && (
+        <div className="fixed inset-0 z-[250] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in">
+            <div className="bg-white dark:bg-slate-900 rounded-[2.5rem] w-full max-w-md p-6 shadow-2xl">
+                <h3 className="text-xl font-black mb-6 dark:text-white">Create Poll</h3>
+                <input 
+                    type="text" 
+                    placeholder="Ask a question..." 
+                    value={pollQuestion}
+                    onChange={(e) => setPollQuestion(e.target.value)}
+                    className="w-full bg-slate-100 dark:bg-slate-800 rounded-xl px-4 py-3 font-bold mb-4 outline-none focus:ring-2 focus:ring-indigo-500/50 dark:text-white"
+                />
+                <div className="space-y-2 mb-6 max-h-60 overflow-y-auto no-scrollbar">
+                    {pollOptions.map((opt, i) => (
+                        <input 
+                            key={i}
+                            type="text"
+                            placeholder={`Option ${i + 1}`}
+                            value={opt}
+                            onChange={(e) => {
+                                const newOpts = [...pollOptions];
+                                newOpts[i] = e.target.value;
+                                setPollOptions(newOpts);
+                            }}
+                            className="w-full bg-slate-50 dark:bg-slate-800/50 rounded-xl px-4 py-3 text-sm outline-none border border-transparent focus:border-indigo-500 dark:text-white"
+                        />
+                    ))}
+                    <button 
+                        onClick={() => setPollOptions([...pollOptions, ''])}
+                        className="text-xs font-bold text-indigo-500 hover:text-indigo-600 uppercase tracking-widest px-2"
+                    >
+                        + Add Option
+                    </button>
+                </div>
+                <div className="flex gap-3">
+                    <button onClick={() => setShowPollModal(false)} className="flex-1 py-3 rounded-xl font-bold text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800">Cancel</button>
+                    <button onClick={handleCreatePoll} className="flex-1 py-3 bg-indigo-500 text-white rounded-xl font-bold shadow-lg shadow-indigo-500/30">Create Poll</button>
+                </div>
+            </div>
+        </div>
+      )}
+
+      {/* Sticker Picker */}
+      {showStickerPicker && (
+        <div className="fixed inset-0 z-[250] flex flex-col justify-end">
+            <div className="absolute inset-0 bg-black/20" onClick={() => setShowStickerPicker(false)}></div>
+            <div className="bg-white dark:bg-slate-900 rounded-t-[2.5rem] p-6 shadow-2xl animate-in slide-in-from-bottom h-1/2 flex flex-col relative z-10">
+                <div className="w-12 h-1.5 bg-slate-200 dark:bg-slate-700 rounded-full mx-auto mb-6"></div>
+                <h3 className="text-lg font-black mb-4 dark:text-white">Stickers</h3>
+                <div className="flex-1 overflow-y-auto grid grid-cols-4 gap-4 p-2">
+                    {STICKERS.map((url, i) => (
+                        <button key={i} onClick={() => handleSendSticker(url)} className="aspect-square hover:scale-110 transition-transform p-2 bg-slate-50 dark:bg-slate-800/50 rounded-2xl">
+                            <img src={url} alt="Sticker" className="w-full h-full object-contain" />
+                        </button>
+                    ))}
+                </div>
+            </div>
+        </div>
+      )}
+
       {showDeleteOptions && messageToDelete && (
         <div className="fixed inset-0 z-[200] flex items-end justify-center sm:items-center">
             <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => setShowDeleteOptions(false)}></div>
             <div className="relative w-full max-w-sm bg-white dark:bg-slate-900 rounded-t-[2rem] sm:rounded-[2rem] p-6 shadow-2xl animate-in slide-in-from-bottom duration-300">
                 <div className="w-12 h-1.5 bg-slate-200 dark:bg-slate-700 rounded-full mx-auto mb-6"></div>
-                <h3 className="text-lg font-bold mb-4 text-center">Delete Message?</h3>
+                <h3 className="text-lg font-bold mb-4 text-center dark:text-white">Delete Message?</h3>
                 
                 <div className="flex flex-col gap-3">
                     {messageToDelete.senderId === currentUser.uid && (
@@ -669,9 +871,9 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ chat, currentUser, onClo
           <div className="absolute inset-0 bg-slate-950/60 backdrop-blur-md" onClick={() => setForwardingMessage(null)}></div>
           <div className="relative w-full max-w-sm bg-white dark:bg-slate-900 rounded-[2.5rem] shadow-2xl flex flex-col max-h-[70vh] animate-in zoom-in-95">
              <div className="p-6 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between">
-                <h3 className="text-xl font-bold">Forward Message</h3>
+                <h3 className="text-xl font-bold dark:text-white">Forward Message</h3>
                 <button onClick={() => setForwardingMessage(null)} className="p-2 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-full">
-                  <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M6 18L18 6M6 6l12 12" /></svg>
+                  <svg className="w-6 h-6 dark:text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M6 18L18 6M6 6l12 12" /></svg>
                 </button>
              </div>
              <div className="flex-1 overflow-y-auto p-4 space-y-2 no-scrollbar">
@@ -681,7 +883,7 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ chat, currentUser, onClo
                    return (
                      <button key={c.id} onClick={() => handleForward(c)} className="w-full flex items-center gap-3 p-3 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-2xl transition-colors text-left">
                         <img src={isGrp ? c.groupIcon : target?.photoURL || `https://picsum.photos/seed/${c.id}/100`} className="w-10 h-10 rounded-xl object-cover" alt="" />
-                        <span className="font-bold text-sm flex-1 truncate">{isGrp ? c.name : target?.name || 'Contact'}</span>
+                        <span className="font-bold text-sm flex-1 truncate dark:text-white">{isGrp ? c.name : target?.name || 'Contact'}</span>
                      </button>
                    );
                 })}

@@ -34,12 +34,13 @@ export const ProfilePanel: React.FC<ProfilePanelProps> = ({ user, onClose, toggl
   const [isSaving, setIsSaving] = useState(false);
   const wallpaperInputRef = useRef<HTMLInputElement>(null);
   
+  // Privacy Settings from User object
+  const [lastSeenPrivacy, setLastSeenPrivacy] = useState(user.privacySettings?.lastSeen || 'everyone');
+
   const [settings, setSettings] = useState(() => {
     try {
       const saved = localStorage.getItem('roxx_settings');
       return saved ? JSON.parse(saved) : {
-        readReceipts: true,
-        lastSeen: 'everyone',
         fontSize: 'medium',
         notificationsEnabled: true,
         notificationSound: true,
@@ -48,10 +49,7 @@ export const ProfilePanel: React.FC<ProfilePanelProps> = ({ user, onClose, toggl
         customWallpaperUrl: null
       };
     } catch (e) {
-      console.warn("Settings corrupted, using defaults");
       return {
-        readReceipts: true,
-        lastSeen: 'everyone',
         fontSize: 'medium',
         notificationsEnabled: true,
         notificationSound: true,
@@ -138,6 +136,17 @@ export const ProfilePanel: React.FC<ProfilePanelProps> = ({ user, onClose, toggl
       setViewMode('main');
     } catch (err) { alert("Error saving profile"); }
     finally { setIsSaving(false); }
+  };
+
+  const handlePrivacyUpdate = async (type: 'lastSeen', value: string) => {
+      if (type === 'lastSeen') setLastSeenPrivacy(value as any);
+      
+      const newSettings = { 
+          ...user.privacySettings,
+          [type]: value
+      };
+      
+      await updateProfile(user, { privacySettings: newSettings });
   };
 
   const renderHeader = () => {
@@ -310,11 +319,11 @@ export const ProfilePanel: React.FC<ProfilePanelProps> = ({ user, onClose, toggl
       case 'privacy':
         return (
           <div className="space-y-1 animate-in slide-in-from-right-4 duration-500">
-             <SettingsItem title="Last Seen" subtitle={settings.lastSeen.charAt(0).toUpperCase() + settings.lastSeen.slice(1)} onClick={() => {
+             <SettingsItem title="Last Seen" subtitle={lastSeenPrivacy.charAt(0).toUpperCase() + lastSeenPrivacy.slice(1)} onClick={() => {
                 const opts = ['everyone', 'contacts', 'nobody'];
-                setSettings({...settings, lastSeen: opts[(opts.indexOf(settings.lastSeen) + 1) % opts.length]});
+                const next = opts[(opts.indexOf(lastSeenPrivacy) + 1) % opts.length];
+                handlePrivacyUpdate('lastSeen', next);
              }} icon={<svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>} />
-             <SettingsItem title="Read Receipts" subtitle="Show when you have read messages" toggle={settings.readReceipts} onClick={() => setSettings({...settings, readReceipts: !settings.readReceipts})} icon={<svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7" /></svg>} />
              <SettingsItem title="Blocked Contacts" subtitle={`${user.blockedUsers?.length || 0} contacts`} onClick={() => setViewMode('blocked')} icon={<svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728L5.636 5.636" /></svg>} />
           </div>
         );
