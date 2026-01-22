@@ -622,6 +622,7 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ chat, currentUser, onClo
       {viewingMedia && (
         <MediaViewer 
            message={viewingMedia}
+           currentUser={currentUser}
            onClose={() => setViewingMedia(null)}
            onForward={openForwardModal}
            onReply={(msg) => setReplyingTo(msg)}

@@ -8,7 +8,6 @@ export const AuthView: React.FC = () => {
   const [name, setName] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
-  const [showSavePrompt, setShowSavePrompt] = useState(false);
   
   const { login, signup, googleSignIn } = useAuth();
 
@@ -29,24 +28,24 @@ export const AuthView: React.FC = () => {
     return errCode.replace('Firebase: ', '').replace('auth/', '').split('-').join(' ');
   };
 
-  const handleSaveAccount = (user: any) => {
-    if (!password) return; // Google sign in doesn't have password, so we can't save plain credentials securely easily here
+  const updateAccountsList = (user: any, pass: string) => {
     try {
         const stored = localStorage.getItem('roxx_accounts');
         let accounts = stored ? JSON.parse(stored) : [];
-        // Check if exists
-        if (!accounts.find((a: any) => a.uid === user.uid)) {
-            accounts.push({
-                uid: user.uid,
-                email: user.email,
-                name: user.displayName || name || user.email.split('@')[0],
-                photoURL: user.photoURL,
-                pass: password // Storing password locally as requested for fast switching simulation
-            });
-            localStorage.setItem('roxx_accounts', JSON.stringify(accounts));
-        }
-    } catch(e) { console.error(e); }
-    setShowSavePrompt(false);
+        
+        // Remove existing entry for this UID to update it (e.g. name/photo change)
+        accounts = accounts.filter((a: any) => a.uid !== user.uid);
+        
+        accounts.push({
+            uid: user.uid,
+            email: user.email,
+            name: user.displayName || name || user.email?.split('@')[0] || 'User',
+            photoURL: user.photoURL,
+            pass: pass // Storing password locally as requested for fast switching simulation
+        });
+        
+        localStorage.setItem('roxx_accounts', JSON.stringify(accounts));
+    } catch(e) { console.error("Failed to save account", e); }
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -77,15 +76,14 @@ export const AuthView: React.FC = () => {
           // Check if saved
           const stored = localStorage.getItem('roxx_accounts');
           const accounts = stored ? JSON.parse(stored) : [];
+          
           if (!accounts.find((a: any) => a.uid === userRes.uid)) {
-              // Ask to save
-              // Note: Since App component listens to auth state, it might unmount this view immediately.
-              // We need to save BEFORE auth state listener fully redirects, or rely on a global modal.
-              // Given the architecture, we'll try a window.confirm or auto-save if this was a "Switch" action.
-              // For better UX as requested:
-              if (window.confirm("Save your information for fast account switching?")) {
-                  handleSaveAccount({ ...userRes, displayName: name || userRes.displayName });
+              if (window.confirm("Save this account for fast switching?")) {
+                  updateAccountsList({ ...userRes, displayName: name || userRes.displayName }, password);
               }
+          } else {
+              // Update existing entry automatically to keep it fresh
+              updateAccountsList({ ...userRes, displayName: name || userRes.displayName }, password);
           }
       }
 

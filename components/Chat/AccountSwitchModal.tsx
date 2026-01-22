@@ -40,12 +40,18 @@ export const AccountSwitchModal: React.FC<AccountSwitchModalProps> = ({ currentU
   };
 
   const handleAddAccount = async () => {
+    // Save current user to list implicitly if possible (though AuthView handles the main save logic)
+    // We confirm the user wants to log out.
     if (window.confirm("You will be logged out to create or sign in to a new account. Continue?")) {
         await auth.signOut();
         window.location.reload();
     }
   };
 
+  // Filter accounts: Do not exclude current user from the list logic entirely, just from the 'switch to' view if desired.
+  // Actually, showing all accounts is fine, but highlighting active.
+  // The user requirement implies they switch BETWEEN accounts.
+  
   const otherAccounts = savedAccounts.filter(a => a.uid !== currentUser.uid);
 
   return (
@@ -94,7 +100,7 @@ export const AccountSwitchModal: React.FC<AccountSwitchModalProps> = ({ currentU
             onClick={handleAddAccount}
             className="w-full py-4 bg-indigo-500 text-white rounded-2xl font-bold shadow-lg shadow-indigo-500/20 active:scale-95 transition-all"
         >
-            {otherAccounts.length === 0 ? "Create 2nd Account" : "Add Another Account"}
+            {savedAccounts.length === 0 ? "Create 2nd Account" : "Add Another Account"}
         </button>
       </div>
     </div>

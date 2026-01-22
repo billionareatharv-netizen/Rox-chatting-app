@@ -89,6 +89,25 @@ const generateUUID = () => {
   });
 };
 
+// Helper to remove undefined values and avoid circular dependency errors (replacing JSON.stringify)
+const sanitizeData = (data: any): any => {
+  if (data === null || data === undefined) return null;
+  if (typeof data !== 'object') return data;
+  if (data instanceof Date) return data.getTime(); // Convert dates to timestamps
+  if (Array.isArray(data)) return data.map(sanitizeData);
+  
+  const out: any = {};
+  for (const k in data) {
+    if (Object.prototype.hasOwnProperty.call(data, k)) {
+      const val = data[k];
+      if (val !== undefined) {
+        out[k] = sanitizeData(val);
+      }
+    }
+  }
+  return out;
+};
+
 // --- AUTHENTICATION ---
 
 export const updateUserStatus = async (uid: string, status: 'online' | 'offline') => {
@@ -267,7 +286,7 @@ export const getMessages = async (chatId: string) => {
 
 export const addMessage = async (msg: any) => {
   try {
-    const safeMsg = JSON.parse(JSON.stringify(msg));
+    const safeMsg = sanitizeData(msg); // USE SANITIZE INSTEAD OF JSON.STRINGIFY
     await setDoc(doc(db, "messages", safeMsg.id), safeMsg);
 
     const chatId = safeMsg.recipientId.startsWith('group_') 
@@ -484,8 +503,9 @@ export const updateCallSignal = async (callId: string, data: any) => {
 export const addIceCandidate = async (callId: string, candidate: any, type: 'caller' | 'callee') => {
   const callRef = doc(db, "calls", callId);
   const field = type === 'caller' ? 'callerCandidates' : 'calleeCandidates';
+  // Use sanitizeData instead of JSON.stringify to be safe
   await updateDoc(callRef, {
-    [field]: arrayUnion(JSON.parse(JSON.stringify(candidate)))
+    [field]: arrayUnion(sanitizeData(candidate))
   });
 };
 
