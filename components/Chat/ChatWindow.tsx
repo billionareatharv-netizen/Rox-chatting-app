@@ -55,7 +55,7 @@ const FONT_SIZE_CLASSES: Record<string, string> = {
   large: 'text-[16px]',
 };
 
-// Extracted constants for build safety
+// SAFE CONSTANTS TO PREVENT BUILD ERRORS (REGEX/SLASH ISSUES)
 const ACCEPTED_MEDIA_TYPES = "image/png,image/jpeg,image/gif,video/mp4,video/webm";
 const CHAT_BG_PATTERN = "https://www.transparenttextures.com/patterns/asfalt-dark.png";
 
