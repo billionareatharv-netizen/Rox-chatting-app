@@ -11,7 +11,6 @@ import {
   toggleChatLock, 
   editMessage, 
   subscribeToChat, 
-  deleteMessage, 
   deleteMessageForEveryone, 
   deleteMessageForMe, 
   subscribeToUser, 
@@ -253,7 +252,7 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ chat, currentUser, onClo
             reader.onloadend = async () => {
                 const base64Audio = reader.result as string;
                 const msg: Message = {
-                    id: 'v_' + Math.random().toString(36).substr(2, 9),
+                    id: 'v_' + Math.random().toString(36).substring(2, 11),
                     senderId: currentUser.uid,
                     recipientId: isGroup ? chat.id : otherId!,
                     text: 'Voice Message',
@@ -338,15 +337,9 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ chat, currentUser, onClo
     const recipient = isGroup ? chat.id : otherId;
     if (!recipient) return;
 
-    // Check blocked status
     if (!isGroup && (isBlockedByMe || isBlockedByThem)) {
-        // If blocked, we might simulate sending but not actually deliver (ghost message handled in backend logic usually)
-        // Or simply block the UI. The requirement says: "message deliver nahi hoga".
-        // In firebase.ts addMessage we handle logic. Here we just proceed.
-        // But for UX, if *I* blocked them, maybe show alert.
         if (isBlockedByMe) {
             if(!window.confirm("You blocked this user. Unblock to send message?")) return;
-            // Logic to unblock would go here or redirect
         }
     }
 
@@ -361,7 +354,7 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ chat, currentUser, onClo
     }
 
     const msg: Message = {
-      id: 'm_' + Math.random().toString(36).substr(2, 9),
+      id: 'm_' + Math.random().toString(36).substring(2, 11),
       senderId: currentUser.uid, 
       recipientId: recipient,
       text, 
@@ -411,7 +404,7 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ chat, currentUser, onClo
 
     const recipient = isGroup ? chat.id : otherId!;
     const msg: Message = {
-        id: 'poll_' + Math.random().toString(36).substr(2, 9),
+        id: 'poll_' + Math.random().toString(36).substring(2, 11),
         senderId: currentUser.uid,
         recipientId: recipient,
         text: '📊 Poll',
@@ -431,7 +424,7 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ chat, currentUser, onClo
   const handleSendSticker = async (url: string) => {
     const recipient = isGroup ? chat.id : otherId!;
     const msg: Message = {
-        id: 'sticker_' + Math.random().toString(36).substr(2, 9),
+        id: 'sticker_' + Math.random().toString(36).substring(2, 11),
         senderId: currentUser.uid,
         recipientId: recipient,
         text: '👾 Sticker',
@@ -451,7 +444,7 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ chat, currentUser, onClo
     const { replyContext, ...msgContent } = forwardingMessage;
     const forwardMsg: Message = {
       ...msgContent,
-      id: 'fwd_' + Math.random().toString(36).substr(2, 9),
+      id: 'fwd_' + Math.random().toString(36).substring(2, 11),
       senderId: currentUser.uid,
       recipientId: targetId,
       timestamp: Date.now(),
@@ -486,7 +479,7 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ chat, currentUser, onClo
       if (file.type.startsWith('image/')) messageType = 'image';
       else if (file.type.startsWith('video/')) messageType = 'video';
       const msg: Message = {
-        id: 'f_' + Math.random().toString(36).substr(2, 9), 
+        id: 'f_' + Math.random().toString(36).substring(2, 11), 
         senderId: currentUser.uid,
         recipientId: recipient, 
         text: file.name, 
@@ -535,14 +528,12 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ chat, currentUser, onClo
     return null;
   };
 
-  // Block Logic for Privacy (Hide Last Seen/Online status if blocked by them)
   const isOnline = otherUser?.status === 'online' && (Date.now() - (otherUser.lastSeen || 0) < 3 * 60 * 1000);
   const canSeeStatus = isGroup || (!isBlockedByThem && otherUser?.privacySettings?.lastSeen !== 'nobody');
   
   const statusColor = !isGroup && isOnline && canSeeStatus ? 'text-green-500' : 'text-slate-500 dark:text-slate-400';
   const statusText = !isGroup && canSeeStatus ? (isOnline ? 'Online Now' : 'Offline') : '';
 
-  // Block Logic for Profile Photo
   const displayPhoto = (!isGroup && isBlockedByThem) 
     ? 'https://ui-avatars.com/api/?name=User&background=random' 
     : (isGroup ? (chat.groupIcon || `https://picsum.photos/seed/${chat.id}/200`) : otherUser?.photoURL);
@@ -558,7 +549,7 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ chat, currentUser, onClo
         <div className="absolute inset-0 opacity-[0.03] pointer-events-none" style={{ backgroundImage: `url('https://www.transparenttextures.com/patterns/asfalt-dark.png')` }}></div>
       </div>
 
-      {/* Header - Removed glass effect for performance on low end devices, used solid translucent */}
+      {/* Header */}
       <div className="p-3 md:p-4 flex items-center justify-between bg-white/90 dark:bg-slate-900/90 backdrop-blur-sm z-10 border-b border-slate-200 dark:border-slate-800 shadow-sm relative">
         <div className="flex items-center gap-3">
           <button onClick={onClose} className="lg:hidden p-2 rounded-xl hover:bg-slate-200 dark:hover:bg-slate-800"><svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M15 19l-7-7 7-7" /></svg></button>
@@ -676,7 +667,6 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ chat, currentUser, onClo
           </div>
         )}
         
-        {/* Blocked Overlay for Input */}
         {(!isGroup && (isBlockedByMe || isBlockedByThem)) ? (
             <div className="p-4 bg-slate-50 dark:bg-slate-800 text-center">
                 <p className="text-sm font-medium text-slate-500">
@@ -700,7 +690,6 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ chat, currentUser, onClo
                 </div>
             ) : (
                 <>
-                {/* Attachment Button & Menu */}
                 <div className="relative" ref={attachMenuRef}>
                     <button onClick={() => setShowAttachMenu(!showAttachMenu)} className="p-3.5 text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-2xl shrink-0 transition-colors active:scale-90 bg-slate-50 dark:bg-slate-800/50">
                         <svg className={`w-6 h-6 transition-transform ${showAttachMenu ? 'rotate-45' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M12 4v16m8-8H4" /></svg>
@@ -722,7 +711,7 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ chat, currentUser, onClo
                         </div>
                     )}
                 </div>
-                <input type="file" ref={fileInputRef} onChange={handleFileChange} className="hidden" />
+                <input type="file" ref={fileInputRef} onChange={handleFileChange} accept="image/*,video/*" className="hidden" />
                 
                 <form onSubmit={handleSend} className="flex-1 flex gap-2">
                     <input 
@@ -760,7 +749,6 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ chat, currentUser, onClo
         />
       )}
 
-      {/* Media Viewer Modal */}
       {viewingMedia && (
         <MediaViewer 
            message={viewingMedia}
@@ -771,7 +759,6 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ chat, currentUser, onClo
         />
       )}
 
-      {/* Poll Creation Modal */}
       {showPollModal && (
         <div className="fixed inset-0 z-[250] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in">
             <div className="bg-white dark:bg-slate-900 rounded-[2.5rem] w-full max-w-md p-6 shadow-2xl">
@@ -813,7 +800,6 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ chat, currentUser, onClo
         </div>
       )}
 
-      {/* Sticker Picker */}
       {showStickerPicker && (
         <div className="fixed inset-0 z-[250] flex flex-col justify-end">
             <div className="absolute inset-0 bg-black/20" onClick={() => setShowStickerPicker(false)}></div>
