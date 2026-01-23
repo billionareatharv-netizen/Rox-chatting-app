@@ -1,4 +1,4 @@
-import React, { useState, useEffect, ReactNode } from 'react';
+import React, { useState, useEffect, ReactNode, Component } from 'react';
 import { AuthView } from './components/Auth/AuthView';
 import { ChatDashboard } from './components/Chat/ChatDashboard';
 import { AdminDashboard } from './components/Admin/AdminDashboard';
@@ -15,7 +15,7 @@ interface ErrorBoundaryState {
 }
 
 // Error Boundary to catch crashes and prevent white screen
-class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoundaryState> {
+class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
   constructor(props: ErrorBoundaryProps) {
     super(props);
     this.state = { hasError: false };

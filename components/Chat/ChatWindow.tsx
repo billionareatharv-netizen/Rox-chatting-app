@@ -55,9 +55,11 @@ const FONT_SIZE_CLASSES: Record<string, string> = {
   large: 'text-[16px]',
 };
 
-// SAFE CONSTANTS TO PREVENT BUILD ERRORS (REGEX/SLASH ISSUES)
+// Safe constants to prevent regex parsing errors
 const ACCEPTED_MEDIA_TYPES = "image/png,image/jpeg,image/gif,video/mp4,video/webm";
 const CHAT_BG_PATTERN = "https://www.transparenttextures.com/patterns/asfalt-dark.png";
+const AI_TRIGGER = "/ai";
+const AI_SENDER_ID = "gemini_ai";
 
 export const ChatWindow: React.FC<ChatWindowProps> = ({ chat, currentUser, onClose, onUserClick, onCallStart }) => {
   const [messages, setMessages] = useState<Message[]>([]);
@@ -74,23 +76,18 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ chat, currentUser, onClo
   const [pinnedMessageIds, setPinnedMessageIds] = useState<string[]>([]);
   const [showGroupInfo, setShowGroupInfo] = useState(false);
   
-  // Block State
   const [isBlockedByMe, setIsBlockedByMe] = useState(false);
   const [isBlockedByThem, setIsBlockedByThem] = useState(false);
 
-  // UI State for Deletion
   const [messageToDelete, setMessageToDelete] = useState<Message | null>(null);
   const [showDeleteOptions, setShowDeleteOptions] = useState(false);
 
-  // UI State for Media Viewing
   const [viewingMedia, setViewingMedia] = useState<Message | null>(null);
 
-  // UI State for Attachments
   const [showAttachMenu, setShowAttachMenu] = useState(false);
   const [showPollModal, setShowPollModal] = useState(false);
   const [showStickerPicker, setShowStickerPicker] = useState(false);
 
-  // Poll State
   const [pollQuestion, setPollQuestion] = useState('');
   const [pollOptions, setPollOptions] = useState(['', '']);
 
@@ -111,8 +108,9 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ chat, currentUser, onClo
   const attachMenuRef = useRef<HTMLDivElement>(null);
 
   const isGroup = chat.type === 'group';
-  const otherId = !isGroup && chat.participants 
-    ? (chat.participants.find(p => p !== currentUser.uid) || (chat.participants.includes(currentUser.uid) ? currentUser.uid : '')) 
+  const participants = chat.participants || [];
+  const otherId = !isGroup && participants.length > 0
+    ? (participants.find(p => p !== currentUser.uid) || (participants.includes(currentUser.uid) ? currentUser.uid : '')) 
     : chat.id;
 
   useEffect(() => {
@@ -147,7 +145,6 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ chat, currentUser, onClo
     return () => window.removeEventListener('roxx_settings_updated', loadSettings);
   }, []);
 
-  // Subscribe to Chat (Typing indicators, Pinned Messages)
   useEffect(() => {
     const unsubscribe = subscribeToChat(chat.id, (data) => {
       if (data.typing) {
@@ -167,19 +164,16 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ chat, currentUser, onClo
     return () => unsubscribe();
   }, [chat.id, currentUser.uid]);
 
-  // Subscribe to Other User (Online Status & Blocking)
   useEffect(() => {
     if (isGroup || !otherId) return;
     
     getUserById(otherId).then(u => { 
         if(u) {
             setOtherUser(u); 
-            // Check blocking status on load
             setIsBlockedByThem(u.blockedUsers?.includes(currentUser.uid) || false);
         }
     });
 
-    // Also check if I blocked them
     setIsBlockedByMe(currentUser.blockedUsers?.includes(otherId) || false);
 
     const unsubscribe = subscribeToUser(otherId, (userData) => {
@@ -189,7 +183,6 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ chat, currentUser, onClo
     return () => unsubscribe();
   }, [otherId, isGroup, currentUser.uid, currentUser.blockedUsers]);
 
-  // Messages Polling
   useEffect(() => {
     const sync = async () => {
       const msgs = await getMessages(chat.id);
@@ -222,7 +215,6 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ chat, currentUser, onClo
     }, 2000);
   };
 
-  // --- Voice Recording Logic ---
   const startRecording = async () => {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -286,7 +278,6 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ chat, currentUser, onClo
     return `${m}:${s.toString().padStart(2, '0')}`;
   };
 
-  // --- Deletion UX Logic ---
   const triggerDeleteFlow = (msg: Message) => {
       setMessageToDelete(msg);
       setShowDeleteOptions(true);
@@ -374,14 +365,14 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ chat, currentUser, onClo
     
     await addMessage(msg);
 
-    if (text.toLowerCase().startsWith('/ai')) {
-      setTypingUsers(prev => [...prev, 'gemini_ai']);
+    if (text.toLowerCase().startsWith(AI_TRIGGER)) {
+      setTypingUsers(prev => [...prev, AI_SENDER_ID]);
       try {
-        const promptText = text.slice(3).trim(); 
+        const promptText = text.slice(AI_TRIGGER.length).trim(); 
         const res = await getAIResponse(promptText);
         const aiMsg: Message = {
           id: 'ai_' + Date.now(), 
-          senderId: 'gemini_ai', 
+          senderId: AI_SENDER_ID, 
           recipientId: isGroup ? chat.id : currentUser.uid,
           text: res || "I'm thinking...", 
           type: 'text', 
@@ -390,7 +381,7 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ chat, currentUser, onClo
         };
         await addMessage(aiMsg);
       } catch (err) { }
-      finally { setTypingUsers(prev => prev.filter(id => id !== 'gemini_ai')); }
+      finally { setTypingUsers(prev => prev.filter(id => id !== AI_SENDER_ID)); }
     }
   };
 
@@ -445,7 +436,8 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ chat, currentUser, onClo
 
   const handleForward = async (targetChat: Chat) => {
     if (!forwardingMessage) return;
-    const targetId = targetChat.type === 'group' ? targetChat.id : targetChat.participants.find(p => p !== currentUser.uid)!;
+    const targetParticipants = targetChat.participants || [];
+    const targetId = targetChat.type === 'group' ? targetChat.id : targetParticipants.find(p => p !== currentUser.uid)!;
     const { replyContext, ...msgContent } = forwardingMessage;
     const forwardMsg: Message = {
       ...msgContent,
@@ -548,13 +540,11 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ chat, currentUser, onClo
 
   return (
     <div className={`flex-1 flex flex-col h-full bg-white dark:bg-slate-900 animate-in fade-in duration-300 relative overflow-hidden ${FONT_SIZE_CLASSES[fontSize]}`}>
-      {/* Background with optimized transparency to reduce lag */}
       <div className={`absolute inset-0 z-0 transition-all duration-700 ${wallpaper !== 'custom' ? WALLPAPER_CLASSES[wallpaper] || '' : ''}`}>
         {wallpaper === 'custom' && customUrl && <img src={customUrl} className="absolute inset-0 w-full h-full object-cover" alt="" /> }
         <div className="absolute inset-0 opacity-[0.03] pointer-events-none" style={{ backgroundImage: `url('${CHAT_BG_PATTERN}')` }}></div>
       </div>
 
-      {/* Header */}
       <div className="p-3 md:p-4 flex items-center justify-between bg-white/90 dark:bg-slate-900/90 backdrop-blur-sm z-10 border-b border-slate-200 dark:border-slate-800 shadow-sm relative">
         <div className="flex items-center gap-3">
           <button onClick={onClose} className="lg:hidden p-2 rounded-xl hover:bg-slate-200 dark:hover:bg-slate-800"><svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M15 19l-7-7 7-7" /></svg></button>
@@ -574,7 +564,7 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ chat, currentUser, onClo
                     <span className="w-1 h-1 bg-indigo-500 rounded-full animate-bounce [animation-delay:0.1s]"></span>
                     <span className="w-1 h-1 bg-indigo-500 rounded-full animate-bounce [animation-delay:0.2s]"></span>
                   </div>
-                  {isGroup ? `${typingUsers.length} typing...` : typingUsers.includes('gemini_ai') ? 'AI thinking...' : 'Typing...'}
+                  {isGroup ? `${typingUsers.length} typing...` : typingUsers.includes(AI_SENDER_ID) ? 'AI thinking...' : 'Typing...'}
                </span>
             ) : (
                <span className={`text-[10px] font-bold uppercase tracking-widest mt-0.5 ${statusColor}`}>
@@ -624,7 +614,7 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ chat, currentUser, onClo
             <MessageBubble 
               message={msg} 
               isOwn={msg.senderId === currentUser.uid} 
-              isAI={msg.senderId === 'gemini_ai'} 
+              isAI={msg.senderId === AI_SENDER_ID} 
               onReply={setReplyingTo} 
               onForward={openForwardModal}
               onDelete={triggerDeleteFlow}
@@ -647,7 +637,6 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ chat, currentUser, onClo
         )}
       </div>
 
-      {/* Input Area */}
       <div className="bg-white/95 dark:bg-slate-900/95 backdrop-blur-sm border-t border-slate-200 dark:border-slate-800 z-10 flex flex-col">
         {editingMessage && (
              <div className="px-4 py-2 bg-indigo-50 dark:bg-indigo-900/20 border-l-4 border-indigo-500 flex items-center justify-between">
@@ -870,7 +859,8 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ chat, currentUser, onClo
              <div className="flex-1 overflow-y-auto p-4 space-y-2 no-scrollbar">
                 {availableChats.map(c => {
                    const isGrp = c.type === 'group';
-                   const target = isGrp ? null : allUsers.find(u => u.uid === c.participants.find(p => p !== currentUser.uid));
+                   const targetParticipants = c.participants || [];
+                   const target = isGrp ? null : allUsers.find(u => u.uid === targetParticipants.find(p => p !== currentUser.uid));
                    return (
                      <button key={c.id} onClick={() => handleForward(c)} className="w-full flex items-center gap-3 p-3 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-2xl transition-colors text-left">
                         <img src={isGrp ? c.groupIcon : target?.photoURL || `https://picsum.photos/seed/${c.id}/100`} className="w-10 h-10 rounded-xl object-cover" alt="" />
