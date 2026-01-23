@@ -10,9 +10,9 @@ import {
   getMessages, 
   toggleChatLock, 
   editMessage, 
-  subscribeToChat, 
   deleteMessageForEveryone, 
   deleteMessageForMe, 
+  subscribeToChat, 
   subscribeToUser, 
   togglePinMessage, 
   setTypingStatus,
@@ -55,11 +55,16 @@ const FONT_SIZE_CLASSES: Record<string, string> = {
   large: 'text-[16px]',
 };
 
-// Safe constants to prevent regex parsing errors
-const ACCEPTED_MEDIA_TYPES = "image/png,image/jpeg,image/gif,video/mp4,video/webm";
-const CHAT_BG_PATTERN = "https://www.transparenttextures.com/patterns/asfalt-dark.png";
-const AI_TRIGGER = "/ai";
-const AI_SENDER_ID = "gemini_ai";
+// CONSTANTS TO PREVENT REGEX PARSING ERRORS
+const ACCEPTED_MEDIA = "image/png,image/jpeg,image/gif,video/mp4,video/webm";
+const BG_PATTERN = "https://www.transparenttextures.com/patterns/asfalt-dark.png";
+const MIME_WEBM_OPUS = "audio/webm;codecs=opus";
+const MIME_MP4 = "audio/mp4";
+const MIME_WEBM = "audio/webm";
+const PREFIX_IMAGE = "image/";
+const PREFIX_VIDEO = "video/";
+const AI_CMD = "/ai";
+const AI_BOT_ID = "gemini_ai";
 
 export const ChatWindow: React.FC<ChatWindowProps> = ({ chat, currentUser, onClose, onUserClick, onCallStart }) => {
   const [messages, setMessages] = useState<Message[]>([]);
@@ -218,9 +223,9 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ chat, currentUser, onClo
   const startRecording = async () => {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      let mimeType = 'audio/webm';
-      if (MediaRecorder.isTypeSupported('audio/webm;codecs=opus')) mimeType = 'audio/webm;codecs=opus';
-      else if (MediaRecorder.isTypeSupported('audio/mp4')) mimeType = 'audio/mp4';
+      let mimeType = MIME_WEBM;
+      if (MediaRecorder.isTypeSupported(MIME_WEBM_OPUS)) mimeType = MIME_WEBM_OPUS;
+      else if (MediaRecorder.isTypeSupported(MIME_MP4)) mimeType = MIME_MP4;
 
       const recorder = new MediaRecorder(stream, { mimeType });
       setMediaRecorder(recorder);
@@ -239,7 +244,7 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ chat, currentUser, onClo
 
   const stopRecording = async (shouldSend: boolean) => {
     if (mediaRecorder && isRecording) {
-      const mimeType = mediaRecorder.mimeType || 'audio/webm';
+      const mimeType = mediaRecorder.mimeType || MIME_WEBM;
       mediaRecorder.onstop = async () => {
         if (shouldSend && audioChunksRef.current.length > 0) {
             const blob = new Blob(audioChunksRef.current, { type: mimeType });
@@ -365,14 +370,14 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ chat, currentUser, onClo
     
     await addMessage(msg);
 
-    if (text.toLowerCase().startsWith(AI_TRIGGER)) {
-      setTypingUsers(prev => [...prev, AI_SENDER_ID]);
+    if (text.toLowerCase().startsWith(AI_CMD)) {
+      setTypingUsers(prev => [...prev, AI_BOT_ID]);
       try {
-        const promptText = text.slice(AI_TRIGGER.length).trim(); 
+        const promptText = text.slice(AI_CMD.length).trim(); 
         const res = await getAIResponse(promptText);
         const aiMsg: Message = {
           id: 'ai_' + Date.now(), 
-          senderId: AI_SENDER_ID, 
+          senderId: AI_BOT_ID, 
           recipientId: isGroup ? chat.id : currentUser.uid,
           text: res || "I'm thinking...", 
           type: 'text', 
@@ -381,7 +386,7 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ chat, currentUser, onClo
         };
         await addMessage(aiMsg);
       } catch (err) { }
-      finally { setTypingUsers(prev => prev.filter(id => id !== AI_SENDER_ID)); }
+      finally { setTypingUsers(prev => prev.filter(id => id !== AI_BOT_ID)); }
     }
   };
 
@@ -473,8 +478,8 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ chat, currentUser, onClo
     reader.onload = async (event) => {
       const fileUrl = event.target?.result as string;
       let messageType: any = 'file';
-      if (file.type.startsWith('image/')) messageType = 'image';
-      else if (file.type.startsWith('video/')) messageType = 'video';
+      if (file.type.startsWith(PREFIX_IMAGE)) messageType = 'image';
+      else if (file.type.startsWith(PREFIX_VIDEO)) messageType = 'video';
       const msg: Message = {
         id: 'f_' + Math.random().toString(36).substring(2, 11), 
         senderId: currentUser.uid,
@@ -540,11 +545,13 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ chat, currentUser, onClo
 
   return (
     <div className={`flex-1 flex flex-col h-full bg-white dark:bg-slate-900 animate-in fade-in duration-300 relative overflow-hidden ${FONT_SIZE_CLASSES[fontSize]}`}>
+      {/* Background */}
       <div className={`absolute inset-0 z-0 transition-all duration-700 ${wallpaper !== 'custom' ? WALLPAPER_CLASSES[wallpaper] || '' : ''}`}>
         {wallpaper === 'custom' && customUrl && <img src={customUrl} className="absolute inset-0 w-full h-full object-cover" alt="" /> }
-        <div className="absolute inset-0 opacity-[0.03] pointer-events-none" style={{ backgroundImage: `url('${CHAT_BG_PATTERN}')` }}></div>
+        <div className="absolute inset-0 opacity-[0.03] pointer-events-none" style={{ backgroundImage: `url('${BG_PATTERN}')` }}></div>
       </div>
 
+      {/* Header */}
       <div className="p-3 md:p-4 flex items-center justify-between bg-white/90 dark:bg-slate-900/90 backdrop-blur-sm z-10 border-b border-slate-200 dark:border-slate-800 shadow-sm relative">
         <div className="flex items-center gap-3">
           <button onClick={onClose} className="lg:hidden p-2 rounded-xl hover:bg-slate-200 dark:hover:bg-slate-800"><svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M15 19l-7-7 7-7" /></svg></button>
@@ -564,7 +571,7 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ chat, currentUser, onClo
                     <span className="w-1 h-1 bg-indigo-500 rounded-full animate-bounce [animation-delay:0.1s]"></span>
                     <span className="w-1 h-1 bg-indigo-500 rounded-full animate-bounce [animation-delay:0.2s]"></span>
                   </div>
-                  {isGroup ? `${typingUsers.length} typing...` : typingUsers.includes(AI_SENDER_ID) ? 'AI thinking...' : 'Typing...'}
+                  {isGroup ? `${typingUsers.length} typing...` : typingUsers.includes(AI_BOT_ID) ? 'AI thinking...' : 'Typing...'}
                </span>
             ) : (
                <span className={`text-[10px] font-bold uppercase tracking-widest mt-0.5 ${statusColor}`}>
@@ -614,7 +621,7 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ chat, currentUser, onClo
             <MessageBubble 
               message={msg} 
               isOwn={msg.senderId === currentUser.uid} 
-              isAI={msg.senderId === AI_SENDER_ID} 
+              isAI={msg.senderId === AI_BOT_ID} 
               onReply={setReplyingTo} 
               onForward={openForwardModal}
               onDelete={triggerDeleteFlow}
@@ -705,7 +712,7 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ chat, currentUser, onClo
                         </div>
                     )}
                 </div>
-                <input type="file" ref={fileInputRef} onChange={handleFileChange} accept={ACCEPTED_MEDIA_TYPES} className="hidden" />
+                <input type="file" ref={fileInputRef} onChange={handleFileChange} accept={ACCEPTED_MEDIA} className="hidden" />
                 
                 <form onSubmit={handleSend} className="flex-1 flex gap-2">
                     <input 
