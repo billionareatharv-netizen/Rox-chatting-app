@@ -568,8 +568,8 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ chat, currentUser, onClo
                <span className="text-[10px] text-indigo-500 font-bold uppercase tracking-widest mt-0.5 animate-pulse flex items-center gap-1">
                   <div className="flex gap-0.5">
                     <span className="w-1 h-1 bg-indigo-500 rounded-full animate-bounce"></span>
-                    <span className="w-1 h-1 bg-indigo-500 rounded-full animate-bounce [animation-delay:0.1s]"></span>
-                    <span className="w-1 h-1 bg-indigo-500 rounded-full animate-bounce [animation-delay:0.2s]"></span>
+                  <span className="w-1 h-1 bg-indigo-500 rounded-full animate-bounce"></span>
+                 <span className="w-1 h-1 bg-indigo-500 rounded-full animate-bounce"></span>
                   </div>
                   {isGroup ? `${typingUsers.length} typing...` : typingUsers.includes(AI_BOT_ID) ? 'AI thinking...' : 'Typing...'}
                </span>
@@ -636,8 +636,8 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ chat, currentUser, onClo
           <div className="flex items-end gap-2 px-2 py-2 animate-in slide-in-from-left-4 fade-in duration-300">
              {!isGroup && <img src={displayPhoto} className="w-8 h-8 rounded-full border border-white dark:border-slate-800" alt="" />}
              <div className="bg-white dark:bg-slate-800 rounded-2xl rounded-bl-none px-4 py-3 flex items-center gap-1.5 shadow-sm border border-slate-100 dark:border-slate-700">
-                <div className="w-2 h-2 bg-indigo-400 rounded-full animate-bounce [animation-delay:-0.3s]"></div>
-                <div className="w-2 h-2 bg-indigo-400 rounded-full animate-bounce [animation-delay:-0.15s]"></div>
+               <div className="w-2 h-2 bg-indigo-400 rounded-full animate-bounce"></div>
+              <div className="w-2 h-2 bg-indigo-400 rounded-full animate-bounce"></div>
                 <div className="w-2 h-2 bg-indigo-400 rounded-full animate-bounce"></div>
              </div>
           </div>
