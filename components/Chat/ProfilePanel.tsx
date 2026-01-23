@@ -1,7 +1,8 @@
+
 import React, { useState, useRef, useEffect } from 'react';
 import { User } from '../../types';
 import { useAuth } from '../../hooks/useAuth';
-import { updateProfile } from '../../firebase';
+import { updateProfile, setAppLockPin, disableAppLock } from '../../firebase';
 
 interface ProfilePanelProps {
   user: User;
@@ -11,7 +12,7 @@ interface ProfilePanelProps {
   isTabMode?: boolean;
 }
 
-type ProfileViewMode = 'main' | 'edit' | 'settings' | 'privacy' | 'chats' | 'notifications' | 'language' | 'blocked' | 'wallpaper';
+type ProfileViewMode = 'main' | 'edit' | 'settings' | 'privacy' | 'chats' | 'notifications' | 'language' | 'blocked' | 'wallpaper' | 'applock';
 
 const WALLPAPER_OPTIONS = [
   { id: 'default', name: 'Default', class: 'bg-slate-100 dark:bg-slate-900' },
@@ -34,8 +35,10 @@ export const ProfilePanel: React.FC<ProfilePanelProps> = ({ user, onClose, toggl
   const [isSaving, setIsSaving] = useState(false);
   const wallpaperInputRef = useRef<HTMLInputElement>(null);
   
-  // Privacy Settings from User object
   const [lastSeenPrivacy, setLastSeenPrivacy] = useState(user.privacySettings?.lastSeen || 'everyone');
+
+  // Feature 4: App Lock State
+  const [appLockPinInput, setAppLockPinInput] = useState('');
 
   const [settings, setSettings] = useState(() => {
     try {
@@ -149,17 +152,38 @@ export const ProfilePanel: React.FC<ProfilePanelProps> = ({ user, onClose, toggl
       await updateProfile(user, { privacySettings: newSettings });
   };
 
+  // Feature 4: Set/Disable Lock
+  const handleSetLock = async () => {
+    if (appLockPinInput.length < 4) {
+        alert("PIN must be 4-6 digits");
+        return;
+    }
+    // Using localStorage for this implementation as requested for simple offline lock
+    // For cloud sync, we'd use setAppLockPin from firebase.ts
+    localStorage.setItem('roxx_app_lock', appLockPinInput);
+    setAppLockPinInput('');
+    alert("App Lock Enabled");
+    setViewMode('privacy');
+  };
+
+  const handleDisableLock = () => {
+      localStorage.removeItem('roxx_app_lock');
+      alert("App Lock Disabled");
+      setViewMode('privacy');
+  };
+
   const renderHeader = () => {
     const titles: Record<string, string> = {
       main: "Settings", edit: "Edit Profile", settings: "ROXX Settings",
       privacy: "Privacy", chats: "Chats", notifications: "Notifications",
-      language: "App Language", blocked: "Blocked Contacts", wallpaper: "Chat Wallpaper"
+      language: "App Language", blocked: "Blocked Contacts", wallpaper: "Chat Wallpaper",
+      applock: "App Lock"
     };
 
     const backTarget: Record<string, ProfileViewMode> = {
       edit: 'main', settings: 'main', privacy: 'settings',
       chats: 'settings', notifications: 'settings', language: 'settings',
-      blocked: 'privacy', wallpaper: 'chats'
+      blocked: 'privacy', wallpaper: 'chats', applock: 'privacy'
     };
 
     return (
@@ -229,7 +253,7 @@ export const ProfilePanel: React.FC<ProfilePanelProps> = ({ user, onClose, toggl
       case 'settings':
         return (
           <div className="space-y-1 animate-in slide-in-from-right-4 duration-500">
-            <SettingsItem title="Privacy" subtitle="Blocked, read receipts, last seen" icon={<svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" /></svg>} onClick={() => setViewMode('privacy')} />
+            <SettingsItem title="Privacy" subtitle="Blocked, read receipts, app lock" icon={<svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" /></svg>} onClick={() => setViewMode('privacy')} />
             <SettingsItem title="Chats" subtitle="Wallpaper, font size, clear history" icon={<svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z" /></svg>} onClick={() => setViewMode('chats')} />
             <SettingsItem title="Notifications" subtitle="Tones, vibration, alerts" icon={<svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" /></svg>} onClick={() => setViewMode('notifications')} />
             <SettingsItem title="Language" subtitle={settings.language} icon={<svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M3.055 11H5a2 2 0 012 2v1a2 2 0 002 2 2 2 0 012 2v2.945M8 3.935V5.5A2.5 2.5 0 0010.5 8h.5a2 2 0 012 2 2 2 0 104 0 2 2 0 012-2h1.064M15 20.488V18a2 2 0 012-2h3.064M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>} onClick={() => setViewMode('language')} />
@@ -324,8 +348,42 @@ export const ProfilePanel: React.FC<ProfilePanelProps> = ({ user, onClose, toggl
                 const next = opts[(opts.indexOf(lastSeenPrivacy) + 1) % opts.length];
                 handlePrivacyUpdate('lastSeen', next);
              }} icon={<svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>} />
+             
+             {/* Feature 4: App Lock Entry */}
+             <SettingsItem title="App Lock" subtitle={localStorage.getItem('roxx_app_lock') ? 'Enabled' : 'Disabled'} onClick={() => setViewMode('applock')} icon={<svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" /></svg>} />
+
              <SettingsItem title="Blocked Contacts" subtitle={`${user.blockedUsers?.length || 0} contacts`} onClick={() => setViewMode('blocked')} icon={<svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728L5.636 5.636" /></svg>} />
           </div>
+        );
+
+      case 'applock':
+        const isLocked = !!localStorage.getItem('roxx_app_lock');
+        return (
+            <div className="p-4 animate-in slide-in-from-right-4">
+                <div className="text-center mb-6">
+                    <div className={`w-16 h-16 rounded-2xl mx-auto flex items-center justify-center mb-4 ${isLocked ? 'bg-green-500 text-white' : 'bg-slate-200 dark:bg-slate-800 text-slate-400'}`}>
+                        <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" /></svg>
+                    </div>
+                    <h3 className="font-bold text-lg">{isLocked ? 'App Locked' : 'App Unlocked'}</h3>
+                    <p className="text-sm text-slate-500">Secure your chats with a PIN</p>
+                </div>
+
+                {isLocked ? (
+                    <button onClick={handleDisableLock} className="w-full py-4 bg-red-50 dark:bg-red-900/20 text-red-500 font-bold rounded-2xl border border-red-100 dark:border-red-900/30">Disable Lock</button>
+                ) : (
+                    <div className="space-y-4">
+                        <input 
+                            type="tel" 
+                            placeholder="Enter 4-6 digit PIN" 
+                            maxLength={6}
+                            value={appLockPinInput}
+                            onChange={(e) => setAppLockPinInput(e.target.value.replace(/[^0-9]/g, ''))}
+                            className="w-full text-center text-2xl tracking-widest py-4 rounded-2xl bg-slate-100 dark:bg-slate-800 outline-none focus:ring-2 focus:ring-indigo-500"
+                        />
+                        <button onClick={handleSetLock} className="w-full py-4 bg-indigo-500 text-white font-bold rounded-2xl shadow-lg shadow-indigo-500/30 active:scale-95 transition-all">Enable App Lock</button>
+                    </div>
+                )}
+            </div>
         );
 
       case 'blocked':
@@ -385,7 +443,9 @@ export const ProfilePanel: React.FC<ProfilePanelProps> = ({ user, onClose, toggl
                 </div>
               </div>
               <h3 className="text-2xl font-black tracking-tight">{user.name}</h3>
+              {/* Feature 2: Email Hidden */}
               <p className="text-sm text-slate-500 mt-2 font-medium max-w-[200px]">{user.bio || 'Available'}</p>
+              
               <div className="flex items-center gap-3 mt-8">
                 <button onClick={() => setViewMode('edit')} className="flex items-center gap-2 bg-indigo-500 text-white px-8 py-3.5 rounded-2xl hover:bg-indigo-600 transition-all font-bold text-[11px] uppercase tracking-widest shadow-lg shadow-indigo-500/20 active:scale-95">Edit Profile</button>
                 <button onClick={() => setViewMode('settings')} className="p-3.5 bg-slate-100 dark:bg-slate-800 rounded-2xl hover:bg-indigo-500 hover:text-white transition-all text-slate-500 active:scale-95 shadow-sm"><svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /></svg></button>

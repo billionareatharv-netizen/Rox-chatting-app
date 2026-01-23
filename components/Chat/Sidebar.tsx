@@ -1,3 +1,4 @@
+
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { User, Chat } from '../../types';
 import { getAllUsers, getMyChats, togglePinChat, subscribeToUser } from '../../firebase';
@@ -9,10 +10,11 @@ interface SidebarProps {
   currentUser: User;
   onChatSelect: (chat: Chat) => void;
   activeChatId?: string;
+  nicknames: Record<string, string>; // Feature 3
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({ 
-  currentUser, onChatSelect, activeChatId
+  currentUser, onChatSelect, activeChatId, nicknames
 }) => {
   const [search, setSearch] = useState('');
   const [isSearchOpen, setIsSearchOpen] = useState(false);
@@ -40,7 +42,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
   }, [showMenu]);
 
   useEffect(() => {
-    // Sync pinned chats from user profile real-time
     const unsub = subscribeToUser(currentUser.uid, (data) => {
         setPinnedChats(data.pinnedChats || []);
     });
@@ -73,11 +74,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
   const isUserOnline = (u: User | undefined) => {
     if (!u) return false;
-    // Check if I am blocked by them (simple client side check for UI, real security is backend)
-    // Actually, we don't have their blocked list here easily without fetching.
-    // Assuming standard privacy:
     if (u.privacySettings?.lastSeen === 'nobody') return false;
-    
     if (u.status !== 'online') return false;
     const timeDiff = Date.now() - (u.lastSeen || 0);
     return timeDiff < 3 * 60 * 1000;
@@ -93,6 +90,12 @@ export const Sidebar: React.FC<SidebarProps> = ({
     setShowAccountSwitch(true);
   };
 
+  // Feature 3: Helper to get display name
+  const getDisplayName = (user: User | undefined) => {
+    if (!user) return 'Unknown';
+    return nicknames[user.uid] || user.name;
+  };
+
   const searchResults = useMemo(() => {
     const term = search.toLowerCase().trim();
     
@@ -102,7 +105,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
       return !isLocked;
     });
 
-    // SORTING LOGIC: Pinned first, then recent
     visibleChats.sort((a, b) => {
         const isAPinned = pinnedChats.includes(a.id);
         const isBPinned = pinnedChats.includes(b.id);
@@ -113,16 +115,22 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
     if (!term || isRevealingLocked) return { chats: visibleChats, users: [] };
 
-    const matchedUsers = allUsers.filter(u => u.name.toLowerCase().includes(term));
+    // Update search to look through nicknames too
+    const matchedUsers = allUsers.filter(u => {
+      const display = nicknames[u.uid] || u.name;
+      return display.toLowerCase().includes(term);
+    });
+
     const matchedChats = visibleChats.filter(c => {
       if (c.type === 'group') return c.name?.toLowerCase().includes(term);
       const otherId = c.participants.find(p => p !== currentUser.uid);
       const user = allUsers.find(u => u.uid === otherId);
-      return user?.name.toLowerCase().includes(term);
+      const display = user ? (nicknames[user.uid] || user.name) : '';
+      return display.toLowerCase().includes(term);
     });
 
     return { chats: matchedChats, users: matchedUsers.filter(u => !chats.some(c => c.type === 'private' && c.participants.includes(u.uid))) };
-  }, [search, allUsers, chats, currentUser.uid, isRevealingLocked, pinnedChats]);
+  }, [search, allUsers, chats, currentUser.uid, isRevealingLocked, pinnedChats, nicknames]);
 
   const handleStartNewChat = (user: User) => {
     const existing = chats.find(c => c.type === 'private' && c.participants.includes(user.uid));
@@ -141,14 +149,17 @@ export const Sidebar: React.FC<SidebarProps> = ({
     const otherId = chat.participants.find(p => p !== currentUser.uid);
     const user = allUsers.find(u => u.uid === otherId);
     
-    // Privacy Check for Blocked Users (If I am blocked by them, I shouldn't see their PFP ideally, but let's keep it simple for listing)
-    return { name: user?.name || 'Contact', photo: user?.photoURL || `https://picsum.photos/seed/${otherId}/200`, status: user?.status, userObj: user };
+    return { 
+        name: getDisplayName(user), 
+        photo: user?.photoURL || `https://picsum.photos/seed/${otherId}/200`, 
+        status: user?.status, 
+        userObj: user 
+    };
   };
 
   return (
     <div className="w-full h-full flex flex-col bg-white dark:bg-slate-900 animate-in slide-in-from-left duration-300 relative border-r border-slate-100 dark:border-slate-800">
       
-      {/* Professional Header */}
       <div className="h-20 px-5 flex items-center justify-between shrink-0 bg-white/80 dark:bg-slate-900/80 backdrop-blur-sm z-10 sticky top-0">
         {isSearchOpen ? (
             <div className="flex-1 flex items-center gap-3 bg-slate-100 dark:bg-slate-800 px-4 py-2 rounded-2xl animate-in fade-in zoom-in-95">
@@ -156,7 +167,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 <input 
                     ref={searchInputRef}
                     type="text" 
-                    placeholder="Search messages..." 
+                    placeholder="Search..." 
                     value={search}
                     onChange={(e) => setSearch(e.target.value)}
                     className="flex-1 bg-transparent border-none outline-none text-sm font-semibold text-slate-900 dark:text-white placeholder-slate-400"
@@ -179,7 +190,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
                         <button onClick={() => setShowMenu(!showMenu)} className="p-2.5 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 dark:hover:bg-slate-800 rounded-xl transition-all">
                             <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M12 5v.01M12 12v.01M12 19v.01M12 6a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2z" /></svg>
                         </button>
-                        {/* 3-Dot Menu Dropdown */}
                         {showMenu && (
                             <div className="absolute right-0 top-full mt-2 w-52 bg-white dark:bg-slate-800 rounded-2xl shadow-xl ring-1 ring-black/5 overflow-hidden animate-in zoom-in-95 origin-top-right z-50">
                                 <button 
@@ -263,7 +273,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   )}
                 </div>
               </div>
-              {/* Pin Button */}
               <button 
                 onClick={(e) => handlePinChat(e, chat.id)}
                 className={`absolute right-2 top-1/2 -translate-y-1/2 p-2 rounded-full opacity-0 group-hover:opacity-100 transition-all ${isActive ? 'bg-white/20 text-white hover:bg-white/30' : 'bg-white dark:bg-slate-700 shadow-md text-slate-400 hover:text-indigo-500'}`}
@@ -276,6 +285,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
         {searchResults.users.map(u => {
           const isOnline = isUserOnline(u);
+          const displayName = getDisplayName(u);
           return (
             <div key={u.uid} onClick={() => handleStartNewChat(u)} className="flex items-center gap-4 p-3.5 rounded-[1.2rem] cursor-pointer hover:bg-indigo-50 dark:hover:bg-slate-800/60 transition-all group">
               <div className="relative">
@@ -283,10 +293,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 {isOnline && <div className="absolute bottom-0 right-0 w-3.5 h-3.5 bg-green-500 rounded-full border-2 border-white dark:border-slate-900"></div>}
               </div>
               <div className="flex-1 min-w-0">
-                <h4 className="font-bold text-[15px] truncate text-slate-800 dark:text-slate-100">{u.name}</h4>
-                <p className={`text-[11px] font-bold uppercase tracking-wider ${isOnline ? 'text-green-500' : 'text-slate-400'}`}>
-                    {isOnline ? 'Online Now' : 'Offline'}
-                </p>
+                <h4 className="font-bold text-[15px] truncate text-slate-800 dark:text-slate-100">{displayName}</h4>
+                {/* Feature 2: Privacy - Replaced email with status/bio */}
+                <p className="text-[11px] font-medium text-slate-400 truncate">{u.bio || 'Available'}</p>
               </div>
               <div className="p-2 opacity-0 group-hover:opacity-100 transition-all translate-x-2 group-hover:translate-x-0 bg-indigo-50 dark:bg-slate-700 rounded-full text-indigo-500">
                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M9 5l7 7-7 7" /></svg>

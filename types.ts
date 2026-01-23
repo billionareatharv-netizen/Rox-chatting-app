@@ -16,9 +16,14 @@ export interface User {
     lastSeen: 'everyone' | 'contacts' | 'nobody';
     readReceipts: boolean;
   };
+  // Feature 4: App Lock
+  security?: {
+    appLockPin?: string; // Hashed or plain for demo
+    biometricsEnabled?: boolean;
+  };
 }
 
-export type MessageType = 'text' | 'image' | 'video' | 'file' | 'voice' | 'story_reply' | 'deleted' | 'poll' | 'sticker';
+export type MessageType = 'text' | 'image' | 'video' | 'file' | 'voice' | 'story_reply' | 'deleted' | 'poll' | 'sticker' | 'system';
 export type MessageStatus = 'sent' | 'delivered' | 'seen';
 
 export interface Reaction {
@@ -67,6 +72,8 @@ export interface Message {
   reactions?: { [emoji: string]: string[] }; // Map emoji -> array of userIds
   poll?: PollData;
   stickerUrl?: string;
+  // Feature 3: Privacy for system messages
+  visibleTo?: string[]; // If present, only these UIDs can see the message
 }
 
 export interface StoryView {

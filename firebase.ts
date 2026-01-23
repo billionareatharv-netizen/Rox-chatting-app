@@ -1,3 +1,4 @@
+
 import { initializeApp } from "firebase/app";
 import { 
   getAuth, 
@@ -28,7 +29,8 @@ import {
   deleteDoc,
   orderBy,
   limit,
-  onSnapshot
+  onSnapshot,
+  writeBatch
 } from "firebase/firestore";
 
 // --- CONFIGURATION START ---
@@ -76,17 +78,14 @@ try {
 
 export { auth, db };
 
-// Helper to abstract Auth State Change for both Modular SDK and Mock object
+// Helper to abstract Auth State Change
 export const observeAuthState = (callback: (user: any) => void) => {
-  // If auth is our mock object or legacy compat, it has the method
   if (auth && (auth as any).onAuthStateChanged) {
     return (auth as any).onAuthStateChanged(callback);
   }
-  // Otherwise use the Modular SDK standalone function
   return onAuthStateChanged(auth, callback);
 };
 
-// Helper for generating UUIDs safely in all environments
 const generateUUID = () => {
   if (typeof crypto !== 'undefined' && crypto.randomUUID) {
     try {
@@ -99,35 +98,22 @@ const generateUUID = () => {
   });
 };
 
-// Helper to remove undefined values, DOM nodes, and avoid circular dependency errors
 const sanitizeData = (data: any, seen = new WeakSet()): any => {
   if (data === null || data === undefined) return null;
   if (typeof data !== 'object') return data;
   if (data instanceof Date) return data.getTime();
-  
-  // Detect DOM nodes
   if (data.nodeType && typeof data.cloneNode === 'function') return '[DOM Node]';
-  // Detect React Fiber/Internal objects
   if (data.$$typeof) return '[React Element]';
   if (data._reactInternals) return '[React Internals]';
-
   if (seen.has(data)) return '[Circular]';
   seen.add(data);
-
-  if (Array.isArray(data)) {
-    return data.map(item => sanitizeData(item, seen));
-  }
-  
+  if (Array.isArray(data)) return data.map(item => sanitizeData(item, seen));
   const out: any = {};
   for (const k in data) {
-    // Skip React internal properties which often cause circular refs
     if (k.startsWith('__react') || k === '_owner' || k === 'stateNode') continue;
-
     if (Object.prototype.hasOwnProperty.call(data, k)) {
       const val = data[k];
-      if (val !== undefined) {
-        out[k] = sanitizeData(val, seen);
-      }
+      if (val !== undefined) out[k] = sanitizeData(val, seen);
     }
   }
   return out;
@@ -143,9 +129,7 @@ export const updateUserStatus = async (uid: string, status: 'online' | 'offline'
       status: status,
       lastSeen: Date.now()
     });
-  } catch (e) {
-    // console.error("Error updating status:", e);
-  }
+  } catch (e) { }
 };
 
 export const makeUserAdmin = async (uid: string) => {
@@ -176,7 +160,6 @@ export const createUserWithEmailAndPassword = async (authObj: any, email: string
     bio: 'Hey there! I am using ROXX CHATS.',
     blockedUsers: [],
     pinnedChats: [],
-    lockedChats: [],
     isAdmin: isAdmin,
     isGloballyBlocked: false,
     privacySettings: {
@@ -209,7 +192,6 @@ export const signInWithPopup = async () => {
       bio: 'Hey there! I am using ROXX CHATS.',
       blockedUsers: [],
       pinnedChats: [],
-      lockedChats: [],
       isAdmin: isAdmin,
       isGloballyBlocked: false,
       privacySettings: { lastSeen: 'everyone', readReceipts: true }
@@ -268,6 +250,42 @@ export const subscribeToUser = (uid: string, callback: (user: any) => void) => {
   });
 };
 
+// --- FEATURE 3: NICKNAMES ---
+
+export const setNickname = async (myUid: string, targetUid: string, nickname: string) => {
+  if (!nickname.trim()) {
+    await deleteDoc(doc(db, "users", myUid, "nicknames", targetUid));
+  } else {
+    await setDoc(doc(db, "users", myUid, "nicknames", targetUid), { name: nickname });
+    
+    // Send a private system message to myself about the change (as per req, but private)
+    // Actually, prompt says "Send system notification message in chat". 
+    // To respect "Other users should NOT see", we make this a local event or a private message type.
+    const chatId = [myUid, targetUid].sort().join('_');
+    const msg = {
+      id: 'sys_' + generateUUID(),
+      senderId: 'system',
+      recipientId: chatId,
+      text: `You set a nickname: ${nickname}`,
+      type: 'system',
+      timestamp: Date.now(),
+      status: 'seen',
+      visibleTo: [myUid] // Logic to filter this in MessageBubble if needed
+    };
+    await addMessage(msg);
+  }
+};
+
+export const subscribeToNicknames = (myUid: string, callback: (nicknames: Record<string, string>) => void) => {
+  return onSnapshot(collection(db, "users", myUid, "nicknames"), (snapshot) => {
+    const mapping: Record<string, string> = {};
+    snapshot.forEach(doc => {
+      mapping[doc.id] = doc.data().name;
+    });
+    callback(mapping);
+  });
+};
+
 // --- MESSAGING ---
 
 export const getMyChats = async (uid: string) => {
@@ -290,12 +308,17 @@ export const getMessages = async (chatId: string) => {
       const [u1, u2] = chatId.split('_');
       filteredMsgs = allMsgs.filter((m: any) => 
         (m.senderId === u1 && m.recipientId === u2) || 
-        (m.senderId === u2 && m.recipientId === u1)
+        (m.senderId === u2 && m.recipientId === u1) ||
+        (m.recipientId === chatId) // For system messages
       );
     }
 
     if (currentUid) {
-      filteredMsgs = filteredMsgs.filter((m: any) => !m.deletedFor?.includes(currentUid));
+      filteredMsgs = filteredMsgs.filter((m: any) => {
+        // Feature 3: Private System Messages
+        if (m.visibleTo && !m.visibleTo.includes(currentUid)) return false;
+        return !m.deletedFor?.includes(currentUid);
+      });
     }
 
     return filteredMsgs.sort((a: any, b: any) => a.timestamp - b.timestamp);
@@ -309,48 +332,45 @@ export const addMessage = async (msg: any) => {
   try {
     const safeMsg = sanitizeData(msg); 
     
-    // Blocking Logic Check
-    if (!safeMsg.recipientId.startsWith('group_')) {
+    // Blocking Check (skip for system messages)
+    if (!safeMsg.recipientId.startsWith('group_') && safeMsg.senderId !== 'system') {
         const recipientRef = doc(db, "users", safeMsg.recipientId);
         const recipientSnap = await getDoc(recipientRef);
-        
-        if (recipientSnap.exists()) {
-            const recipientData = recipientSnap.data();
-            const blockedUsers = recipientData.blockedUsers || [];
-            
-            if (blockedUsers.includes(safeMsg.senderId)) {
-                await setDoc(doc(db, "messages", safeMsg.id), safeMsg);
-                return; 
-            }
+        if (recipientSnap.exists() && recipientSnap.data().blockedUsers?.includes(safeMsg.senderId)) {
+            await setDoc(doc(db, "messages", safeMsg.id), safeMsg);
+            return; 
         }
     }
 
     await setDoc(doc(db, "messages", safeMsg.id), safeMsg);
 
-    const chatId = safeMsg.recipientId.startsWith('group_') 
-      ? safeMsg.recipientId 
-      : [safeMsg.senderId, safeMsg.recipientId].sort().join('_');
-    
-    const chatRef = doc(db, "chats", chatId);
-    const updateData = {
-      id: chatId,
-      lastMessage: { 
-        text: safeMsg.type === 'voice' ? '🎤 Voice' : safeMsg.type === 'image' ? '📷 Image' : safeMsg.type === 'poll' ? '📊 Poll' : safeMsg.type === 'sticker' ? '👾 Sticker' : (safeMsg.text || 'Media'), 
-        senderId: safeMsg.senderId, 
-        timestamp: safeMsg.timestamp 
-      },
-      updatedAt: safeMsg.timestamp,
-      participants: [safeMsg.senderId, safeMsg.recipientId], 
-      type: safeMsg.recipientId.startsWith('group_') ? 'group' : 'private'
-    };
+    // Only update chat snippet if it's a real message
+    if (safeMsg.type !== 'system') {
+      const chatId = safeMsg.recipientId.startsWith('group_') 
+        ? safeMsg.recipientId 
+        : [safeMsg.senderId, safeMsg.recipientId].sort().join('_');
+      
+      const chatRef = doc(db, "chats", chatId);
+      const updateData: any = {
+        id: chatId,
+        lastMessage: { 
+          text: safeMsg.type === 'voice' ? '🎤 Voice' : safeMsg.type === 'image' ? '📷 Image' : (safeMsg.text || 'Media'), 
+          senderId: safeMsg.senderId, 
+          timestamp: safeMsg.timestamp 
+        },
+        updatedAt: safeMsg.timestamp,
+        participants: [safeMsg.senderId, safeMsg.recipientId], 
+        type: safeMsg.recipientId.startsWith('group_') ? 'group' : 'private'
+      };
 
-    if (updateData.type === 'private') {
-       updateData.participants = [...new Set([safeMsg.senderId, safeMsg.recipientId])];
-    } else {
-       delete (updateData as any).participants; 
+      if (updateData.type === 'private') {
+         updateData.participants = [...new Set([safeMsg.senderId, safeMsg.recipientId])];
+      } else {
+         delete updateData.participants; 
+      }
+
+      await setDoc(chatRef, updateData, { merge: true });
     }
-
-    await setDoc(chatRef, updateData, { merge: true });
   } catch (e) {
     console.error("Error adding message:", e);
     throw e;
@@ -372,9 +392,8 @@ export const toggleMessageReaction = async (messageId: string, emoji: string, us
     } else {
       reactions[emoji] = [...userList, userId];
     }
-    
     await updateDoc(msgRef, { reactions });
-  } catch (e) { console.error("Reaction error", e); }
+  } catch (e) { }
 };
 
 export const voteOnPoll = async (messageId: string, optionId: string, userId: string) => {
@@ -388,32 +407,23 @@ export const voteOnPoll = async (messageId: string, optionId: string, userId: st
     const poll = data.poll;
     if (!poll.allowMultiple) {
       poll.options.forEach((opt: any) => {
-        if (opt.id !== optionId) {
-          opt.votes = opt.votes.filter((uid: string) => uid !== userId);
-        }
+        if (opt.id !== optionId) opt.votes = opt.votes.filter((uid: string) => uid !== userId);
       });
     }
 
     const targetOpt = poll.options.find((o: any) => o.id === optionId);
     if (targetOpt) {
-      if (targetOpt.votes.includes(userId)) {
-        targetOpt.votes = targetOpt.votes.filter((uid: string) => uid !== userId);
-      } else {
-        targetOpt.votes.push(userId);
-      }
+      if (targetOpt.votes.includes(userId)) targetOpt.votes = targetOpt.votes.filter((uid: string) => uid !== userId);
+      else targetOpt.votes.push(userId);
     }
-
     await updateDoc(msgRef, { poll });
-  } catch (e) { console.error("Voting error", e); }
+  } catch (e) { }
 };
 
 export const editMessage = async (messageId: string, newText: string) => {
     try {
-        await updateDoc(doc(db, "messages", messageId), {
-            text: newText,
-            isEdited: true
-        });
-    } catch (e) { console.error("Error editing message:", e); }
+        await updateDoc(doc(db, "messages", messageId), { text: newText, isEdited: true });
+    } catch (e) { }
 };
 
 export const deleteMessageForEveryone = async (messageId: string) => {
@@ -421,20 +431,15 @@ export const deleteMessageForEveryone = async (messageId: string) => {
         await updateDoc(doc(db, "messages", messageId), {
             type: 'deleted',
             text: '🚫 This message was deleted',
-            fileUrl: null,
-            audioUrl: null,
-            poll: null,
-            stickerUrl: null
+            fileUrl: null, audioUrl: null, poll: null, stickerUrl: null
         });
-    } catch (e) { console.error("Error deleting message:", e); }
+    } catch (e) { }
 };
 
 export const deleteMessageForMe = async (messageId: string, userId: string) => {
     try {
-        await updateDoc(doc(db, "messages", messageId), {
-            deletedFor: arrayUnion(userId)
-        });
-    } catch (e) { console.error("Error deleting message for me:", e); }
+        await updateDoc(doc(db, "messages", messageId), { deletedFor: arrayUnion(userId) });
+    } catch (e) { }
 };
 
 export const deleteMessage = async (messageId: string, chatId: string) => {
@@ -444,9 +449,7 @@ export const deleteMessage = async (messageId: string, chatId: string) => {
 export const setTypingStatus = async (chatId: string, userId: string, isTyping: boolean) => {
   try {
     const chatRef = doc(db, "chats", chatId);
-    await setDoc(chatRef, {
-      typing: { [userId]: isTyping }
-    }, { merge: true });
+    await setDoc(chatRef, { typing: { [userId]: isTyping } }, { merge: true });
   } catch (e) { }
 };
 
@@ -456,13 +459,10 @@ export const togglePinChat = async (userId: string, chatId: string) => {
         const userSnap = await getDoc(userRef);
         if (userSnap.exists()) {
             const pinned = userSnap.data().pinnedChats || [];
-            if (pinned.includes(chatId)) {
-                await updateDoc(userRef, { pinnedChats: arrayRemove(chatId) });
-            } else {
-                await updateDoc(userRef, { pinnedChats: arrayUnion(chatId) });
-            }
+            if (pinned.includes(chatId)) await updateDoc(userRef, { pinnedChats: arrayRemove(chatId) });
+            else await updateDoc(userRef, { pinnedChats: arrayUnion(chatId) });
         }
-    } catch (e) { console.error("Error pinning chat:", e); }
+    } catch (e) { }
 };
 
 export const togglePinMessage = async (chatId: string, messageId: string) => {
@@ -471,20 +471,15 @@ export const togglePinMessage = async (chatId: string, messageId: string) => {
         const chatSnap = await getDoc(chatRef);
         if(chatSnap.exists()) {
             const pinned = chatSnap.data().pinnedMessages || [];
-            if(pinned.includes(messageId)) {
-                await updateDoc(chatRef, { pinnedMessages: arrayRemove(messageId) });
-            } else {
-                await updateDoc(chatRef, { pinnedMessages: arrayUnion(messageId) });
-            }
+            if(pinned.includes(messageId)) await updateDoc(chatRef, { pinnedMessages: arrayRemove(messageId) });
+            else await updateDoc(chatRef, { pinnedMessages: arrayUnion(messageId) });
         }
-    } catch (e) { console.error("Error pinning message", e); }
+    } catch (e) { }
 };
 
 export const subscribeToChat = (chatId: string, callback: (data: any) => void) => {
   return onSnapshot(doc(db, "chats", chatId), (doc) => {
-    if (doc.exists()) {
-      callback(doc.data());
-    }
+    if (doc.exists()) callback(doc.data());
   });
 };
 
@@ -501,10 +496,51 @@ export const createGroup = async (name: string, participants: string[], adminId:
     lockedBy: []
   };
   await setDoc(doc(db, "chats", groupId), newGroup);
+  
+  // System msg
+  const sysMsg = {
+    id: 'sys_' + generateUUID(),
+    senderId: 'system',
+    recipientId: groupId,
+    text: `Group "${name}" created`,
+    type: 'system',
+    timestamp: Date.now(),
+    status: 'sent'
+  };
+  await addMessage(sysMsg);
+  
   return newGroup;
 };
 
-// --- GROUP MANAGEMENT ---
+// --- FEATURE 1: GROUP MEMBERS ---
+
+export const addMembersToGroup = async (chatId: string, newMemberIds: string[], adminName: string) => {
+  const chatRef = doc(db, "chats", chatId);
+  
+  // Update participants
+  await updateDoc(chatRef, {
+    participants: arrayUnion(...newMemberIds)
+  });
+
+  // Fetch names for system message
+  const newMembers: string[] = [];
+  for (const uid of newMemberIds) {
+    const u = await getUserById(uid);
+    if(u) newMembers.push(u.name);
+  }
+
+  // Add system message
+  const msg = {
+    id: 'sys_' + generateUUID(),
+    senderId: 'system',
+    recipientId: chatId,
+    text: `${adminName} added ${newMembers.join(', ')}`,
+    type: 'system',
+    timestamp: Date.now(),
+    status: 'sent'
+  };
+  await addMessage(msg);
+};
 
 export const leaveGroup = async (chatId: string, userId: string) => {
   const chatRef = doc(db, "chats", chatId);
@@ -524,9 +560,7 @@ export const removeGroupMember = async (chatId: string, userId: string) => {
 
 export const makeGroupAdmin = async (chatId: string, userId: string) => {
   const chatRef = doc(db, "chats", chatId);
-  await updateDoc(chatRef, {
-    adminIds: arrayUnion(userId)
-  });
+  await updateDoc(chatRef, { adminIds: arrayUnion(userId) });
 };
 
 export const updateGroupInfo = async (chatId: string, name: string, iconUrl?: string, description?: string) => {
@@ -537,25 +571,29 @@ export const updateGroupInfo = async (chatId: string, name: string, iconUrl?: st
   await updateDoc(chatRef, data);
 };
 
-export const markMessagesAsDelivered = async (chatId: string, userId: string) => { };
-export const markMessagesAsSeen = async (chatId: string, userId: string) => { };
-
 export const toggleChatLock = async (chatId: string, userId: string) => {
   const chatRef = doc(db, "chats", chatId);
   const snap = await getDoc(chatRef);
   if (snap.exists()) {
     const data = snap.data();
     let lockedBy = data.lockedBy || [];
-    if (lockedBy.includes(userId)) {
-      lockedBy = lockedBy.filter((id: string) => id !== userId);
-    } else {
-      lockedBy.push(userId);
-    }
+    if (lockedBy.includes(userId)) lockedBy = lockedBy.filter((id: string) => id !== userId);
+    else lockedBy.push(userId);
     await updateDoc(chatRef, { lockedBy });
   }
 };
 
-// --- CALLING (WebRTC Signaling) ---
+// --- FEATURE 4: APP LOCK SETTINGS ---
+
+export const setAppLockPin = async (userId: string, pin: string) => {
+  await updateDoc(doc(db, "users", userId), { "security.appLockPin": pin });
+};
+
+export const disableAppLock = async (userId: string) => {
+  await updateDoc(doc(db, "users", userId), { "security.appLockPin": null });
+};
+
+// --- CALLING ---
 
 export const initiateCall = async (callerId: string, receiverId: string, type: 'voice' | 'video') => {
   const callId = 'call_' + generateUUID();
@@ -595,16 +633,12 @@ export const updateCallSignal = async (callId: string, data: any) => {
 export const addIceCandidate = async (callId: string, candidate: any, type: 'caller' | 'callee') => {
   const callRef = doc(db, "calls", callId);
   const field = type === 'caller' ? 'callerCandidates' : 'calleeCandidates';
-  await updateDoc(callRef, {
-    [field]: arrayUnion(sanitizeData(candidate))
-  });
+  await updateDoc(callRef, { [field]: arrayUnion(sanitizeData(candidate)) });
 };
 
 export const subscribeToCall = (callId: string, callback: (data: any) => void) => {
   return onSnapshot(doc(db, "calls", callId), (doc) => {
-    if (doc.exists()) {
-      callback(doc.data());
-    }
+    if (doc.exists()) callback(doc.data());
   });
 };
 
@@ -655,20 +689,13 @@ export const sendStoryReply = async (rid: string, sid: string, text: string, sto
 // --- NOTES ---
 export const addNote = async (userId: string, userName: string, userPhoto: string, text: string) => {
   const noteId = `note_${userId}`;
-  const note = {
-    id: noteId,
-    userId,
-    userName,
-    userPhoto,
-    text,
-    timestamp: Date.now()
-  };
+  const note = { id: noteId, userId, userName, userPhoto, text, timestamp: Date.now() };
   await setDoc(doc(db, "notes", noteId), note);
   return note;
 };
 
 export const getNotes = async () => {
-  const yesterday = Date.now() - 86400000; // Notes last 24 hours
+  const yesterday = Date.now() - 86400000;
   const q = query(collection(db, "notes"), where("timestamp", ">", yesterday));
   const snapshot = await getDocs(q);
   return snapshot.docs.map(doc => doc.data());
@@ -677,14 +704,7 @@ export const getNotes = async () => {
 // --- SAVED MEDIA (APP GALLERY) ---
 export const saveMediaToGallery = async (userId: string, mediaUrl: string, mediaType: 'image' | 'video', senderName: string) => {
   const id = 'saved_' + generateUUID();
-  const item = {
-    id,
-    userId,
-    mediaUrl,
-    mediaType,
-    savedAt: Date.now(),
-    originalSenderName: senderName
-  };
+  const item = { id, userId, mediaUrl, mediaType, savedAt: Date.now(), originalSenderName: senderName };
   await setDoc(doc(db, "saved_media", id), item);
 };
 

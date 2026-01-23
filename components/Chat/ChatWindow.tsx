@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useRef } from 'react';
 import { User, Chat, Message, PollData } from '../../types';
 import { MessageBubble } from './MessageBubble';
@@ -26,6 +27,7 @@ interface ChatWindowProps {
   onClose: () => void;
   onUserClick: (user: User) => void;
   onCallStart?: (user: User, type: 'voice' | 'video') => void;
+  nicknames: Record<string, string>; // Feature 3
 }
 
 const STICKERS = [
@@ -55,9 +57,8 @@ const FONT_SIZE_CLASSES: Record<string, string> = {
   large: 'text-base',
 };
 
-// --- SAFE CONSTANTS (PREVENTS REGEX ERRORS) ---
 const ACCEPTED_MEDIA = "image/png,image/jpeg,image/gif,video/mp4,video/webm";
-const BG_PATTERN = "https://www.transparenttextures.com/patterns/cubes.png"; // Cleaner pattern
+const BG_PATTERN = "https://www.transparenttextures.com/patterns/cubes.png"; 
 const MIME_WEBM_OPUS = "audio/webm;codecs=opus";
 const MIME_MP4 = "audio/mp4";
 const MIME_WEBM = "audio/webm";
@@ -66,7 +67,7 @@ const PREFIX_VIDEO = "video/";
 const AI_CMD = "/ai";
 const AI_BOT_ID = "gemini_ai";
 
-export const ChatWindow: React.FC<ChatWindowProps> = ({ chat, currentUser, onClose, onUserClick, onCallStart }) => {
+export const ChatWindow: React.FC<ChatWindowProps> = ({ chat, currentUser, onClose, onUserClick, onCallStart, nicknames }) => {
   const [messages, setMessages] = useState<Message[]>([]);
   const [otherUser, setOtherUser] = useState<User | null>(null);
   const [isLocked, setIsLocked] = useState(chat.lockedBy?.includes(currentUser.uid) || false);
@@ -117,6 +118,8 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ chat, currentUser, onClo
   const otherId = !isGroup && participants.length > 0
     ? (participants.find(p => p !== currentUser.uid) || (participants.includes(currentUser.uid) ? currentUser.uid : '')) 
     : chat.id;
+
+  const displayName = isGroup ? chat.name : (otherUser ? (nicknames[otherUser.uid] || otherUser.name) : 'Loading...');
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -203,7 +206,6 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ chat, currentUser, onClo
 
   useEffect(() => {
     if (scrollRef.current) {
-      // Small timeout to allow images to render
       setTimeout(() => {
           if (scrollRef.current) {
             scrollRef.current.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' });
@@ -354,7 +356,7 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ chat, currentUser, onClo
       replyContext = {
         messageId: replyingTo.id,
         text: replyingTo.text || 'Media',
-        senderName: sender?.name || 'User'
+        senderName: sender ? (nicknames[sender.uid] || sender.name) : 'User'
       };
     }
 
@@ -550,13 +552,12 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ chat, currentUser, onClo
 
   return (
     <div className={`flex-1 flex flex-col h-full bg-white dark:bg-slate-900 animate-in fade-in duration-300 relative overflow-hidden ${FONT_SIZE_CLASSES[fontSize]}`}>
-      {/* Background with Pattern */}
       <div className={`absolute inset-0 z-0 transition-all duration-700 ${wallpaper !== 'custom' ? WALLPAPER_CLASSES[wallpaper] || '' : ''}`}>
         {wallpaper === 'custom' && customUrl && <img src={customUrl} className="absolute inset-0 w-full h-full object-cover" alt="" /> }
         <div className="absolute inset-0 opacity-[0.06] pointer-events-none mix-blend-overlay" style={{ backgroundImage: `url('${BG_PATTERN}')` }}></div>
       </div>
 
-      {/* Professional Glassmorphism Header */}
+      {/* Header */}
       <div className="px-4 py-3 flex items-center justify-between bg-white/80 dark:bg-slate-900/80 backdrop-blur-xl z-20 border-b border-slate-200/50 dark:border-slate-800/50 shadow-sm sticky top-0 transition-all">
         <div className="flex items-center gap-3">
           <button onClick={onClose} className="lg:hidden p-2 rounded-full hover:bg-slate-200/50 dark:hover:bg-slate-800/50 text-slate-700 dark:text-slate-200 transition-colors">
@@ -573,7 +574,7 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ chat, currentUser, onClo
             
             <div className="flex flex-col justify-center min-w-0">
               <h3 className="font-bold text-sm leading-tight text-slate-900 dark:text-white flex items-center gap-1.5 truncate">
-                {isGroup ? chat.name : (otherUser?.name || 'Loading...')}
+                {displayName}
                 {isLocked && <svg className="w-3 h-3 text-indigo-500" fill="currentColor" viewBox="0 0 24 24"><path d="M12 17c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2zm6-9h-1V6c0-2.76-2.24-5-5-5S7 3.24 7 6v2H6c-1.1 0-2 .9-2 2v10c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V10c0-1.1-.9-2-2-2zm-6-5c1.66 0 3 1.34 3 3v2H9V6c0-1.66 1.34-3 3-3z"/></svg>}
               </h3>
               
@@ -612,7 +613,6 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ chat, currentUser, onClo
         </div>
       </div>
 
-      {/* Pinned Message Widget */}
       {pinnedMessage && (
         <div 
             onClick={() => {
@@ -644,18 +644,26 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ chat, currentUser, onClo
         {messages.map((msg, index) => (
           <React.Fragment key={msg.id || index}>
             {renderDateSeparator(msg.timestamp, messages[index-1]?.timestamp)}
-            <MessageBubble 
-              message={msg} 
-              isOwn={msg.senderId === currentUser.uid} 
-              isAI={msg.senderId === AI_BOT_ID} 
-              onReply={setReplyingTo} 
-              onForward={openForwardModal}
-              onDelete={triggerDeleteFlow}
-              onEdit={handleEditMessage}
-              onPin={handlePinMessage}
-              isPinned={pinnedMessageIds.includes(msg.id)}
-              onMediaClick={handleMediaClick}
-            />
+            {msg.type === 'system' ? (
+                <div className="flex justify-center my-4 opacity-70">
+                    <div className="bg-slate-100 dark:bg-slate-800 px-4 py-1.5 rounded-full text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest border border-slate-200 dark:border-slate-700 shadow-sm">
+                        {msg.text}
+                    </div>
+                </div>
+            ) : (
+                <MessageBubble 
+                message={msg} 
+                isOwn={msg.senderId === currentUser.uid} 
+                isAI={msg.senderId === AI_BOT_ID} 
+                onReply={setReplyingTo} 
+                onForward={openForwardModal}
+                onDelete={triggerDeleteFlow}
+                onEdit={handleEditMessage}
+                onPin={handlePinMessage}
+                isPinned={pinnedMessageIds.includes(msg.id)}
+                onMediaClick={handleMediaClick}
+                />
+            )}
           </React.Fragment>
         ))}
         {/* Typing Bubble */}
@@ -903,10 +911,11 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ chat, currentUser, onClo
                    const isGrp = c.type === 'group';
                    const targetParticipants = c.participants || [];
                    const target = isGrp ? null : allUsers.find(u => u.uid === targetParticipants.find(p => p !== currentUser.uid));
+                   const displayName = isGrp ? c.name : target ? (nicknames[target.uid] || target.name) : 'Contact';
                    return (
                      <button key={c.id} onClick={() => handleForward(c)} className="w-full flex items-center gap-3 p-3 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-2xl transition-colors text-left group">
                         <img src={isGrp ? c.groupIcon : target?.photoURL || `https://picsum.photos/seed/${c.id}/100`} className="w-10 h-10 rounded-xl object-cover" alt="" />
-                        <span className="font-bold text-sm flex-1 truncate dark:text-white">{isGrp ? c.name : target?.name || 'Contact'}</span>
+                        <span className="font-bold text-sm flex-1 truncate dark:text-white">{displayName}</span>
                         <div className="p-2 bg-slate-100 dark:bg-slate-700 rounded-full text-slate-400 group-hover:bg-indigo-500 group-hover:text-white transition-colors">
                             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M14 5l7 7m0 0l-7 7m7-7H3" /></svg>
                         </div>

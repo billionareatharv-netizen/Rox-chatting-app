@@ -1,8 +1,8 @@
-
-import React, { useState, useEffect, ReactNode, Component } from 'react';
+import React, { useState, useEffect, ReactNode } from 'react';
 import { AuthView } from './components/Auth/AuthView';
 import { ChatDashboard } from './components/Chat/ChatDashboard';
 import { AdminDashboard } from './components/Admin/AdminDashboard';
+import { LockScreen } from './components/Chat/LockScreen'; // Feature 4
 import { useAuth } from './hooks/useAuth';
 
 type AppView = 'auth' | 'role_select' | 'user' | 'admin';
@@ -16,11 +16,8 @@ interface ErrorBoundaryState {
 }
 
 // Error Boundary to catch crashes and prevent white screen
-class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
-  constructor(props: ErrorBoundaryProps) {
-    super(props);
-    this.state = { hasError: false };
-  }
+class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoundaryState> {
+  state: ErrorBoundaryState = { hasError: false };
 
   static getDerivedStateFromError(error: any): ErrorBoundaryState {
     return { hasError: true };
@@ -61,6 +58,9 @@ class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
 const App: React.FC = () => {
   const { user, loading } = useAuth();
   const [view, setView] = useState<AppView>('auth');
+  const [isLocked, setIsLocked] = useState(false); // Feature 4 State
+  const [lockPin, setLockPin] = useState<string | null>(null);
+
   const [darkMode, setDarkMode] = useState(() => {
     return localStorage.getItem('theme') === 'dark' || 
            (!localStorage.getItem('theme') && window.matchMedia('(prefers-color-scheme: dark)').matches);
@@ -75,6 +75,15 @@ const App: React.FC = () => {
       localStorage.setItem('theme', 'light');
     }
   }, [darkMode]);
+
+  // Feature 4: Check Lock
+  useEffect(() => {
+    const pin = localStorage.getItem('roxx_app_lock');
+    if (pin) {
+        setLockPin(pin);
+        setIsLocked(true);
+    }
+  }, []);
 
   // Handle initial view routing and transitions
   useEffect(() => {
@@ -99,6 +108,11 @@ const App: React.FC = () => {
         </div>
       </div>
     );
+  }
+
+  // Feature 4: Show Lock Screen if enabled
+  if (isLocked && lockPin) {
+    return <LockScreen storedPin={lockPin} onUnlock={() => setIsLocked(false)} />;
   }
 
   // Guard: If no user, always show Auth

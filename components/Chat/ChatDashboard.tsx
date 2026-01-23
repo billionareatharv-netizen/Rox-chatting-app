@@ -10,7 +10,7 @@ import { PublicProfile } from './PublicProfile';
 import { CallModal } from './CallModal';
 import { StatusView } from './StatusView';
 import { BottomNav } from './BottomNav';
-import { initiateCall, getIncomingCall, getUserById, updateCallStatus, cleanOldCalls } from '../../firebase';
+import { initiateCall, getIncomingCall, getUserById, updateCallStatus, cleanOldCalls, subscribeToNicknames } from '../../firebase';
 
 interface ChatDashboardProps {
   currentUser: User;
@@ -27,6 +27,16 @@ export const ChatDashboard: React.FC<ChatDashboardProps> = ({ currentUser, toggl
   const [viewingStories, setViewingStories] = useState<Story[] | null>(null);
   const [viewingUser, setViewingUser] = useState<User | null>(null);
   const [activeCall, setActiveCall] = useState<CallSession | null>(null);
+  
+  // Feature 3: Nicknames
+  const [nicknames, setNicknames] = useState<Record<string, string>>({});
+
+  useEffect(() => {
+    const unsub = subscribeToNicknames(currentUser.uid, (data) => {
+      setNicknames(data);
+    });
+    return () => unsub();
+  }, [currentUser.uid]);
 
   // Poll for incoming calls
   useEffect(() => {
@@ -108,6 +118,7 @@ export const ChatDashboard: React.FC<ChatDashboardProps> = ({ currentUser, toggl
             currentUser={currentUser} 
             onChatSelect={setSelectedChat} 
             activeChatId={selectedChat?.id}
+            nicknames={nicknames}
           />
         );
     }
@@ -132,6 +143,7 @@ export const ChatDashboard: React.FC<ChatDashboardProps> = ({ currentUser, toggl
             onClose={() => setSelectedChat(null)}
             onUserClick={setViewingUser}
             onCallStart={startCall}
+            nicknames={nicknames}
           />
         ) : (
           <div className="hidden lg:flex flex-1 flex-col items-center justify-center p-8 text-center h-full relative">
@@ -174,6 +186,7 @@ export const ChatDashboard: React.FC<ChatDashboardProps> = ({ currentUser, toggl
           user={viewingUser} 
           onClose={() => setViewingUser(null)} 
           onCallStart={startCall}
+          nickname={nicknames[viewingUser.uid]}
         />
       )}
 
