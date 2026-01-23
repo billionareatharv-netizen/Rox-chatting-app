@@ -98,27 +98,21 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ chat, currentUser, onClo
   const [availableChats, setAvailableChats] = useState<Chat[]>([]);
   const [allUsers, setAllUsers] = useState<User[]>([]);
 
-const scrollRef = useRef<HTMLDivElement>(null);
-const fileInputRef = useRef<HTMLInputElement>(null);
-const typingTimeoutRef = useRef<any>(null);
-const timerRef = useRef<any>(null);
-const audioChunksRef = useRef<Blob[]>([]);
-const inputRef = useRef<HTMLInputElement>(null);
-const attachMenuRef = useRef<HTMLDivElement>(null);
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const typingTimeoutRef = useRef<any>(null);
+  const timerRef = useRef<any>(null);
+  const audioChunksRef = useRef<Blob[]>([]);
+  const inputRef = useRef<HTMLInputElement>(null);
+  const attachMenuRef = useRef<HTMLDivElement>(null);
 
-// ✅ FIX ADDED (YAHI LINE THI MISSING)
-const ACCEPTED_MEDIA_TYPES =
-  "image/png,image/jpeg,image/gif,video/mp4,video/webm";
+  const ACCEPTED_MEDIA_TYPES = "image/png,image/jpeg,image/gif,video/mp4,video/webm";
 
-const isGroup = chat.type === 'group';
-const otherId = !isGroup && chat.participants
-  ? (
-      chat.participants.find(p => p !== currentUser.uid) ||
-      (chat.participants.includes(currentUser.uid)
-        ? currentUser.uid
-        : '')
-    )
-  : chat.id;
+  const isGroup = chat.type === 'group';
+  const otherId = !isGroup && chat.participants 
+    ? (chat.participants.find(p => p !== currentUser.uid) || (chat.participants.includes(currentUser.uid) ? currentUser.uid : '')) 
+    : chat.id;
+
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
       if (attachMenuRef.current && !attachMenuRef.current.contains(event.target as Node)) {
@@ -720,7 +714,7 @@ const otherId = !isGroup && chat.participants
                         </div>
                     )}
                 </div>
-                <input type="file" ref={fileInputRef} onChange={handleFileChange} accept="image/png,image/jpeg,image/gif,video/mp4,video/webm" className="hidden" />
+                <input type="file" ref={fileInputRef} onChange={handleFileChange} accept={ACCEPTED_MEDIA_TYPES} className="hidden" />
                 
                 <form onSubmit={handleSend} className="flex-1 flex gap-2">
                     <input 
