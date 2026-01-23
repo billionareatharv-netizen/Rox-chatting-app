@@ -2,13 +2,14 @@
 export interface User {
   uid: string;
   name: string;
+  username?: string; // Feature: Username
   email: string;
   photoURL: string;
   status: 'online' | 'offline';
   lastSeen: number;
   bio?: string;
   blockedUsers?: string[];
-  pinnedChats?: string[]; // Chat IDs pinned by user
+  pinnedChats?: string[]; 
   chatLockPassword?: string; 
   isAdmin?: boolean; 
   isGloballyBlocked?: boolean;
@@ -16,14 +17,13 @@ export interface User {
     lastSeen: 'everyone' | 'contacts' | 'nobody';
     readReceipts: boolean;
   };
-  // Feature 4: App Lock
   security?: {
-    appLockPin?: string; // Hashed or plain for demo
+    appLockPin?: string; 
     biometricsEnabled?: boolean;
   };
 }
 
-export type MessageType = 'text' | 'image' | 'video' | 'file' | 'voice' | 'story_reply' | 'deleted' | 'poll' | 'sticker' | 'system';
+export type MessageType = 'text' | 'image' | 'video' | 'file' | 'voice' | 'story_reply' | 'note_reply' | 'deleted' | 'poll' | 'sticker' | 'system';
 export type MessageStatus = 'sent' | 'delivered' | 'seen';
 
 export interface Reaction {
@@ -34,7 +34,7 @@ export interface Reaction {
 export interface PollOption {
   id: string;
   text: string;
-  votes: string[]; // array of userIds
+  votes: string[]; 
 }
 
 export interface PollData {
@@ -57,8 +57,8 @@ export interface Message {
   duration?: number; 
   isForwarded?: boolean;
   isEdited?: boolean;
-  isPinned?: boolean; // Visual helper
-  deletedFor?: string[]; // IDs of users who deleted this for themselves
+  isPinned?: boolean; 
+  deletedFor?: string[]; 
   replyContext?: {
     messageId: string;
     text: string;
@@ -69,11 +69,15 @@ export interface Message {
     mediaUrl: string;
     mediaType: 'image' | 'video';
   };
-  reactions?: { [emoji: string]: string[] }; // Map emoji -> array of userIds
+  noteContext?: {
+    noteId: string;
+    text: string;
+    userPhoto: string;
+  };
+  reactions?: { [emoji: string]: string[] }; 
   poll?: PollData;
   stickerUrl?: string;
-  // Feature 3: Privacy for system messages
-  visibleTo?: string[]; // If present, only these UIDs can see the message
+  visibleTo?: string[]; 
 }
 
 export interface StoryView {
@@ -106,7 +110,7 @@ export interface Note {
 
 export interface SavedMedia {
   id: string;
-  userId: string; // The user who saved it
+  userId: string; 
   mediaUrl: string;
   mediaType: 'image' | 'video';
   savedAt: number;
@@ -150,7 +154,6 @@ export interface CallSession {
   partner: User;
   isIncoming: boolean;
   timestamp: number;
-  // WebRTC Signaling Data
   offer?: any;
   answer?: any;
   callerCandidates?: any[];

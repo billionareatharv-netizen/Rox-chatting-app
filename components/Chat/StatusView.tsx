@@ -1,6 +1,7 @@
+
 import React, { useState, useEffect } from 'react';
 import { User, Story, Chat, Note } from '../../types';
-import { getStories, getMyChats, addNote, getNotes } from '../../firebase';
+import { getStories, getMyChats, addNote, getNotes, sendNoteReply } from '../../firebase';
 
 interface StatusViewProps {
   currentUser: User;
@@ -18,6 +19,10 @@ export const StatusView: React.FC<StatusViewProps> = ({ currentUser, onStoryUplo
   // Note Creation
   const [showNoteInput, setShowNoteInput] = useState(false);
   const [noteText, setNoteText] = useState('');
+
+  // Full Note Viewing
+  const [viewingNote, setViewingNote] = useState<Note | null>(null);
+  const [noteReplyText, setNoteReplyText] = useState('');
 
   useEffect(() => {
     const fetchData = async () => {
@@ -49,6 +54,14 @@ export const StatusView: React.FC<StatusViewProps> = ({ currentUser, onStoryUplo
         timestamp: Date.now() 
     };
     setNotes(prev => [newNote, ...prev.filter(n => n.userId !== currentUser.uid)]);
+  };
+
+  const handleSendNoteReply = async () => {
+      if(!viewingNote || !noteReplyText.trim()) return;
+      await sendNoteReply(viewingNote.userId, currentUser.uid, noteReplyText, viewingNote);
+      alert("Reply Sent!");
+      setNoteReplyText('');
+      setViewingNote(null);
   };
 
   const userStoriesMap: Record<string, Story[]> = {};
@@ -100,7 +113,7 @@ export const StatusView: React.FC<StatusViewProps> = ({ currentUser, onStoryUplo
                 {/* Other Notes */}
                 {otherNotes.map(note => (
                     <div key={note.id} className="flex flex-col items-center gap-3 relative shrink-0 snap-start">
-                        <div className="relative group">
+                        <div className="relative group cursor-pointer" onClick={() => setViewingNote(note)}>
                             <img src={note.userPhoto} className="w-16 h-16 rounded-[1.5rem] object-cover ring-2 ring-indigo-500 ring-offset-2 ring-offset-white dark:ring-offset-slate-900" alt="" />
                             <div className="absolute -top-3 -right-3 bg-white dark:bg-slate-800 rounded-2xl p-3 shadow-xl max-w-[100px] border border-slate-100 dark:border-slate-700 z-10 group-hover:-translate-y-1 transition-transform">
                                 <p className="text-[10px] font-bold text-center leading-tight line-clamp-2 text-slate-700 dark:text-slate-200">{note.text}</p>
@@ -215,6 +228,42 @@ export const StatusView: React.FC<StatusViewProps> = ({ currentUser, onStoryUplo
           )}
         </section>
       </div>
+
+      {/* Full Note Viewer with Reply */}
+      {viewingNote && (
+          <div className="fixed inset-0 z-[250] flex items-center justify-center p-4 bg-slate-900/80 backdrop-blur-md animate-in zoom-in-95">
+              <div className="bg-white dark:bg-slate-900 rounded-[3rem] p-8 w-full max-w-md shadow-2xl relative border border-slate-200 dark:border-slate-700 flex flex-col items-center text-center">
+                  <button onClick={() => setViewingNote(null)} className="absolute top-6 right-6 text-slate-400 hover:text-slate-600"><svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M6 18L18 6M6 6l12 12" /></svg></button>
+                  
+                  <img src={viewingNote.userPhoto} className="w-24 h-24 rounded-full object-cover mb-4 ring-4 ring-indigo-500/20" alt="" />
+                  <h3 className="text-xl font-bold mb-6">{viewingNote.userName}'s Note</h3>
+                  
+                  <div className="bg-slate-100 dark:bg-slate-800 p-6 rounded-3xl w-full mb-6 relative">
+                      <span className="absolute top-2 left-4 text-4xl text-slate-300 dark:text-slate-600 font-serif">"</span>
+                      <p className="text-lg font-medium text-slate-800 dark:text-slate-200 leading-relaxed px-4">{viewingNote.text}</p>
+                      <span className="absolute bottom-2 right-4 text-4xl text-slate-300 dark:text-slate-600 font-serif leading-none">"</span>
+                  </div>
+
+                  {viewingNote.userId !== currentUser.uid && (
+                      <div className="w-full flex items-center gap-2">
+                          <input 
+                            value={noteReplyText} 
+                            onChange={(e) => setNoteReplyText(e.target.value)}
+                            placeholder="Reply to note..." 
+                            className="flex-1 bg-slate-100 dark:bg-slate-800 px-4 py-3 rounded-xl outline-none border border-transparent focus:border-indigo-500 transition-all"
+                          />
+                          <button 
+                            onClick={handleSendNoteReply}
+                            disabled={!noteReplyText.trim()}
+                            className="p-3 bg-indigo-500 text-white rounded-xl shadow-lg active:scale-90 transition-transform disabled:opacity-50"
+                          >
+                              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" /></svg>
+                          </button>
+                      </div>
+                  )}
+              </div>
+          </div>
+      )}
 
       {/* Note Input Modal */}
       {showNoteInput && (

@@ -45,7 +45,6 @@ const firebaseConfig = {
 };
 // --- CONFIGURATION END ---
 
-// Fallback to process.env if available
 const config = {
   apiKey: (typeof process !== 'undefined' && process.env?.VITE_FIREBASE_API_KEY) || firebaseConfig.apiKey,
   authDomain: (typeof process !== 'undefined' && process.env?.VITE_FIREBASE_AUTH_DOMAIN) || firebaseConfig.authDomain,
@@ -55,7 +54,6 @@ const config = {
   appId: (typeof process !== 'undefined' && process.env?.VITE_FIREBASE_APP_ID) || firebaseConfig.appId
 };
 
-// Initialize Firebase
 let app;
 let auth: any;
 let db: any;
@@ -63,22 +61,18 @@ let db: any;
 try {
   app = initializeApp(config);
   auth = getAuth(app);
-  
   db = initializeFirestore(app, {
     localCache: persistentLocalCache({
       tabManager: persistentMultipleTabManager()
     })
   });
-  console.log("Firebase Initialized Successfully");
 } catch (e) {
-  console.error("Firebase Initialization Failed:", e);
   auth = { currentUser: null, onAuthStateChanged: (cb: any) => { cb(null); return () => {}; } };
   db = { collection: () => {} };
 }
 
 export { auth, db };
 
-// Helper to abstract Auth State Change
 export const observeAuthState = (callback: (user: any) => void) => {
   if (auth && (auth as any).onAuthStateChanged) {
     return (auth as any).onAuthStateChanged(callback);
@@ -250,17 +244,11 @@ export const subscribeToUser = (uid: string, callback: (user: any) => void) => {
   });
 };
 
-// --- FEATURE 3: NICKNAMES ---
-
 export const setNickname = async (myUid: string, targetUid: string, nickname: string) => {
   if (!nickname.trim()) {
     await deleteDoc(doc(db, "users", myUid, "nicknames", targetUid));
   } else {
     await setDoc(doc(db, "users", myUid, "nicknames", targetUid), { name: nickname });
-    
-    // Send a private system message to myself about the change (as per req, but private)
-    // Actually, prompt says "Send system notification message in chat". 
-    // To respect "Other users should NOT see", we make this a local event or a private message type.
     const chatId = [myUid, targetUid].sort().join('_');
     const msg = {
       id: 'sys_' + generateUUID(),
@@ -270,7 +258,7 @@ export const setNickname = async (myUid: string, targetUid: string, nickname: st
       type: 'system',
       timestamp: Date.now(),
       status: 'seen',
-      visibleTo: [myUid] // Logic to filter this in MessageBubble if needed
+      visibleTo: [myUid] 
     };
     await addMessage(msg);
   }
@@ -285,8 +273,6 @@ export const subscribeToNicknames = (myUid: string, callback: (nicknames: Record
     callback(mapping);
   });
 };
-
-// --- MESSAGING ---
 
 export const getMyChats = async (uid: string) => {
   const querySnapshot = await getDocs(collection(db, "chats"));
@@ -309,13 +295,12 @@ export const getMessages = async (chatId: string) => {
       filteredMsgs = allMsgs.filter((m: any) => 
         (m.senderId === u1 && m.recipientId === u2) || 
         (m.senderId === u2 && m.recipientId === u1) ||
-        (m.recipientId === chatId) // For system messages
+        (m.recipientId === chatId) 
       );
     }
 
     if (currentUid) {
       filteredMsgs = filteredMsgs.filter((m: any) => {
-        // Feature 3: Private System Messages
         if (m.visibleTo && !m.visibleTo.includes(currentUid)) return false;
         return !m.deletedFor?.includes(currentUid);
       });
@@ -323,7 +308,6 @@ export const getMessages = async (chatId: string) => {
 
     return filteredMsgs.sort((a: any, b: any) => a.timestamp - b.timestamp);
   } catch (error) {
-    console.error("Error fetching messages:", error);
     return [];
   }
 };
@@ -332,7 +316,6 @@ export const addMessage = async (msg: any) => {
   try {
     const safeMsg = sanitizeData(msg); 
     
-    // Blocking Check (skip for system messages)
     if (!safeMsg.recipientId.startsWith('group_') && safeMsg.senderId !== 'system') {
         const recipientRef = doc(db, "users", safeMsg.recipientId);
         const recipientSnap = await getDoc(recipientRef);
@@ -344,7 +327,6 @@ export const addMessage = async (msg: any) => {
 
     await setDoc(doc(db, "messages", safeMsg.id), safeMsg);
 
-    // Only update chat snippet if it's a real message
     if (safeMsg.type !== 'system') {
       const chatId = safeMsg.recipientId.startsWith('group_') 
         ? safeMsg.recipientId 
@@ -372,7 +354,6 @@ export const addMessage = async (msg: any) => {
       await setDoc(chatRef, updateData, { merge: true });
     }
   } catch (e) {
-    console.error("Error adding message:", e);
     throw e;
   }
 };
@@ -496,8 +477,6 @@ export const createGroup = async (name: string, participants: string[], adminId:
     lockedBy: []
   };
   await setDoc(doc(db, "chats", groupId), newGroup);
-  
-  // System msg
   const sysMsg = {
     id: 'sys_' + generateUUID(),
     senderId: 'system',
@@ -508,28 +487,19 @@ export const createGroup = async (name: string, participants: string[], adminId:
     status: 'sent'
   };
   await addMessage(sysMsg);
-  
   return newGroup;
 };
 
-// --- FEATURE 1: GROUP MEMBERS ---
-
 export const addMembersToGroup = async (chatId: string, newMemberIds: string[], adminName: string) => {
   const chatRef = doc(db, "chats", chatId);
-  
-  // Update participants
   await updateDoc(chatRef, {
     participants: arrayUnion(...newMemberIds)
   });
-
-  // Fetch names for system message
   const newMembers: string[] = [];
   for (const uid of newMemberIds) {
     const u = await getUserById(uid);
     if(u) newMembers.push(u.name);
   }
-
-  // Add system message
   const msg = {
     id: 'sys_' + generateUUID(),
     senderId: 'system',
@@ -583,8 +553,6 @@ export const toggleChatLock = async (chatId: string, userId: string) => {
   }
 };
 
-// --- FEATURE 4: APP LOCK SETTINGS ---
-
 export const setAppLockPin = async (userId: string, pin: string) => {
   await updateDoc(doc(db, "users", userId), { "security.appLockPin": pin });
 };
@@ -592,8 +560,6 @@ export const setAppLockPin = async (userId: string, pin: string) => {
 export const disableAppLock = async (userId: string) => {
   await updateDoc(doc(db, "users", userId), { "security.appLockPin": null });
 };
-
-// --- CALLING ---
 
 export const initiateCall = async (callerId: string, receiverId: string, type: 'voice' | 'video') => {
   const callId = 'call_' + generateUUID();
@@ -649,7 +615,6 @@ export const getCallById = async (callId: string) => {
 
 export const cleanOldCalls = async () => { };
 
-// --- STORIES & NOTES ---
 export const addStory = async (story: any) => {
   await setDoc(doc(db, "stories", story.id), { ...story, likes: [], views: [] });
 };
@@ -686,7 +651,17 @@ export const sendStoryReply = async (rid: string, sid: string, text: string, sto
   return msg;
 };
 
-// --- NOTES ---
+export const sendNoteReply = async (rid: string, sid: string, text: string, note: any) => {
+  const msg = {
+    id: 'm_' + generateUUID(),
+    senderId: sid, recipientId: rid, text, type: 'note_reply',
+    timestamp: Date.now(), status: 'sent',
+    noteContext: { noteId: note.id, text: note.text, userPhoto: note.userPhoto }
+  };
+  await addMessage(msg);
+  return msg;
+};
+
 export const addNote = async (userId: string, userName: string, userPhoto: string, text: string) => {
   const noteId = `note_${userId}`;
   const note = { id: noteId, userId, userName, userPhoto, text, timestamp: Date.now() };
@@ -701,7 +676,6 @@ export const getNotes = async () => {
   return snapshot.docs.map(doc => doc.data());
 };
 
-// --- SAVED MEDIA (APP GALLERY) ---
 export const saveMediaToGallery = async (userId: string, mediaUrl: string, mediaType: 'image' | 'video', senderName: string) => {
   const id = 'saved_' + generateUUID();
   const item = { id, userId, mediaUrl, mediaType, savedAt: Date.now(), originalSenderName: senderName };
@@ -718,7 +692,6 @@ export const deleteSavedMedia = async (id: string) => {
   await deleteDoc(doc(db, "saved_media", id));
 };
 
-// --- ADMIN ---
 export const admin_getAllUsers = async () => getAllUsers();
 export const admin_toggleAdminAccess = async (uid: string) => {
   const userRef = doc(db, "users", uid);

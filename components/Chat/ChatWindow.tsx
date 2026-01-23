@@ -9,7 +9,6 @@ import {
   getUserById, 
   addMessage, 
   getMessages, 
-  toggleChatLock, 
   editMessage, 
   deleteMessageForEveryone, 
   deleteMessageForMe, 
@@ -70,7 +69,6 @@ const AI_BOT_ID = "gemini_ai";
 export const ChatWindow: React.FC<ChatWindowProps> = ({ chat, currentUser, onClose, onUserClick, onCallStart, nicknames }) => {
   const [messages, setMessages] = useState<Message[]>([]);
   const [otherUser, setOtherUser] = useState<User | null>(null);
-  const [isLocked, setIsLocked] = useState(chat.lockedBy?.includes(currentUser.uid) || false);
   const [inputText, setInputText] = useState('');
   const [isTyping, setIsTyping] = useState(false);
   const [typingUsers, setTypingUsers] = useState<string[]>([]);
@@ -120,6 +118,7 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ chat, currentUser, onClo
     : chat.id;
 
   const displayName = isGroup ? chat.name : (otherUser ? (nicknames[otherUser.uid] || otherUser.name) : 'Loading...');
+  const isLocked = chat.lockedBy?.includes(currentUser.uid) || false;
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -607,9 +606,6 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ chat, currentUser, onClo
               </button>
             </>
           )}
-          <button onClick={async () => { await toggleChatLock(chat.id, currentUser.uid); setIsLocked(!isLocked); }} className={`p-2.5 rounded-xl transition-all ${isLocked ? 'text-indigo-500 bg-indigo-50 dark:bg-indigo-900/20' : 'text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'}`}>
-             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" /></svg>
-          </button>
         </div>
       </div>
 

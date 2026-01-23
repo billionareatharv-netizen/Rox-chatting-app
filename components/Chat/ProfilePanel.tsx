@@ -29,6 +29,7 @@ export const ProfilePanel: React.FC<ProfilePanelProps> = ({ user, onClose, toggl
   const [viewMode, setViewMode] = useState<ProfileViewMode>('main');
   
   const [name, setName] = useState(user.name);
+  const [username, setUsername] = useState(user.username || '');
   const [bio, setBio] = useState(user.bio || 'Available');
   const [lockPass, setLockPass] = useState(user.chatLockPassword || '');
   const [newPhoto, setNewPhoto] = useState<string | null>(null);
@@ -132,6 +133,7 @@ export const ProfilePanel: React.FC<ProfilePanelProps> = ({ user, onClose, toggl
     try {
       await updateProfile(user, {
         name: name.trim(),
+        username: username.trim(),
         bio: bio.trim(),
         chatLockPassword: lockPass.trim(),
         photoURL: newPhoto || user.photoURL
@@ -152,14 +154,11 @@ export const ProfilePanel: React.FC<ProfilePanelProps> = ({ user, onClose, toggl
       await updateProfile(user, { privacySettings: newSettings });
   };
 
-  // Feature 4: Set/Disable Lock
   const handleSetLock = async () => {
     if (appLockPinInput.length < 4) {
         alert("PIN must be 4-6 digits");
         return;
     }
-    // Using localStorage for this implementation as requested for simple offline lock
-    // For cloud sync, we'd use setAppLockPin from firebase.ts
     localStorage.setItem('roxx_app_lock', appLockPinInput);
     setAppLockPinInput('');
     alert("App Lock Enabled");
@@ -241,6 +240,10 @@ export const ProfilePanel: React.FC<ProfilePanelProps> = ({ user, onClose, toggl
             </div>
             <div className="space-y-6">
               <input type="text" value={name} onChange={e => setName(e.target.value)} placeholder="Display Name" className="w-full bg-slate-100 dark:bg-slate-800 rounded-2xl px-6 py-4 font-bold outline-none border border-transparent focus:border-indigo-500/50" />
+              <div className="relative">
+                  <span className="absolute left-6 top-1/2 -translate-y-1/2 text-slate-400 font-bold">@</span>
+                  <input type="text" value={username} onChange={e => setUsername(e.target.value)} placeholder="Username" className="w-full bg-slate-100 dark:bg-slate-800 rounded-2xl pl-10 pr-6 py-4 font-bold outline-none border border-transparent focus:border-indigo-500/50" />
+              </div>
               <textarea value={bio} onChange={e => setBio(e.target.value)} placeholder="Bio" className="w-full bg-slate-100 dark:bg-slate-800 rounded-2xl px-6 py-4 text-sm font-medium outline-none resize-none" rows={3} />
             </div>
             <div className="flex gap-4">
@@ -250,6 +253,7 @@ export const ProfilePanel: React.FC<ProfilePanelProps> = ({ user, onClose, toggl
           </div>
         );
 
+      // ... existing cases ...
       case 'settings':
         return (
           <div className="space-y-1 animate-in slide-in-from-right-4 duration-500">
@@ -349,7 +353,6 @@ export const ProfilePanel: React.FC<ProfilePanelProps> = ({ user, onClose, toggl
                 handlePrivacyUpdate('lastSeen', next);
              }} icon={<svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>} />
              
-             {/* Feature 4: App Lock Entry */}
              <SettingsItem title="App Lock" subtitle={localStorage.getItem('roxx_app_lock') ? 'Enabled' : 'Disabled'} onClick={() => setViewMode('applock')} icon={<svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" /></svg>} />
 
              <SettingsItem title="Blocked Contacts" subtitle={`${user.blockedUsers?.length || 0} contacts`} onClick={() => setViewMode('blocked')} icon={<svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728L5.636 5.636" /></svg>} />
@@ -443,7 +446,6 @@ export const ProfilePanel: React.FC<ProfilePanelProps> = ({ user, onClose, toggl
                 </div>
               </div>
               <h3 className="text-2xl font-black tracking-tight">{user.name}</h3>
-              {/* Feature 2: Email Hidden */}
               <p className="text-sm text-slate-500 mt-2 font-medium max-w-[200px]">{user.bio || 'Available'}</p>
               
               <div className="flex items-center gap-3 mt-8">

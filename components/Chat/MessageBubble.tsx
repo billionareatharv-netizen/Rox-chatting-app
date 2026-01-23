@@ -1,3 +1,4 @@
+
 import React, { useState, useRef, useEffect } from 'react';
 import { Message, PollOption } from '../../types';
 import { toggleMessageReaction, voteOnPoll, auth } from '../../firebase';
@@ -48,10 +49,8 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({ message, isOwn, is
     e.stopPropagation();
 
     if (!showMenu) {
-        // Calculate available space
         const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
         const spaceAbove = rect.top;
-        // If less than 280px above (approx header + menu height), show menu BELOW
         if (spaceAbove < 280) {
             setMenuPlacement('bottom');
         } else {
@@ -119,11 +118,7 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({ message, isOwn, is
   const renderStatus = () => {
     if (!isOwn) return null;
     const isSeen = message.status === 'seen';
-    
-    if (isSeen) {
-       return null; 
-    }
-
+    if (isSeen) return null; 
     return (
       <div className="flex -space-x-1 text-black/60 dark:text-white/60 ml-1">
         <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M5 13l4 4L19 7" /></svg>
@@ -135,17 +130,62 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({ message, isOwn, is
   const isDeleted = message.type === 'deleted';
   const hasReactions = message.reactions && Object.keys(message.reactions).length > 0;
 
+  // Context Rendering Logic (Story/Note/Reply)
+  const renderReplyContext = () => {
+      if (isDeleted) return null;
+
+      // 1. Story Context
+      if (message.storyContext) {
+          return (
+              <div className={`mb-2 p-2 rounded-lg border-l-4 flex items-center gap-3 bg-black/5 dark:bg-white/5 border-indigo-500`}>
+                  <div className="w-10 h-10 rounded-lg overflow-hidden shrink-0 bg-slate-200">
+                      {message.storyContext.mediaType === 'video' ? (
+                          <video src={message.storyContext.mediaUrl} className="w-full h-full object-cover" />
+                      ) : (
+                          <img src={message.storyContext.mediaUrl} className="w-full h-full object-cover" alt="" />
+                      )}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                      <p className={`text-[10px] font-bold uppercase ${isOwn ? 'text-white/90' : 'text-indigo-500'}`}>Replying to story</p>
+                      <p className="text-xs truncate opacity-70">Status Update</p>
+                  </div>
+              </div>
+          );
+      }
+
+      // 2. Note Context
+      if (message.noteContext) {
+          return (
+              <div className={`mb-2 p-2 rounded-lg border-l-4 flex items-center gap-3 bg-black/5 dark:bg-white/5 border-indigo-500`}>
+                  <div className="w-10 h-10 rounded-full overflow-hidden shrink-0 border border-slate-200">
+                      <img src={message.noteContext.userPhoto} className="w-full h-full object-cover" alt="" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                      <p className={`text-[10px] font-bold uppercase ${isOwn ? 'text-white/90' : 'text-indigo-500'}`}>Replying to note</p>
+                      <p className="text-xs truncate opacity-70 italic">"{message.noteContext.text}"</p>
+                  </div>
+              </div>
+          );
+      }
+
+      // 3. Regular Reply Context
+      if (message.replyContext) {
+          return (
+            <div className={`mb-2 p-2 rounded-lg border-l-4 text-[11px] flex flex-col gap-0.5 ${isOwn ? 'bg-white/10 border-white/50' : 'bg-indigo-50 dark:bg-indigo-900/30 border-indigo-500'}`}>
+              <span className={`font-black uppercase tracking-tight ${isOwn ? 'text-white' : 'text-indigo-600 dark:text-indigo-400'}`}>{message.replyContext.senderName}</span>
+              <p className="truncate opacity-80 font-medium italic">{message.replyContext.text}</p>
+            </div>
+          );
+      }
+      return null;
+  };
+
   return (
     <div className={`relative flex flex-col w-full ${isOwn ? 'items-end' : 'items-start'} ${hasReactions ? 'mb-6' : 'mb-2'} px-2 group animate-in slide-in-from-${isOwn ? 'right' : 'left'}-4 duration-300`} id={`msg-${message.id}`}>
       
-      {/* Swipe Indicator */}
-      <div className="absolute left-4 top-1/2 -translate-y-1/2 transition-all duration-200 pointer-events-none opacity-0"></div>
-
       <div className={`relative flex flex-col max-w-[85%] sm:max-w-[70%] ${isOwn ? 'items-end' : 'items-start'} transition-transform duration-200`} style={{ transform: `translateX(${swipeOffset}px)` }} onTouchStart={handleTouchStart} onTouchMove={handleTouchMove} onTouchEnd={handleTouchEnd}>
         
-        {/* Context Menu & Reactions */}
         <div ref={menuRef}>
-            {/* Reaction Picker Bubble */}
             {showReactions && !isDeleted && (
                 <div className={`absolute z-[110] ${menuPlacement === 'top' ? 'bottom-full mb-16' : 'top-full mt-16'} bg-white dark:bg-slate-800 rounded-full shadow-xl border border-slate-200 dark:border-slate-700 p-2 flex gap-2 animate-in zoom-in-95 ${isOwn ? 'right-0' : 'left-0'}`}>
                     {COMMON_REACTIONS.map(emoji => (
@@ -156,7 +196,6 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({ message, isOwn, is
                 </div>
             )}
 
-            {/* Main Menu */}
             {showMenu && !isDeleted && (
             <div className={`absolute z-[100] ${menuPlacement === 'top' ? 'bottom-full mb-2' : 'top-full mt-2'} bg-white/95 dark:bg-slate-800/95 backdrop-blur-xl rounded-2xl shadow-2xl border border-white/20 p-1.5 flex flex-col min-w-[160px] animate-in zoom-in-95 origin-${menuPlacement}-${isOwn ? 'right' : 'left'} ${isOwn ? 'right-0' : 'left-0'}`}>
                 <button onClick={() => setShowReactions(!showReactions)} className="px-4 py-3 hover:bg-indigo-500 hover:text-white rounded-xl text-left font-bold text-xs uppercase tracking-wider flex items-center gap-2 text-slate-700 dark:text-slate-200 transition-colors">
@@ -187,7 +226,6 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({ message, isOwn, is
             )}
         </div>
 
-        {/* Message Bubble Content */}
         <div 
           ref={bubbleRef}
           onClick={handleBubbleClick}
@@ -209,12 +247,7 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({ message, isOwn, is
              </div>
           )}
 
-          {message.replyContext && !isDeleted && (
-            <div className={`mb-2 p-2 rounded-lg border-l-2 text-[11px] flex flex-col gap-0.5 ${isOwn ? 'bg-white/10 border-white/50' : 'bg-indigo-50 dark:bg-indigo-900/30 border-indigo-500'}`}>
-              <span className={`font-black uppercase tracking-tight ${isOwn ? 'text-white' : 'text-indigo-600 dark:text-indigo-400'}`}>{message.replyContext.senderName}</span>
-              <p className="truncate opacity-80 font-medium italic">{message.replyContext.text}</p>
-            </div>
-          )}
+          {renderReplyContext()}
 
           {isDeleted ? (
               <div className="flex items-center gap-2">
@@ -334,14 +367,12 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({ message, isOwn, is
           )}
         </div>
 
-        {/* Seen Just Now Text */}
         {isOwn && message.status === 'seen' && (
             <span className="text-[9px] font-bold text-slate-400 mt-1 self-end mr-1 animate-in fade-in">
                 Seen just now
             </span>
         )}
 
-        {/* Reaction Pill Display */}
         {hasReactions && !isDeleted && (
             <div className={`absolute -bottom-5 ${isOwn ? 'right-2' : 'left-2'} flex gap-1 z-10`}>
                 <div className="flex items-center gap-1 bg-white dark:bg-slate-800 rounded-full px-1.5 py-0.5 shadow-md border border-slate-100 dark:border-slate-700">
