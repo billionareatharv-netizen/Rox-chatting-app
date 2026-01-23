@@ -5,12 +5,7 @@ let aiClient: GoogleGenAI | null = null;
 
 const getClient = () => {
   if (!aiClient) {
-    // We check for process safety to prevent browser crashes if polyfills are missing
-    const apiKey = typeof process !== 'undefined' && process.env ? process.env.API_KEY : '';
-    if (!apiKey) {
-      console.warn("Gemini API Key is missing.");
-    }
-    aiClient = new GoogleGenAI({ apiKey: apiKey || 'dummy_key_to_prevent_crash' });
+    aiClient = new GoogleGenAI({ apiKey: process.env.API_KEY });
   }
   return aiClient;
 };
