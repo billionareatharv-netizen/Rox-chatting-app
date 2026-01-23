@@ -29,14 +29,14 @@ interface ChatWindowProps {
 }
 
 const STICKERS = [
-    'https://cdn-icons-png.flaticon.com/512/742/742751.png', // Happy
-    'https://cdn-icons-png.flaticon.com/512/742/742752.png', // Sad
-    'https://cdn-icons-png.flaticon.com/512/742/742923.png', // Heart
-    'https://cdn-icons-png.flaticon.com/512/742/742823.png', // Cool
-    'https://cdn-icons-png.flaticon.com/512/742/742760.png', // Laugh
-    'https://cdn-icons-png.flaticon.com/512/742/742940.png', // Angry
-    'https://cdn-icons-png.flaticon.com/512/4712/4712109.png', // Thumbs Up
-    'https://cdn-icons-png.flaticon.com/512/4712/4712139.png', // Party
+    'https://cdn-icons-png.flaticon.com/512/742/742751.png',
+    'https://cdn-icons-png.flaticon.com/512/742/742752.png',
+    'https://cdn-icons-png.flaticon.com/512/742/742923.png',
+    'https://cdn-icons-png.flaticon.com/512/742/742823.png',
+    'https://cdn-icons-png.flaticon.com/512/742/742760.png',
+    'https://cdn-icons-png.flaticon.com/512/742/742940.png',
+    'https://cdn-icons-png.flaticon.com/512/4712/4712109.png',
+    'https://cdn-icons-png.flaticon.com/512/4712/4712139.png',
 ];
 
 const WALLPAPER_CLASSES: Record<string, string> = {
@@ -373,7 +373,8 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ chat, currentUser, onClo
     if (text.toLowerCase().startsWith('/ai')) {
       setTypingUsers(prev => [...prev, 'gemini_ai']);
       try {
-        const res = await getAIResponse(text.replace('/ai', '').trim());
+        const promptText = text.slice(3).trim(); // Safer replacement
+        const res = await getAIResponse(promptText);
         const aiMsg: Message = {
           id: 'ai_' + Date.now(), 
           senderId: 'gemini_ai', 
@@ -711,7 +712,7 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ chat, currentUser, onClo
                         </div>
                     )}
                 </div>
-                <input type="file" ref={fileInputRef} onChange={handleFileChange} accept="image/*,video/*" className="hidden" />
+                <input type="file" ref={fileInputRef} onChange={handleFileChange} accept="image/png,image/jpeg,image/gif,video/mp4,video/webm" className="hidden" />
                 
                 <form onSubmit={handleSend} className="flex-1 flex gap-2">
                     <input 
