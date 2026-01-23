@@ -720,8 +720,13 @@ const otherId = !isGroup && chat.participants
                         </div>
                     )}
                 </div>
-                <input type="file" ref={fileInputRef} onChange={handleFileChange} accept="image/png,image/jpeg,image/gif,video/mp4,video/webm" className="hidden" />
-                
+               <input
+  type="file"
+  ref={fileInputRef}
+  onChange={handleFileChange}
+  accept={ACCEPTED_MEDIA_TYPES}
+  className="hidden"
+/>
                 <form onSubmit={handleSend} className="flex-1 flex gap-2">
                     <input 
                         ref={inputRef}
