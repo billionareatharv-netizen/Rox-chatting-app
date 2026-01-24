@@ -5,12 +5,13 @@ import { getAllUsers, getMyChats, togglePinChat, subscribeToUser } from '../../f
 import { CreateGroupModal } from './CreateGroupModal';
 import { AppGallery } from './AppGallery';
 import { AccountSwitchModal } from './AccountSwitchModal';
+import { getBadgeIcon, ADMIN_STYLE } from '../../premiumUtils';
 
 interface SidebarProps {
   currentUser: User;
   onChatSelect: (chat: Chat) => void;
   activeChatId?: string;
-  nicknames: Record<string, string>; // Feature 3
+  nicknames: Record<string, string>; 
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({ 
@@ -90,7 +91,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
     setShowAccountSwitch(true);
   };
 
-  // Feature 3: Helper to get display name
   const getDisplayName = (user: User | undefined) => {
     if (!user) return 'Unknown';
     return nicknames[user.uid] || user.name;
@@ -115,7 +115,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
     if (!term || isRevealingLocked) return { chats: visibleChats, users: [] };
 
-    // Update search to look through nicknames too
     const matchedUsers = allUsers.filter(u => {
       const display = nicknames[u.uid] || u.name;
       return display.toLowerCase().includes(term);
@@ -244,6 +243,22 @@ export const Sidebar: React.FC<SidebarProps> = ({
           const isActive = activeChatId === chat.id;
           const isOnline = chat.type === 'private' && isUserOnline(info.userObj);
           const isPinned = pinnedChats.includes(chat.id);
+          
+          // Premium Styles from User Object
+          const isAdmin = info.userObj?.isAdmin;
+          const premium = info.userObj?.premiumCustomization;
+          
+          const borderStyle = isAdmin 
+            ? ADMIN_STYLE.border 
+            : (premium?.borderColor || (isActive ? 'ring-2 ring-white/20' : 'ring-1 ring-slate-100 dark:ring-slate-700'));
+            
+          const nameColor = isAdmin
+            ? ADMIN_STYLE.text
+            : (premium?.usernameColor || (isActive ? 'text-white' : 'text-slate-800 dark:text-slate-100'));
+            
+          const glow = isAdmin
+            ? ADMIN_STYLE.glow
+            : (premium?.glowEffect ? 'shadow-[0_0_10px_rgba(99,102,241,0.5)]' : 'shadow-sm');
 
           return (
             <div 
@@ -251,13 +266,14 @@ export const Sidebar: React.FC<SidebarProps> = ({
               className={`relative flex items-center gap-4 p-3.5 rounded-[1.2rem] cursor-pointer transition-all active:scale-[0.98] group ${isActive ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-500/30' : 'hover:bg-slate-50 dark:hover:bg-slate-800/60 bg-transparent'}`}
             >
               <div className="relative flex-shrink-0">
-                <img src={info.photo} className={`w-12 h-12 rounded-full object-cover shadow-sm ${isActive ? 'ring-2 ring-white/20' : 'ring-1 ring-slate-100 dark:ring-slate-700'}`} alt="" />
+                <img src={info.photo} className={`w-12 h-12 rounded-full object-cover ${glow} ${borderStyle} ${(isAdmin || premium?.borderColor) ? 'border-2' : ''}`} alt="" />
                 {isOnline && !isActive && <div className="absolute bottom-0 right-0 w-3.5 h-3.5 bg-green-500 rounded-full border-2 border-white dark:border-slate-900 shadow-sm"></div>}
               </div>
               <div className="flex-1 min-w-0">
                 <div className="flex justify-between items-center mb-0.5">
-                  <h4 className={`font-bold text-[15px] truncate flex items-center gap-1.5 ${isActive ? 'text-white' : 'text-slate-800 dark:text-slate-100'}`}>
+                  <h4 className={`font-bold text-[15px] truncate flex items-center gap-1.5 ${nameColor}`}>
                       {info.name}
+                      {isAdmin ? <span>{ADMIN_STYLE.icon}</span> : (info.userObj?.subscription?.isActive && <span>{getBadgeIcon(info.userObj.subscription.plan)}</span>)}
                       {isPinned && <svg className={`w-3 h-3 ${isActive ? 'text-white/80' : 'text-indigo-500'}`} fill="currentColor" viewBox="0 0 24 24"><path d="M16 12V4H17V2H7V4H8V12L6 14V16H11V22H13V16H18V14L16 12Z"/></svg>}
                   </h4>
                   <span className={`text-[10px] font-bold ${isActive ? 'text-white/70' : 'text-slate-400'}`}>
@@ -286,15 +302,30 @@ export const Sidebar: React.FC<SidebarProps> = ({
         {searchResults.users.map(u => {
           const isOnline = isUserOnline(u);
           const displayName = getDisplayName(u);
+          const premium = u.premiumCustomization;
+          const isAdmin = u.isAdmin;
+          
+          const borderStyle = isAdmin 
+            ? ADMIN_STYLE.border 
+            : (premium?.borderColor || 'ring-1 ring-slate-100 dark:ring-slate-700');
+            
+          const nameColor = isAdmin
+            ? ADMIN_STYLE.text
+            : (premium?.usernameColor || 'text-slate-800 dark:text-slate-100');
+
+          const glow = isAdmin ? ADMIN_STYLE.glow : '';
+
           return (
             <div key={u.uid} onClick={() => handleStartNewChat(u)} className="flex items-center gap-4 p-3.5 rounded-[1.2rem] cursor-pointer hover:bg-indigo-50 dark:hover:bg-slate-800/60 transition-all group">
               <div className="relative">
-                <img src={u.photoURL} className="w-12 h-12 rounded-full object-cover shadow-sm" alt="" />
+                <img src={u.photoURL} className={`w-12 h-12 rounded-full object-cover shadow-sm ${glow} ${borderStyle} ${(isAdmin || premium?.borderColor) ? 'border-2' : ''}`} alt="" />
                 {isOnline && <div className="absolute bottom-0 right-0 w-3.5 h-3.5 bg-green-500 rounded-full border-2 border-white dark:border-slate-900"></div>}
               </div>
               <div className="flex-1 min-w-0">
-                <h4 className="font-bold text-[15px] truncate text-slate-800 dark:text-slate-100">{displayName}</h4>
-                {/* Feature 2: Privacy - Replaced email with status/bio */}
+                <h4 className={`font-bold text-[15px] truncate ${nameColor}`}>
+                    {displayName}
+                    {isAdmin ? <span className="ml-1">{ADMIN_STYLE.icon}</span> : (u.subscription?.isActive && <span className="ml-1">{getBadgeIcon(u.subscription.plan)}</span>)}
+                </h4>
                 <p className="text-[11px] font-medium text-slate-400 truncate">{u.bio || 'Available'}</p>
               </div>
               <div className="p-2 opacity-0 group-hover:opacity-100 transition-all translate-x-2 group-hover:translate-x-0 bg-indigo-50 dark:bg-slate-700 rounded-full text-indigo-500">

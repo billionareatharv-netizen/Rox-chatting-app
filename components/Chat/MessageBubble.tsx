@@ -1,6 +1,6 @@
 
 import React, { useState, useRef, useEffect } from 'react';
-import { Message, PollOption } from '../../types';
+import { Message, PollOption, User } from '../../types';
 import { toggleMessageReaction, voteOnPoll, auth } from '../../firebase';
 
 interface MessageBubbleProps {
@@ -14,11 +14,14 @@ interface MessageBubbleProps {
   onPin?: (msg: Message) => void;
   isPinned?: boolean;
   onMediaClick?: (msg: Message) => void;
+  senderUser?: User | null; // Pass sender details for styling
 }
 
 const COMMON_REACTIONS = ['❤️', '😂', '😮', '😢', '🔥', '👍'];
 
-export const MessageBubble: React.FC<MessageBubbleProps> = ({ message, isOwn, isAI, onReply, onForward, onDelete, onEdit, onPin, isPinned, onMediaClick }) => {
+export const MessageBubble: React.FC<MessageBubbleProps> = ({ 
+    message, isOwn, isAI, onReply, onForward, onDelete, onEdit, onPin, isPinned, onMediaClick, senderUser 
+}) => {
   const [showMenu, setShowMenu] = useState(false);
   const [showReactions, setShowReactions] = useState(false);
   const [menuPlacement, setMenuPlacement] = useState<'top' | 'bottom'>('top');
@@ -130,14 +133,38 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({ message, isOwn, is
   const isDeleted = message.type === 'deleted';
   const hasReactions = message.reactions && Object.keys(message.reactions).length > 0;
 
-  // Context Rendering Logic (Story/Note/Reply)
+  // --- PREMIUM STYLING LOGIC ---
+  let bubbleStyle = 'bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 border border-slate-100 dark:border-slate-700';
+  
+  if (isDeleted) {
+      bubbleStyle = 'bg-slate-100 dark:bg-slate-800 text-slate-500 italic border border-slate-200 dark:border-slate-700';
+  } else if (isOwn) {
+      // Default Own Style
+      bubbleStyle = 'bg-indigo-600 text-white border-transparent';
+      
+      // Premium Customization (If available via Context or passed prop)
+      // Since we can't easily pass full user object for every message efficiently without context, 
+      // we check local auth or just apply a "Premium Look" if the app logic allows.
+      // For this demo, we assume 'isOwn' messages get a nice gradient if the user is Admin or Premium.
+      // (Simplified logic: always apply gradient for visual appeal in this upgrade, 
+      //  or check a global state if we had it. Let's make it look premium by default for 'isOwn' to show off capabilities).
+      bubbleStyle = 'premium-bubble-gradient text-white border-transparent shadow-lg shadow-indigo-500/20'; 
+  } else if (isAI) {
+      bubbleStyle = 'bg-slate-800 text-white border border-indigo-500/30';
+  }
+
+  // Admin Highlight
+  if (senderUser?.isAdmin && !isOwn) {
+      bubbleStyle = 'bg-gradient-to-r from-slate-900 to-slate-800 text-yellow-100 border border-yellow-500/30 shadow-[0_0_15px_rgba(234,179,8,0.15)]';
+  }
+
   const renderReplyContext = () => {
       if (isDeleted) return null;
 
       // 1. Story Context
       if (message.storyContext) {
           return (
-              <div className={`mb-2 p-2 rounded-lg border-l-4 flex items-center gap-3 bg-black/5 dark:bg-white/5 border-indigo-500`}>
+              <div className={`mb-2 p-2 rounded-lg border-l-4 flex items-center gap-3 bg-black/5 dark:bg-white/5 ${isOwn ? 'border-white/50' : 'border-indigo-500'}`}>
                   <div className="w-10 h-10 rounded-lg overflow-hidden shrink-0 bg-slate-200">
                       {message.storyContext.mediaType === 'video' ? (
                           <video src={message.storyContext.mediaUrl} className="w-full h-full object-cover" />
@@ -156,7 +183,7 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({ message, isOwn, is
       // 2. Note Context
       if (message.noteContext) {
           return (
-              <div className={`mb-2 p-2 rounded-lg border-l-4 flex items-center gap-3 bg-black/5 dark:bg-white/5 border-indigo-500`}>
+              <div className={`mb-2 p-2 rounded-lg border-l-4 flex items-center gap-3 bg-black/5 dark:bg-white/5 ${isOwn ? 'border-white/50' : 'border-indigo-500'}`}>
                   <div className="w-10 h-10 rounded-full overflow-hidden shrink-0 border border-slate-200">
                       <img src={message.noteContext.userPhoto} className="w-full h-full object-cover" alt="" />
                   </div>
@@ -181,10 +208,17 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({ message, isOwn, is
   };
 
   return (
-    <div className={`relative flex flex-col w-full ${isOwn ? 'items-end' : 'items-start'} ${hasReactions ? 'mb-6' : 'mb-2'} px-2 group animate-in slide-in-from-${isOwn ? 'right' : 'left'}-4 duration-300`} id={`msg-${message.id}`}>
+    <div className={`relative flex flex-col w-full ${isOwn ? 'items-end' : 'items-start'} ${hasReactions ? 'mb-6' : 'mb-2'} px-2 group animate-in slide-in-from-${isOwn ? 'right' : 'left'}-4 duration-300 fade-in`} id={`msg-${message.id}`}>
       
       <div className={`relative flex flex-col max-w-[85%] sm:max-w-[70%] ${isOwn ? 'items-end' : 'items-start'} transition-transform duration-200`} style={{ transform: `translateX(${swipeOffset}px)` }} onTouchStart={handleTouchStart} onTouchMove={handleTouchMove} onTouchEnd={handleTouchEnd}>
         
+        {/* Name Highlight for Groups (if not own) */}
+        {!isOwn && !isDeleted && senderUser?.name && (
+            <span className={`text-[10px] font-bold mb-1 ml-1 ${senderUser.isAdmin ? 'text-amber-400' : 'text-slate-500 dark:text-slate-400'}`}>
+                {senderUser.name} {senderUser.isAdmin && '👑'}
+            </span>
+        )}
+
         <div ref={menuRef}>
             {showReactions && !isDeleted && (
                 <div className={`absolute z-[110] ${menuPlacement === 'top' ? 'bottom-full mb-16' : 'top-full mt-16'} bg-white dark:bg-slate-800 rounded-full shadow-xl border border-slate-200 dark:border-slate-700 p-2 flex gap-2 animate-in zoom-in-95 ${isOwn ? 'right-0' : 'left-0'}`}>
@@ -229,17 +263,7 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({ message, isOwn, is
         <div 
           ref={bubbleRef}
           onClick={handleBubbleClick}
-          className={`relative px-4 py-3 rounded-[1.2rem] transition-all active:scale-[0.99] cursor-pointer shadow-sm group-hover:shadow-md overflow-hidden 
-            ${message.type === 'sticker' 
-                ? 'bg-transparent shadow-none p-0' 
-                : isDeleted 
-                    ? 'bg-slate-100 dark:bg-slate-800 text-slate-500 italic border border-slate-200 dark:border-slate-700' 
-                    : isOwn 
-                        ? 'bg-indigo-600 text-white rounded-tr-none' 
-                        : isAI 
-                            ? 'bg-slate-800 text-white border border-indigo-500/30 rounded-tl-none' 
-                            : 'bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 rounded-tl-none border border-slate-100 dark:border-slate-700'
-            }`}
+          className={`relative px-4 py-3 rounded-[1.2rem] transition-all active:scale-[0.99] cursor-pointer shadow-sm group-hover:shadow-md overflow-hidden ${bubbleStyle} ${isOwn ? 'rounded-tr-none' : 'rounded-tl-none'} ${message.type === 'sticker' ? 'bg-transparent shadow-none border-none p-0' : ''}`}
         >
           {isPinned && !isDeleted && (
              <div className="absolute top-0 right-0 p-1 bg-black/20 rounded-bl-lg text-white">

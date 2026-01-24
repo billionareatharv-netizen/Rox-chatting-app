@@ -2,6 +2,7 @@
 import React, { useState, useEffect } from 'react';
 import { User } from '../../types';
 import { getAllUsers, createGroup } from '../../firebase';
+import { hasPremiumAccess, getBadgeIcon } from '../../premiumUtils';
 
 interface CreateGroupModalProps {
   currentUser: User;
@@ -16,13 +17,26 @@ export const CreateGroupModal: React.FC<CreateGroupModalProps> = ({ currentUser,
   const [selected, setSelected] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
 
+  // Premium Limit Logic
+  const hasLimitBoost = hasPremiumAccess(currentUser, 'group_limit_boost');
+  const MEMBER_LIMIT = hasLimitBoost ? 250 : 20;
+
   useEffect(() => {
     getAllUsers().then(all => setUsers(all.filter(u => u.uid !== currentUser.uid)));
   }, [currentUser.uid]);
 
   const handleToggle = (uid: string) => {
-    if (mode === 'single') return; // Should not happen
-    setSelected(prev => prev.includes(uid) ? prev.filter(id => id !== uid) : [...prev, uid]);
+    if (mode === 'single') return; 
+    
+    if (selected.includes(uid)) {
+        setSelected(prev => prev.filter(id => id !== uid));
+    } else {
+        if (selected.length >= MEMBER_LIMIT) {
+            alert(hasLimitBoost ? "Maximum group size reached." : "Upgrade to Premium to add more members!");
+            return;
+        }
+        setSelected(prev => [...prev, uid]);
+    }
   };
 
   const handleCreateGroup = async () => {
@@ -63,12 +77,16 @@ export const CreateGroupModal: React.FC<CreateGroupModalProps> = ({ currentUser,
           {mode === 'single' ? (
              <button 
                onClick={() => setMode('group')}
-               className="w-full flex items-center gap-4 p-4 rounded-2xl bg-indigo-50 dark:bg-indigo-900/10 text-indigo-600 dark:text-indigo-400 hover:bg-indigo-100 dark:hover:bg-indigo-900/20 transition-all font-bold"
+               className="w-full flex items-center gap-4 p-4 rounded-2xl bg-indigo-50 dark:bg-indigo-900/10 text-indigo-600 dark:text-indigo-400 hover:bg-indigo-100 dark:hover:bg-indigo-900/20 transition-all font-bold group"
              >
-                <div className="p-2 bg-indigo-500 rounded-full text-white">
+                <div className="p-2 bg-indigo-500 rounded-full text-white group-hover:scale-110 transition-transform">
                   <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M12 4v16m8-8H4" /></svg>
                 </div>
-                <span>Create New Group</span>
+                <div className="text-left">
+                    <span className="block">Create New Group</span>
+                    {!hasLimitBoost && <span className="text-[10px] text-slate-400 font-normal">Limit: 20 Members</span>}
+                    {hasLimitBoost && <span className="text-[10px] text-amber-500 font-bold">Premium Limit: 250 Members 👑</span>}
+                </div>
              </button>
           ) : (
             <div className="animate-in slide-in-from-right">
@@ -79,9 +97,14 @@ export const CreateGroupModal: React.FC<CreateGroupModalProps> = ({ currentUser,
                 onChange={(e) => setName(e.target.value)}
                 className="w-full bg-slate-100 dark:bg-slate-800 rounded-2xl px-5 py-3 outline-none ring-2 ring-transparent focus:ring-indigo-500/30 transition-all font-semibold mb-2"
               />
-              <button onClick={() => setMode('single')} className="text-xs font-bold text-slate-400 hover:text-slate-600 dark:hover:text-slate-200">
-                &larr; Back to users
-              </button>
+              <div className="flex justify-between items-center mb-2">
+                  <button onClick={() => setMode('single')} className="text-xs font-bold text-slate-400 hover:text-slate-600 dark:hover:text-slate-200">
+                    &larr; Back to users
+                  </button>
+                  <span className={`text-xs font-bold ${selected.length >= MEMBER_LIMIT ? 'text-red-500' : 'text-slate-400'}`}>
+                      {selected.length} / {MEMBER_LIMIT}
+                  </span>
+              </div>
             </div>
           )}
           
@@ -103,7 +126,11 @@ export const CreateGroupModal: React.FC<CreateGroupModalProps> = ({ currentUser,
                 >
                     <img src={u.photoURL} className="w-10 h-10 rounded-full object-cover" alt="" />
                     <div className="flex-1 min-w-0">
-                        <span className="block font-medium truncate">{u.name}</span>
+                        <span className="flex items-center gap-1 font-medium truncate">
+                            {u.name}
+                            {u.subscription?.isActive && <span className="text-[10px]">{getBadgeIcon(u.subscription.plan)}</span>}
+                            {u.isAdmin && <span>🛡️</span>}
+                        </span>
                         {mode === 'single' && <span className="text-[10px] opacity-60 uppercase tracking-wider">{u.status}</span>}
                     </div>
                     {mode === 'group' && selected.includes(u.uid) && (

@@ -2,6 +2,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { User, Story } from '../../types';
 import { addStory } from '../../firebase';
+import { hasPremiumAccess } from '../../premiumUtils';
 
 interface StoryUploadProps {
   currentUser: User;
@@ -15,6 +16,9 @@ export const StoryUpload: React.FC<StoryUploadProps> = ({ currentUser, onClose }
   const [caption, setCaption] = useState('');
   const [isUploading, setIsUploading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Premium Check
+  const hasLongStatus = hasPremiumAccess(currentUser, 'status_duration_boost');
 
   useEffect(() => {
     return () => {
@@ -70,9 +74,11 @@ export const StoryUpload: React.FC<StoryUploadProps> = ({ currentUser, onClose }
     const selected = e.target.files?.[0];
     if (!selected) return;
 
-    // Limit videos to 5MB, Images to 5MB (compression will handle images)
-    if (selected.size > 5 * 1024 * 1024) {
-      alert("File is too large. Please select a file under 5MB.");
+    // Limit videos to 5MB (free) or 15MB (premium) for browser memory limits
+    // In a real app with cloud storage, we'd allow much larger.
+    const limit = hasLongStatus ? 15 : 5;
+    if (selected.size > limit * 1024 * 1024) {
+      alert(`File is too large. Limit is ${limit}MB.`);
       e.target.value = '';
       return;
     }
@@ -100,7 +106,7 @@ export const StoryUpload: React.FC<StoryUploadProps> = ({ currentUser, onClose }
       if (mediaType === 'image') {
         mediaData = await compressImage(file);
       } else {
-        // For videos, we use standard Base64 (compression is complex in browser without worker)
+        // For videos, we use standard Base64
         mediaData = await new Promise<string>((resolve, reject) => {
           const reader = new FileReader();
           reader.onload = () => resolve(reader.result as string);
@@ -124,7 +130,7 @@ export const StoryUpload: React.FC<StoryUploadProps> = ({ currentUser, onClose }
       onClose();
     } catch (e) {
       console.error("Upload error:", e);
-      alert("Storage full! The app tried to clear space, but this video is still too large for your browser's memory.");
+      alert("Storage full or file too large for browser.");
     } finally {
       setIsUploading(false);
     }
@@ -158,7 +164,7 @@ export const StoryUpload: React.FC<StoryUploadProps> = ({ currentUser, onClose }
           </div>
           <h2 className="text-2xl font-bold text-white">Share a Moment</h2>
           <p className="text-white/40 max-w-xs mx-auto text-sm">
-            Optimized storage enabled. Large images are automatically compressed.
+            {hasLongStatus ? "You can upload longer high-quality videos." : "Basic upload limit enabled. Upgrade for 3x boost."}
           </p>
           <button 
             onClick={() => fileInputRef.current?.click()}

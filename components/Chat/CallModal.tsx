@@ -1,6 +1,8 @@
+
 import React, { useState, useEffect, useRef } from 'react';
 import { CallSession, CallStatus } from '../../types';
 import { updateCallStatus, getCallById, updateCallSignal, addIceCandidate, subscribeToCall } from '../../firebase';
+import { hasPremiumAccess, ADMIN_STYLE } from '../../premiumUtils';
 
 interface CallModalProps {
   session: CallSession;
@@ -28,11 +30,21 @@ export const CallModal: React.FC<CallModalProps> = ({ session, onHangUp }) => {
   const pc = useRef<RTCPeerConnection | null>(null);
   const localStream = useRef<MediaStream | null>(null);
 
-  // Initialize Ringtone for incoming calls
+  // Premium Checks
+  // Check if Caller (partner) is Admin or Premium to show THEIR custom styling to ME
+  const isPartnerPremium = hasPremiumAccess(session.partner, 'call_effects');
+  const isPartnerAdmin = session.partner.isAdmin;
+
+  // Initialize Ringtone
   useEffect(() => {
     if (session.isIncoming && status === 'ringing') {
       try {
-        const audio = new Audio("https://cdn.pixabay.com/download/audio/2022/03/24/audio_c8c8a73467.mp3?filename=smartphone-ringtone-6260.mp3");
+        // Use custom ringtone if partner is Premium/Admin
+        const ringtoneUrl = (isPartnerPremium || isPartnerAdmin) 
+            ? "https://cdn.pixabay.com/download/audio/2021/08/09/audio_88447e769f.mp3?filename=orchestral-logo-opener-11532.mp3" // Premium Tone
+            : "https://cdn.pixabay.com/download/audio/2022/03/24/audio_c8c8a73467.mp3?filename=smartphone-ringtone-6260.mp3"; // Standard Tone
+
+        const audio = new Audio(ringtoneUrl);
         audio.loop = true;
         audio.play().catch(e => console.warn("Autoplay blocked for ringtone", e));
         ringtoneRef.current = audio;
@@ -48,7 +60,7 @@ export const CallModal: React.FC<CallModalProps> = ({ session, onHangUp }) => {
         ringtoneRef.current.pause();
       }
     };
-  }, [session.isIncoming, status]);
+  }, [session.isIncoming, status, isPartnerPremium, isPartnerAdmin]);
 
   const handleMediaError = (err: any) => {
     console.error("Media/WebRTC Error:", err);
@@ -251,8 +263,15 @@ export const CallModal: React.FC<CallModalProps> = ({ session, onHangUp }) => {
     return `${mins}:${secs.toString().padStart(2, '0')}`;
   };
 
+  // Determine Background Style based on Premium Status
+  const getBackgroundClass = () => {
+      if (isPartnerAdmin) return "bg-gradient-to-br from-slate-900 via-yellow-900/40 to-black";
+      if (isPartnerPremium) return "bg-gradient-to-br from-indigo-900 via-purple-900 to-black";
+      return "bg-slate-950";
+  };
+
   return (
-    <div className="fixed inset-0 z-[1000] bg-slate-950 flex flex-col items-center justify-center text-white overflow-hidden animate-in fade-in duration-500">
+    <div className={`fixed inset-0 z-[1000] flex flex-col items-center justify-center text-white overflow-hidden animate-in fade-in duration-500 ${getBackgroundClass()}`}>
       
       {/* Remote Video (Full Screen) */}
       <video 
@@ -265,7 +284,7 @@ export const CallModal: React.FC<CallModalProps> = ({ session, onHangUp }) => {
       {/* Dedicated Audio Element for Voice */}
       <audio ref={remoteAudioRef} autoPlay />
 
-      {/* Background Partner Blur */}
+      {/* Background Partner Blur with Premium Pulse */}
       <div className={`absolute inset-0 opacity-40 blur-[50px] pointer-events-none bg-slate-900 z-0 ${status === 'accepted' && session.type === 'video' ? 'opacity-0' : 'opacity-100'}`}>
         <img src={session.partner.photoURL} className="w-full h-full object-cover" alt="" />
       </div>
@@ -293,11 +312,26 @@ export const CallModal: React.FC<CallModalProps> = ({ session, onHangUp }) => {
             {/* Header / Info */}
             <div className="text-center mt-10">
                 {status !== 'accepted' && (
-                    <div className="w-32 h-32 rounded-full overflow-hidden border-4 border-white/10 shadow-2xl mx-auto mb-6">
-                        <img src={session.partner.photoURL} className="w-full h-full object-cover" alt="" />
+                    <div className="relative w-32 h-32 mx-auto mb-6">
+                        <div className={`w-full h-full rounded-full overflow-hidden border-4 shadow-2xl ${isPartnerAdmin ? ADMIN_STYLE.border : (isPartnerPremium ? 'border-purple-500' : 'border-white/10')}`}>
+                            <img src={session.partner.photoURL} className="w-full h-full object-cover" alt="" />
+                        </div>
+                        {(isPartnerAdmin || isPartnerPremium) && (
+                            <div className="absolute -bottom-2 -right-2 bg-black/50 backdrop-blur-md p-2 rounded-full border border-white/20">
+                                <span className="text-2xl">{isPartnerAdmin ? '👑' : '💎'}</span>
+                            </div>
+                        )}
+                        {/* Premium Glow Ring */}
+                        {(isPartnerAdmin || isPartnerPremium) && (
+                            <div className={`absolute -inset-4 rounded-full -z-10 animate-pulse-slow ${isPartnerAdmin ? 'bg-yellow-500/20' : 'bg-purple-500/20'}`}></div>
+                        )}
                     </div>
                 )}
-                <h2 className="text-3xl font-black tracking-tight drop-shadow-md">{session.partner.name}</h2>
+                
+                <h2 className={`text-3xl font-black tracking-tight drop-shadow-md ${isPartnerAdmin ? ADMIN_STYLE.text : ''}`}>
+                    {session.partner.name}
+                </h2>
+                
                 <p className="text-white/80 font-bold tracking-[0.2em] uppercase text-xs mt-2 bg-black/20 inline-block px-4 py-1 rounded-full backdrop-blur-md">
                     {status === 'accepted' ? formatDuration(duration) : status === 'calling' ? 'Calling...' : 'Incoming Call...'}
                 </p>

@@ -32,6 +32,8 @@ import {
   onSnapshot,
   writeBatch
 } from "firebase/firestore";
+import { UserSubscription, PremiumCustomization, PlanType } from './types';
+import { calculateExpiry, getPlanDetails } from './premiumUtils';
 
 // --- CONFIGURATION START ---
 const firebaseConfig = {
@@ -159,7 +161,15 @@ export const createUserWithEmailAndPassword = async (authObj: any, email: string
     privacySettings: {
       lastSeen: 'everyone',
       readReceipts: true
-    }
+    },
+    // New fields
+    subscription: {
+        plan: 'free',
+        isActive: false,
+        startDate: Date.now(),
+        expiryDate: Date.now()
+    },
+    premiumCustomization: {}
   };
 
   await setDoc(doc(db, "users", user.uid), newUserProfile);
@@ -188,7 +198,9 @@ export const signInWithPopup = async () => {
       pinnedChats: [],
       isAdmin: isAdmin,
       isGloballyBlocked: false,
-      privacySettings: { lastSeen: 'everyone', readReceipts: true }
+      privacySettings: { lastSeen: 'everyone', readReceipts: true },
+      subscription: { plan: 'free', isActive: false, startDate: Date.now(), expiryDate: Date.now() },
+      premiumCustomization: {}
     });
   } else {
     if (isAdmin && !userSnap.data().isAdmin) {
@@ -222,6 +234,29 @@ export const updateProfile = async (user: any, updates: any) => {
     } catch (e) { }
   }
   return { ...user, ...updates };
+};
+
+// --- PREMIUM FEATURES ---
+
+export const activateSubscription = async (userId: string, planId: PlanType) => {
+    const plan = getPlanDetails(planId);
+    if (!plan) return;
+
+    const subData: UserSubscription = {
+        plan: planId,
+        startDate: Date.now(),
+        expiryDate: calculateExpiry(plan.durationDays),
+        isActive: true
+    };
+
+    await updateDoc(doc(db, "users", userId), { subscription: subData });
+    return subData;
+};
+
+export const updatePremiumCustomization = async (userId: string, customization: PremiumCustomization) => {
+    await updateDoc(doc(db, "users", userId), { 
+        premiumCustomization: customization 
+    });
 };
 
 // --- DATA ACCESS ---

@@ -1,8 +1,27 @@
 
+export type PlanType = 'free' | 'starter' | 'middle' | 'vip' | 'vvip';
+
+export interface UserSubscription {
+  plan: PlanType;
+  startDate: number;
+  expiryDate: number;
+  isActive: boolean;
+}
+
+export interface PremiumCustomization {
+  borderColor?: string; // Hex or tailwind class
+  glowEffect?: boolean;
+  usernameColor?: string;
+  badge?: PlanType;
+  wallpaper?: string;
+  chatBubbleStyle?: 'default' | 'glass' | 'neon' | 'gradient';
+  appIcon?: string;
+}
+
 export interface User {
   uid: string;
   name: string;
-  username?: string; // Feature: Username
+  username?: string;
   email: string;
   photoURL: string;
   status: 'online' | 'offline';
@@ -21,6 +40,9 @@ export interface User {
     appLockPin?: string; 
     biometricsEnabled?: boolean;
   };
+  // Feature: Premium System
+  subscription?: UserSubscription;
+  premiumCustomization?: PremiumCustomization;
 }
 
 export type MessageType = 'text' | 'image' | 'video' | 'file' | 'voice' | 'story_reply' | 'note_reply' | 'deleted' | 'poll' | 'sticker' | 'system';
@@ -106,6 +128,7 @@ export interface Note {
   userPhoto: string;
   text: string;
   timestamp: number;
+  statusColor?: string; // Premium Feature
 }
 
 export interface SavedMedia {
@@ -134,6 +157,7 @@ export interface Chat {
   updatedAt: number;
   typing?: { [uid: string]: boolean };
   lockedBy?: string[]; 
+  theme?: string; // Premium Feature
 }
 
 export interface AuthState {
