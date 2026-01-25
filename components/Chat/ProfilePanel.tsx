@@ -117,6 +117,7 @@ export const ProfilePanel: React.FC<ProfilePanelProps> = ({ user, onClose, toggl
       applock: "App Lock", premium: "Premium Store"
     };
 
+    // Logic for back button destination
     const backTarget: Record<string, ProfileViewMode> = {
       edit: 'main', settings: 'main', privacy: 'settings',
       chats: 'settings', notifications: 'settings', language: 'settings',
@@ -127,7 +128,14 @@ export const ProfilePanel: React.FC<ProfilePanelProps> = ({ user, onClose, toggl
       <div className="p-6 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between sticky top-0 bg-white/80 dark:bg-slate-900/80 backdrop-blur-md z-10">
         <div className="flex items-center gap-4">
           {viewMode !== 'main' && (
-            <button onClick={() => setViewMode(backTarget[viewMode] || 'main')} className="p-2 -ml-2 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-full transition-all">
+            <button 
+                onClick={(e) => {
+                    e.stopPropagation();
+                    const target = backTarget[viewMode] || 'main';
+                    setViewMode(target);
+                }} 
+                className="p-2 -ml-2 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-full transition-all"
+            >
               <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M15 19l-7-7 7-7" /></svg>
             </button>
           )}
@@ -143,7 +151,15 @@ export const ProfilePanel: React.FC<ProfilePanelProps> = ({ user, onClose, toggl
   };
 
   const SettingsItem = ({ icon, title, subtitle, onClick, color = "indigo", toggle }: any) => (
-    <button onClick={onClick} className="w-full flex items-center gap-4 p-4 hover:bg-slate-50 dark:hover:bg-slate-800/40 transition-all group border-b border-slate-50 dark:border-slate-800/50 last:border-0">
+    <button 
+        type="button"
+        onClick={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            if (onClick) onClick();
+        }} 
+        className="w-full flex items-center gap-4 p-4 hover:bg-slate-50 dark:hover:bg-slate-800/40 transition-all group border-b border-slate-50 dark:border-slate-800/50 last:border-0"
+    >
       <div className={`p-2.5 rounded-xl bg-${color}-500/10 text-${color}-500 group-hover:scale-110 transition-transform`}>
         {icon}
       </div>
