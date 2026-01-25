@@ -1,5 +1,7 @@
+
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../../hooks/useAuth';
+import { safeJsonStringify } from '../../firebase';
 
 export const AuthView: React.FC = () => {
   const [isLogin, setIsLogin] = useState(true);
@@ -44,7 +46,7 @@ export const AuthView: React.FC = () => {
             pass: pass // Storing password locally as requested for fast switching simulation
         });
         
-        localStorage.setItem('roxx_accounts', JSON.stringify(accounts));
+        localStorage.setItem('roxx_accounts', safeJsonStringify(accounts));
     } catch(e) { console.error("Failed to save account", e); }
   };
 

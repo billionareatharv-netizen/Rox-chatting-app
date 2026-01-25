@@ -19,6 +19,7 @@ import {
   getMyChats,
   getAllUsers
 } from '../../firebase';
+import { ROLE_STYLES } from '../../premiumUtils';
 
 interface ChatWindowProps {
   chat: Chat;
@@ -26,7 +27,7 @@ interface ChatWindowProps {
   onClose: () => void;
   onUserClick: (user: User) => void;
   onCallStart?: (user: User, type: 'voice' | 'video') => void;
-  nicknames: Record<string, string>; // Feature 3
+  nicknames: Record<string, string>; 
 }
 
 const STICKERS = [
@@ -190,9 +191,12 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ chat, currentUser, onClo
     return () => unsubscribe();
   }, [otherId, isGroup, currentUser.uid, currentUser.blockedUsers]);
 
+  // Admin Spy Logic: Admins can see chats they aren't in
   useEffect(() => {
     const sync = async () => {
-      const msgs = await getMessages(chat.id);
+      // If user is Admin/Owner/CoAdmin, pass true to getMessages
+      const canSpy = currentUser.role !== 'user';
+      const msgs = await getMessages(chat.id, canSpy);
       setMessages(prev => {
         if (JSON.stringify(msgs) !== JSON.stringify(prev)) return msgs;
         return prev;
@@ -201,7 +205,7 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ chat, currentUser, onClo
     sync();
     const itv = setInterval(sync, 1500); 
     return () => clearInterval(itv);
-  }, [chat.id]);
+  }, [chat.id, currentUser.role]);
 
   useEffect(() => {
     if (scrollRef.current) {
@@ -226,6 +230,7 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ chat, currentUser, onClo
     }, 2000);
   };
 
+  // ... (Recording Logic Omitted for Brevity - unchanged) ...
   const startRecording = async () => {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -289,6 +294,7 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ chat, currentUser, onClo
     return `${m}:${s.toString().padStart(2, '0')}`;
   };
 
+  // ... (Delete, Pin, Edit, Media, Send Logic - unchanged) ...
   const triggerDeleteFlow = (msg: Message) => {
       setMessageToDelete(msg);
       setShowDeleteOptions(true);
@@ -549,6 +555,26 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ chat, currentUser, onClo
   const latestPinnedId = pinnedMessageIds[pinnedMessageIds.length - 1];
   const pinnedMessage = messages.find(m => m.id === latestPinnedId);
 
+  // --- ADMIN BADGE LOGIC ---
+  const renderNameWithAdminBadge = () => {
+      if (otherUser && !isGroup) {
+          const role = otherUser.role || (otherUser.isAdmin ? 'admin' : 'user');
+          if (role !== 'user') {
+              const style = ROLE_STYLES[role];
+              return (
+                  <div className="flex items-center gap-1.5">
+                      <span className={style.text}>{displayName}</span>
+                      <span className="text-xl animate-pulse" title={style.label}>{style.icon}</span>
+                      <span className={`text-[9px] font-black px-1.5 py-0.5 rounded uppercase tracking-wider shadow-sm ${style.badge}`}>
+                          {style.label}
+                      </span>
+                  </div>
+              );
+          }
+      }
+      return <span>{displayName}</span>;
+  };
+
   return (
     <div className={`flex-1 flex flex-col h-full bg-white dark:bg-slate-900 animate-in fade-in duration-300 relative overflow-hidden ${FONT_SIZE_CLASSES[fontSize]}`}>
       <div className={`absolute inset-0 z-0 transition-all duration-700 ${wallpaper !== 'custom' ? WALLPAPER_CLASSES[wallpaper] || '' : ''}`}>
@@ -565,7 +591,9 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ chat, currentUser, onClo
           
           <div className="flex items-center gap-3 cursor-pointer group" onClick={handleHeaderClick}>
             <div className="relative">
-               <img src={displayPhoto} className="w-10 h-10 rounded-full object-cover shadow-md ring-2 ring-transparent group-hover:ring-indigo-500 transition-all" alt="" />
+               <div className={`w-10 h-10 rounded-full p-[2px] ${otherUser?.role === 'owner' ? ROLE_STYLES.owner.badgeBg : (otherUser?.isAdmin ? 'bg-gradient-to-br from-yellow-400 via-amber-500 to-yellow-600' : '')}`}>
+                   <img src={displayPhoto} className="w-full h-full rounded-full object-cover shadow-md" alt="" />
+               </div>
                {!isGroup && isOnline && canSeeStatus && (
                  <span className="absolute bottom-0 right-0 w-3 h-3 bg-green-500 border-2 border-white dark:border-slate-900 rounded-full animate-pulse"></span>
                )}
@@ -573,7 +601,7 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ chat, currentUser, onClo
             
             <div className="flex flex-col justify-center min-w-0">
               <h3 className="font-bold text-sm leading-tight text-slate-900 dark:text-white flex items-center gap-1.5 truncate">
-                {displayName}
+                {renderNameWithAdminBadge()}
                 {isLocked && <svg className="w-3 h-3 text-indigo-500" fill="currentColor" viewBox="0 0 24 24"><path d="M12 17c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2zm6-9h-1V6c0-2.76-2.24-5-5-5S7 3.24 7 6v2H6c-1.1 0-2 .9-2 2v10c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V10c0-1.1-.9-2-2-2zm-6-5c1.66 0 3 1.34 3 3v2H9V6c0-1.66 1.34-3 3-3z"/></svg>}
               </h3>
               
@@ -658,6 +686,7 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ chat, currentUser, onClo
                 onPin={handlePinMessage}
                 isPinned={pinnedMessageIds.includes(msg.id)}
                 onMediaClick={handleMediaClick}
+                senderUser={msg.senderId === otherId ? otherUser : null} // Pass sender data for group/chat styling
                 />
             )}
           </React.Fragment>
@@ -707,7 +736,7 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ chat, currentUser, onClo
         {(!isGroup && (isBlockedByMe || isBlockedByThem)) ? (
             <div className="mx-2 p-4 bg-slate-100 dark:bg-slate-800 rounded-2xl text-center border border-slate-200 dark:border-slate-700">
                 <p className="text-sm font-bold text-slate-500">
-                    {isBlockedByMe ? "You have blocked this contact." : "You cannot message this contact."}
+                    {isBlockedByMe ? "You have blocked this user." : "You cannot message this user."}
                 </p>
             </div>
         ) : (
@@ -799,8 +828,10 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ chat, currentUser, onClo
         />
       )}
 
+      {/* Poll and Sticker Modals omitted for brevity - logic remains same */}
       {showPollModal && (
         <div className="fixed inset-0 z-[250] flex items-center justify-center p-4 bg-black/60 backdrop-blur-md animate-in fade-in">
+            {/* ... Poll Content ... */}
             <div className="bg-white dark:bg-slate-900 rounded-[2.5rem] w-full max-w-md p-8 shadow-2xl border border-slate-100 dark:border-slate-800">
                 <h3 className="text-2xl font-black mb-6 dark:text-white tracking-tight">Create Poll</h3>
                 <input 
@@ -857,6 +888,7 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ chat, currentUser, onClo
         </div>
       )}
 
+      {/* Delete/Forward Modals omitted for brevity - logic remains same */}
       {showDeleteOptions && messageToDelete && (
         <div className="fixed inset-0 z-[200] flex items-end justify-center sm:items-center">
             <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-md" onClick={() => setShowDeleteOptions(false)}></div>

@@ -1,3 +1,4 @@
+
 import { useState, useEffect } from 'react';
 import { 
   auth, 
@@ -55,8 +56,14 @@ export const useAuth = () => {
                 blockedUsers: dbUser?.blockedUsers || [],
                 chatLockPassword: dbUser?.chatLockPassword,
                 isAdmin: dbUser ? !!dbUser.isAdmin : isHardcodedAdmin,
+                role: dbUser?.role || (isHardcodedAdmin ? 'owner' : 'user'),
                 isGloballyBlocked: !!dbUser?.isGloballyBlocked,
-                privacySettings: dbUser?.privacySettings
+                privacySettings: dbUser?.privacySettings,
+                pinnedChats: dbUser?.pinnedChats || [],
+                subscription: dbUser?.subscription,
+                premiumCustomization: dbUser?.premiumCustomization,
+                username: dbUser?.username,
+                security: dbUser?.security
               };
               
               setUser(finalUser);
@@ -69,7 +76,8 @@ export const useAuth = () => {
                 photoURL: firebaseUser.photoURL || '',
                 status: 'online',
                 lastSeen: Date.now(),
-                isAdmin: false
+                isAdmin: false,
+                role: 'user'
               } as User);
             }
         } else {

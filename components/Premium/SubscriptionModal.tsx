@@ -14,20 +14,31 @@ export const SubscriptionModal: React.FC<SubscriptionModalProps> = ({ currentUse
   const [loading, setLoading] = useState(false);
 
   const handlePurchase = async () => {
+    const plan = PLANS[selectedPlan.toUpperCase() as keyof typeof PLANS];
+    if (!plan) return;
+
     setLoading(true);
-    // SIMULATED PAYMENT GATEWAY (Razorpay/UPI)
-    // In real app: Call backend to create order -> Open Razorpay -> On Success Call this
+    
+    // Redirect to UPI App
+    const upiUrl = `upi://pay?pa=atharv811@fam&pn=ROXX%20Chats&am=${plan.price}&cu=INR&tn=ROXX%20${plan.name}%20Plan`;
+    window.location.href = upiUrl;
+
+    // Simulated Verification
     setTimeout(async () => {
-        try {
-            await activateSubscription(currentUser.uid, selectedPlan);
-            alert("Payment Successful! Premium Features Unlocked.");
-            window.location.reload(); // Refresh to load new permissions
-        } catch(e) {
-            alert("Transaction Failed.");
+        const userConfirmed = window.confirm("Please click OK after you have successfully completed the payment in your UPI app.");
+        
+        if (userConfirmed) {
+            try {
+                await activateSubscription(currentUser.uid, selectedPlan);
+                alert("Payment Verified! Premium Features Unlocked.");
+                window.location.reload();
+            } catch(e) {
+                alert("Activation Failed. Please try again.");
+            }
         }
         setLoading(false);
         onClose();
-    }, 1500);
+    }, 2500);
   };
 
   return (
@@ -79,9 +90,9 @@ export const SubscriptionModal: React.FC<SubscriptionModalProps> = ({ currentUse
                 disabled={loading}
                 className="w-full py-4 bg-slate-900 dark:bg-white text-white dark:text-slate-900 rounded-2xl font-black text-lg hover:scale-[1.02] active:scale-95 transition-all shadow-xl disabled:opacity-50 flex items-center justify-center gap-2"
             >
-                {loading ? 'Processing...' : `Upgrade to ${PLANS[selectedPlan.toUpperCase() as keyof typeof PLANS].name}`}
+                {loading ? 'Opening UPI...' : `Pay ₹${PLANS[selectedPlan.toUpperCase() as keyof typeof PLANS].price} via UPI`}
             </button>
-            <p className="text-center text-[10px] text-slate-400 font-bold mt-4 uppercase tracking-widest">Secured by Razorpay • Instant Activation</p>
+            <p className="text-center text-[10px] text-slate-400 font-bold mt-4 uppercase tracking-widest">Instant Activation • Secure Payment</p>
         </div>
       </div>
     </div>

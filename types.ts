@@ -1,5 +1,6 @@
 
 export type PlanType = 'free' | 'starter' | 'middle' | 'vip' | 'vvip';
+export type UserRole = 'user' | 'admin' | 'co_admin' | 'owner';
 
 export interface UserSubscription {
   plan: PlanType;
@@ -18,6 +19,17 @@ export interface PremiumCustomization {
   appIcon?: string;
 }
 
+export interface StoreItem {
+  id: string;
+  type: 'decoration' | 'animation' | 'badge';
+  name: string;
+  description?: string;
+  price: number;
+  previewUrl: string; // Image or CSS class depending on implementation
+  value: string; // The actual class or data to apply
+  category: string;
+}
+
 export interface User {
   uid: string;
   name: string;
@@ -30,7 +42,11 @@ export interface User {
   blockedUsers?: string[];
   pinnedChats?: string[]; 
   chatLockPassword?: string; 
-  isAdmin?: boolean; 
+  
+  // Role System
+  role: UserRole;
+  isAdmin?: boolean; // Kept for backward compatibility, mapped to role !== 'user'
+  
   isGloballyBlocked?: boolean;
   privacySettings?: {
     lastSeen: 'everyone' | 'contacts' | 'nobody';

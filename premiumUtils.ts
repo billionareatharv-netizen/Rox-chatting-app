@@ -1,5 +1,5 @@
 
-import { User, PlanType } from './types';
+import { User, PlanType, UserRole } from './types';
 
 export const PLANS = {
   STARTER: { id: 'starter', name: 'Starter', price: 99, durationDays: 30, color: 'text-blue-500', border: 'border-blue-500' },
@@ -8,14 +8,43 @@ export const PLANS = {
   VVIP: { id: 'vvip', name: 'ROXX VIP', price: 499, durationDays: 365, color: 'text-amber-500', border: 'border-amber-500' },
 };
 
-// Admin Exclusive Styles
-export const ADMIN_STYLE = {
-  border: 'border-yellow-400',
-  glow: 'shadow-[0_0_25px_rgba(250,204,21,0.6)]',
-  text: 'gold-gradient-text',
-  badgeBg: 'bg-gradient-to-r from-yellow-600 via-amber-500 to-yellow-600',
-  icon: '👑'
+// --- NEW ROLE STYLES ---
+export const ROLE_STYLES: Record<UserRole, any> = {
+  owner: {
+    label: 'OWNER VVIP',
+    badge: 'bg-gradient-to-r from-red-600 via-red-500 to-rose-600 text-yellow-100 shadow-[0_0_15px_rgba(220,38,38,0.6)] border border-yellow-400',
+    text: 'text-transparent bg-clip-text bg-gradient-to-r from-red-500 via-rose-500 to-amber-500 font-serif italic tracking-wider',
+    border: 'border-red-500 ring-2 ring-yellow-400 ring-offset-2 ring-offset-black',
+    glow: 'shadow-[0_0_30px_rgba(220,38,38,0.8)]',
+    icon: '👑'
+  },
+  co_admin: {
+    label: 'CO-ADMIN',
+    badge: 'bg-gradient-to-r from-cyan-500 via-blue-500 to-indigo-500 text-white shadow-[0_0_15px_rgba(6,182,212,0.6)] animate-shimmer',
+    text: 'text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 to-blue-500 font-bold',
+    border: 'border-cyan-400 ring-2 ring-white/50',
+    glow: 'shadow-[0_0_20px_rgba(34,211,238,0.6)]',
+    icon: '💎'
+  },
+  admin: {
+    label: 'ADMIN',
+    badge: 'bg-gradient-to-r from-yellow-500 to-amber-600 text-white shadow-lg',
+    text: 'text-amber-500 font-bold',
+    border: 'border-amber-400',
+    glow: 'shadow-[0_0_15px_rgba(251,191,36,0.5)]',
+    icon: '🛡️'
+  },
+  user: {
+    label: '',
+    badge: '',
+    text: 'text-slate-900 dark:text-white',
+    border: 'border-slate-200 dark:border-slate-700',
+    glow: '',
+    icon: ''
+  }
 };
+
+export const ADMIN_STYLE = ROLE_STYLES.admin; // Backward compatibility
 
 export const FEATURE_LEVELS: Record<string, PlanType[]> = {
   'decoration': ['starter', 'middle', 'vip', 'vvip'],
@@ -23,10 +52,8 @@ export const FEATURE_LEVELS: Record<string, PlanType[]> = {
   'call_effects': ['vip', 'vvip'],
   'group_power': ['vip', 'vvip'],
   'stealth_mode': ['vvip'],
-  
-  // New Feature Levels
-  'status_duration_boost': ['vip', 'vvip'], // Allows 48h/72h or longer videos
-  'group_limit_boost': ['middle', 'vip', 'vvip'], // Increases member cap
+  'status_duration_boost': ['vip', 'vvip'], 
+  'group_limit_boost': ['middle', 'vip', 'vvip'],
   'custom_wallpaper': ['starter', 'middle', 'vip', 'vvip'],
 };
 
@@ -34,8 +61,8 @@ export const FEATURE_LEVELS: Record<string, PlanType[]> = {
 export const hasPremiumAccess = (user: User | null, featureKey: string): boolean => {
   if (!user) return false;
 
-  // 1. ADMIN BYPASS (Highest Priority)
-  if (user.isAdmin) return true;
+  // 1. ROLE BYPASS (Owners and Co-Admins get everything)
+  if (user.role === 'owner' || user.role === 'co_admin' || user.role === 'admin' || user.isAdmin) return true;
 
   // 2. Check Subscription Existence
   if (!user.subscription || !user.subscription.isActive) return false;
@@ -58,8 +85,8 @@ export const calculateExpiry = (durationDays: number): number => {
   return d.getTime();
 };
 
-export const getBadgeIcon = (plan: PlanType, isAdmin?: boolean) => {
-  if (isAdmin) return ADMIN_STYLE.icon;
+export const getBadgeIcon = (plan: PlanType, role?: UserRole) => {
+  if (role && role !== 'user') return ROLE_STYLES[role].icon;
   switch (plan) {
     case 'starter': return '⭐';
     case 'middle': return '🌟';

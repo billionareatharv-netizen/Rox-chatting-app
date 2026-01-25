@@ -32,7 +32,7 @@ import {
   onSnapshot,
   writeBatch
 } from "firebase/firestore";
-import { UserSubscription, PremiumCustomization, PlanType } from './types';
+import { UserSubscription, PremiumCustomization, PlanType, UserRole, StoreItem } from './types';
 import { calculateExpiry, getPlanDetails } from './premiumUtils';
 
 // --- CONFIGURATION START ---
@@ -94,7 +94,7 @@ const generateUUID = () => {
   });
 };
 
-const sanitizeData = (data: any, seen = new WeakSet()): any => {
+export const sanitizeData = (data: any, seen = new WeakSet()): any => {
   if (data === null || data === undefined) return null;
   if (typeof data !== 'object') return data;
   if (data instanceof Date) return data.getTime();
@@ -106,13 +106,18 @@ const sanitizeData = (data: any, seen = new WeakSet()): any => {
   if (Array.isArray(data)) return data.map(item => sanitizeData(item, seen));
   const out: any = {};
   for (const k in data) {
-    if (k.startsWith('__react') || k === '_owner' || k === 'stateNode') continue;
+    if (k.startsWith('__react') || k === '_owner' || k === 'stateNode' || k === 'source' || k === 'constructor') continue;
     if (Object.prototype.hasOwnProperty.call(data, k)) {
       const val = data[k];
-      if (val !== undefined) out[k] = sanitizeData(val, seen);
+      if (val !== undefined && typeof val !== 'function') out[k] = sanitizeData(val, seen);
     }
   }
   return out;
+};
+
+export const safeJsonStringify = (value: any) => {
+  try { return JSON.stringify(sanitizeData(value)); } 
+  catch (e) { console.error("JSON Stringify failed", e); return "{}"; }
 };
 
 // --- AUTHENTICATION ---
@@ -120,17 +125,13 @@ const sanitizeData = (data: any, seen = new WeakSet()): any => {
 export const updateUserStatus = async (uid: string, status: 'online' | 'offline') => {
   if (!db || !db.type) return; 
   try {
-    const userRef = doc(db, "users", uid);
-    await updateDoc(userRef, {
-      status: status,
-      lastSeen: Date.now()
-    });
+    await updateDoc(doc(db, "users", uid), { status: status, lastSeen: Date.now() });
   } catch (e) { }
 };
 
-export const makeUserAdmin = async (uid: string) => {
+export const makeUserAdmin = async (uid: string, role: UserRole = 'admin') => {
   try {
-    await updateDoc(doc(db, "users", uid), { isAdmin: true });
+    await updateDoc(doc(db, "users", uid), { isAdmin: true, role: role });
   } catch(e) { console.error("Failed to make admin", e); }
 };
 
@@ -144,7 +145,9 @@ export const createUserWithEmailAndPassword = async (authObj: any, email: string
   const userCredential = await firebaseCreateUser(authObj, email, pass);
   const user = userCredential.user;
   
-  const isAdmin = email.toLowerCase() === 'betterrroxx@gmail.com';
+  // Logic: First hardcoded email is OWNER
+  let role: UserRole = 'user';
+  if (email.toLowerCase() === 'betterrroxx@gmail.com') role = 'owner';
 
   const newUserProfile = {
     uid: user.uid,
@@ -156,19 +159,11 @@ export const createUserWithEmailAndPassword = async (authObj: any, email: string
     bio: 'Hey there! I am using ROXX CHATS.',
     blockedUsers: [],
     pinnedChats: [],
-    isAdmin: isAdmin,
+    isAdmin: role !== 'user',
+    role: role,
     isGloballyBlocked: false,
-    privacySettings: {
-      lastSeen: 'everyone',
-      readReceipts: true
-    },
-    // New fields
-    subscription: {
-        plan: 'free',
-        isActive: false,
-        startDate: Date.now(),
-        expiryDate: Date.now()
-    },
+    privacySettings: { lastSeen: 'everyone', readReceipts: true },
+    subscription: { plan: 'free', isActive: false, startDate: Date.now(), expiryDate: Date.now() },
     premiumCustomization: {}
   };
 
@@ -183,7 +178,8 @@ export const signInWithPopup = async () => {
   const userRef = doc(db, "users", user.uid);
   const userSnap = await getDoc(userRef);
 
-  const isAdmin = user.email?.toLowerCase() === 'betterrroxx@gmail.com';
+  let role: UserRole = 'user';
+  if (user.email?.toLowerCase() === 'betterrroxx@gmail.com') role = 'owner';
 
   if (!userSnap.exists()) {
     await setDoc(userRef, {
@@ -196,15 +192,17 @@ export const signInWithPopup = async () => {
       bio: 'Hey there! I am using ROXX CHATS.',
       blockedUsers: [],
       pinnedChats: [],
-      isAdmin: isAdmin,
+      isAdmin: role !== 'user',
+      role: role,
       isGloballyBlocked: false,
       privacySettings: { lastSeen: 'everyone', readReceipts: true },
       subscription: { plan: 'free', isActive: false, startDate: Date.now(), expiryDate: Date.now() },
       premiumCustomization: {}
     });
   } else {
-    if (isAdmin && !userSnap.data().isAdmin) {
-       await updateDoc(userRef, { isAdmin: true });
+    // Ensure owner always has access
+    if (role === 'owner' && userSnap.data().role !== 'owner') {
+       await updateDoc(userRef, { isAdmin: true, role: 'owner' });
     }
     await updateUserStatus(user.uid, 'online');
   }
@@ -225,38 +223,49 @@ export const updateProfile = async (user: any, updates: any) => {
     try {
         const authUpdates: any = {};
         if (updates.name) authUpdates.displayName = updates.name;
-        if (updates.photoURL && !updates.photoURL.startsWith('data:')) {
-            authUpdates.photoURL = updates.photoURL;
-        }
-        if (Object.keys(authUpdates).length > 0) {
-            await firebaseUpdateProfile(auth.currentUser, authUpdates);
-        }
+        if (updates.photoURL && !updates.photoURL.startsWith('data:')) authUpdates.photoURL = updates.photoURL;
+        if (Object.keys(authUpdates).length > 0) await firebaseUpdateProfile(auth.currentUser, authUpdates);
     } catch (e) { }
   }
   return { ...user, ...updates };
 };
 
-// --- PREMIUM FEATURES ---
+// --- PREMIUM & STORE ---
 
 export const activateSubscription = async (userId: string, planId: PlanType) => {
     const plan = getPlanDetails(planId);
     if (!plan) return;
-
     const subData: UserSubscription = {
         plan: planId,
         startDate: Date.now(),
         expiryDate: calculateExpiry(plan.durationDays),
         isActive: true
     };
-
     await updateDoc(doc(db, "users", userId), { subscription: subData });
     return subData;
 };
 
 export const updatePremiumCustomization = async (userId: string, customization: PremiumCustomization) => {
-    await updateDoc(doc(db, "users", userId), { 
-        premiumCustomization: customization 
-    });
+    await updateDoc(doc(db, "users", userId), { premiumCustomization: customization });
+};
+
+// STORE MANAGEMENT
+export const admin_getStoreItems = async () => {
+    const snap = await getDocs(collection(db, "store_items"));
+    return snap.docs.map(d => d.data() as StoreItem);
+};
+
+export const admin_addStoreItem = async (item: Omit<StoreItem, 'id'>) => {
+    const id = 'item_' + generateUUID();
+    await setDoc(doc(db, "store_items", id), { ...item, id });
+};
+
+export const admin_updateStoreItem = async (id: string, updates: Partial<StoreItem>) => {
+    await updateDoc(doc(db, "store_items", id), updates);
+};
+
+export const admin_deleteStoreItem = async (id: string) => {
+    await deleteDoc(doc(db, "store_items", id));
 };
 
 // --- DATA ACCESS ---
@@ -273,27 +282,18 @@ export const getUserById = async (uid: string) => {
 
 export const subscribeToUser = (uid: string, callback: (user: any) => void) => {
   return onSnapshot(doc(db, "users", uid), (doc) => {
-    if (doc.exists()) {
-      callback(doc.data());
-    }
+    if (doc.exists()) callback(doc.data());
   });
 };
 
 export const setNickname = async (myUid: string, targetUid: string, nickname: string) => {
-  if (!nickname.trim()) {
-    await deleteDoc(doc(db, "users", myUid, "nicknames", targetUid));
-  } else {
+  if (!nickname.trim()) await deleteDoc(doc(db, "users", myUid, "nicknames", targetUid));
+  else {
     await setDoc(doc(db, "users", myUid, "nicknames", targetUid), { name: nickname });
     const chatId = [myUid, targetUid].sort().join('_');
     const msg = {
-      id: 'sys_' + generateUUID(),
-      senderId: 'system',
-      recipientId: chatId,
-      text: `You set a nickname: ${nickname}`,
-      type: 'system',
-      timestamp: Date.now(),
-      status: 'seen',
-      visibleTo: [myUid] 
+      id: 'sys_' + generateUUID(), senderId: 'system', recipientId: chatId,
+      text: `You set a nickname: ${nickname}`, type: 'system', timestamp: Date.now(), status: 'seen', visibleTo: [myUid]
     };
     await addMessage(msg);
   }
@@ -302,13 +302,12 @@ export const setNickname = async (myUid: string, targetUid: string, nickname: st
 export const subscribeToNicknames = (myUid: string, callback: (nicknames: Record<string, string>) => void) => {
   return onSnapshot(collection(db, "users", myUid, "nicknames"), (snapshot) => {
     const mapping: Record<string, string> = {};
-    snapshot.forEach(doc => {
-      mapping[doc.id] = doc.data().name;
-    });
+    snapshot.forEach(doc => mapping[doc.id] = doc.data().name);
     callback(mapping);
   });
 };
 
+// SPY MODE: Allow admin to see any chat
 export const getMyChats = async (uid: string) => {
   const querySnapshot = await getDocs(collection(db, "chats"));
   const allChats = querySnapshot.docs.map(doc => doc.data());
@@ -316,7 +315,7 @@ export const getMyChats = async (uid: string) => {
                  .sort((a: any, b: any) => (b.updatedAt || 0) - (a.updatedAt || 0));
 };
 
-export const getMessages = async (chatId: string) => {
+export const getMessages = async (chatId: string, viewingAsAdmin: boolean = false) => {
   try {
     const snapshot = await getDocs(collection(db, "messages"));
     const allMsgs = snapshot.docs.map(doc => doc.data());
@@ -334,7 +333,7 @@ export const getMessages = async (chatId: string) => {
       );
     }
 
-    if (currentUid) {
+    if (currentUid && !viewingAsAdmin) {
       filteredMsgs = filteredMsgs.filter((m: any) => {
         if (m.visibleTo && !m.visibleTo.includes(currentUid)) return false;
         return !m.deletedFor?.includes(currentUid);
@@ -350,7 +349,6 @@ export const getMessages = async (chatId: string) => {
 export const addMessage = async (msg: any) => {
   try {
     const safeMsg = sanitizeData(msg); 
-    
     if (!safeMsg.recipientId.startsWith('group_') && safeMsg.senderId !== 'system') {
         const recipientRef = doc(db, "users", safeMsg.recipientId);
         const recipientSnap = await getDoc(recipientRef);
@@ -359,14 +357,11 @@ export const addMessage = async (msg: any) => {
             return; 
         }
     }
-
     await setDoc(doc(db, "messages", safeMsg.id), safeMsg);
-
     if (safeMsg.type !== 'system') {
       const chatId = safeMsg.recipientId.startsWith('group_') 
         ? safeMsg.recipientId 
         : [safeMsg.senderId, safeMsg.recipientId].sort().join('_');
-      
       const chatRef = doc(db, "chats", chatId);
       const updateData: any = {
         id: chatId,
@@ -379,18 +374,11 @@ export const addMessage = async (msg: any) => {
         participants: [safeMsg.senderId, safeMsg.recipientId], 
         type: safeMsg.recipientId.startsWith('group_') ? 'group' : 'private'
       };
-
-      if (updateData.type === 'private') {
-         updateData.participants = [...new Set([safeMsg.senderId, safeMsg.recipientId])];
-      } else {
-         delete updateData.participants; 
-      }
-
+      if (updateData.type === 'private') updateData.participants = [...new Set([safeMsg.senderId, safeMsg.recipientId])];
+      else delete updateData.participants; 
       await setDoc(chatRef, updateData, { merge: true });
     }
-  } catch (e) {
-    throw e;
-  }
+  } catch (e) { throw e; }
 };
 
 export const toggleMessageReaction = async (messageId: string, emoji: string, userId: string) => {
@@ -400,7 +388,6 @@ export const toggleMessageReaction = async (messageId: string, emoji: string, us
     if (!snap.exists()) return;
     const data = snap.data();
     const reactions = data.reactions || {};
-    
     const userList = reactions[emoji] || [];
     if (userList.includes(userId)) {
       reactions[emoji] = userList.filter((id: string) => id !== userId);
@@ -419,14 +406,12 @@ export const voteOnPoll = async (messageId: string, optionId: string, userId: st
     if (!snap.exists()) return;
     const data = snap.data();
     if (data.type !== 'poll' || !data.poll) return;
-
     const poll = data.poll;
     if (!poll.allowMultiple) {
       poll.options.forEach((opt: any) => {
         if (opt.id !== optionId) opt.votes = opt.votes.filter((uid: string) => uid !== userId);
       });
     }
-
     const targetOpt = poll.options.find((o: any) => o.id === optionId);
     if (targetOpt) {
       if (targetOpt.votes.includes(userId)) targetOpt.votes = targetOpt.votes.filter((uid: string) => uid !== userId);
@@ -437,9 +422,7 @@ export const voteOnPoll = async (messageId: string, optionId: string, userId: st
 };
 
 export const editMessage = async (messageId: string, newText: string) => {
-    try {
-        await updateDoc(doc(db, "messages", messageId), { text: newText, isEdited: true });
-    } catch (e) { }
+    try { await updateDoc(doc(db, "messages", messageId), { text: newText, isEdited: true }); } catch (e) { }
 };
 
 export const deleteMessageForEveryone = async (messageId: string) => {
@@ -453,9 +436,7 @@ export const deleteMessageForEveryone = async (messageId: string) => {
 };
 
 export const deleteMessageForMe = async (messageId: string, userId: string) => {
-    try {
-        await updateDoc(doc(db, "messages", messageId), { deletedFor: arrayUnion(userId) });
-    } catch (e) { }
+    try { await updateDoc(doc(db, "messages", messageId), { deletedFor: arrayUnion(userId) }); } catch (e) { }
 };
 
 export const deleteMessage = async (messageId: string, chatId: string) => {
@@ -502,24 +483,13 @@ export const subscribeToChat = (chatId: string, callback: (data: any) => void) =
 export const createGroup = async (name: string, participants: string[], adminId: string) => {
   const groupId = 'group_' + generateUUID();
   const newGroup = {
-    id: groupId,
-    type: 'group',
-    name,
-    description: 'Welcome to the group!',
-    participants: [...participants, adminId],
-    adminIds: [adminId],
-    updatedAt: Date.now(),
-    lockedBy: []
+    id: groupId, type: 'group', name, description: 'Welcome to the group!',
+    participants: [...participants, adminId], adminIds: [adminId], updatedAt: Date.now(), lockedBy: []
   };
   await setDoc(doc(db, "chats", groupId), newGroup);
   const sysMsg = {
-    id: 'sys_' + generateUUID(),
-    senderId: 'system',
-    recipientId: groupId,
-    text: `Group "${name}" created`,
-    type: 'system',
-    timestamp: Date.now(),
-    status: 'sent'
+    id: 'sys_' + generateUUID(), senderId: 'system', recipientId: groupId,
+    text: `Group "${name}" created`, type: 'system', timestamp: Date.now(), status: 'sent'
   };
   await addMessage(sysMsg);
   return newGroup;
@@ -527,40 +497,27 @@ export const createGroup = async (name: string, participants: string[], adminId:
 
 export const addMembersToGroup = async (chatId: string, newMemberIds: string[], adminName: string) => {
   const chatRef = doc(db, "chats", chatId);
-  await updateDoc(chatRef, {
-    participants: arrayUnion(...newMemberIds)
-  });
+  await updateDoc(chatRef, { participants: arrayUnion(...newMemberIds) });
   const newMembers: string[] = [];
   for (const uid of newMemberIds) {
     const u = await getUserById(uid);
     if(u) newMembers.push(u.name);
   }
   const msg = {
-    id: 'sys_' + generateUUID(),
-    senderId: 'system',
-    recipientId: chatId,
-    text: `${adminName} added ${newMembers.join(', ')}`,
-    type: 'system',
-    timestamp: Date.now(),
-    status: 'sent'
+    id: 'sys_' + generateUUID(), senderId: 'system', recipientId: chatId,
+    text: `${adminName} added ${newMembers.join(', ')}`, type: 'system', timestamp: Date.now(), status: 'sent'
   };
   await addMessage(msg);
 };
 
 export const leaveGroup = async (chatId: string, userId: string) => {
   const chatRef = doc(db, "chats", chatId);
-  await updateDoc(chatRef, {
-    participants: arrayRemove(userId),
-    adminIds: arrayRemove(userId)
-  });
+  await updateDoc(chatRef, { participants: arrayRemove(userId), adminIds: arrayRemove(userId) });
 };
 
 export const removeGroupMember = async (chatId: string, userId: string) => {
   const chatRef = doc(db, "chats", chatId);
-  await updateDoc(chatRef, {
-    participants: arrayRemove(userId),
-    adminIds: arrayRemove(userId)
-  });
+  await updateDoc(chatRef, { participants: arrayRemove(userId), adminIds: arrayRemove(userId) });
 };
 
 export const makeGroupAdmin = async (chatId: string, userId: string) => {
@@ -599,25 +556,15 @@ export const disableAppLock = async (userId: string) => {
 export const initiateCall = async (callerId: string, receiverId: string, type: 'voice' | 'video') => {
   const callId = 'call_' + generateUUID();
   const newCall = {
-    id: callId,
-    callerId,
-    receiverId,
-    type,
-    status: 'ringing',
-    timestamp: Date.now(),
-    callerCandidates: [],
-    calleeCandidates: []
+    id: callId, callerId, receiverId, type, status: 'ringing', timestamp: Date.now(),
+    callerCandidates: [], calleeCandidates: []
   };
   await setDoc(doc(db, "calls", callId), newCall);
   return newCall;
 };
 
 export const getIncomingCall = async (userId: string) => {
-  const q = query(
-    collection(db, "calls"), 
-    where("receiverId", "==", userId),
-    where("status", "==", "ringing")
-  );
+  const q = query(collection(db, "calls"), where("receiverId", "==", userId), where("status", "==", "ringing"));
   const snapshot = await getDocs(q);
   const calls = snapshot.docs.map(doc => doc.data());
   return calls.sort((a: any, b: any) => b.timestamp - a.timestamp)[0];
@@ -677,10 +624,8 @@ export const deleteStory = async (storyId: string) => {
 };
 export const sendStoryReply = async (rid: string, sid: string, text: string, story: any) => {
   const msg = {
-    id: 'm_' + generateUUID(),
-    senderId: sid, recipientId: rid, text, type: 'story_reply', 
-    timestamp: Date.now(), status: 'sent',
-    storyContext: { storyId: story.id, mediaUrl: story.mediaUrl, mediaType: story.mediaType }
+    id: 'm_' + generateUUID(), senderId: sid, recipientId: rid, text, type: 'story_reply', 
+    timestamp: Date.now(), status: 'sent', storyContext: { storyId: story.id, mediaUrl: story.mediaUrl, mediaType: story.mediaType }
   };
   await addMessage(msg);
   return msg;
@@ -688,10 +633,8 @@ export const sendStoryReply = async (rid: string, sid: string, text: string, sto
 
 export const sendNoteReply = async (rid: string, sid: string, text: string, note: any) => {
   const msg = {
-    id: 'm_' + generateUUID(),
-    senderId: sid, recipientId: rid, text, type: 'note_reply',
-    timestamp: Date.now(), status: 'sent',
-    noteContext: { noteId: note.id, text: note.text, userPhoto: note.userPhoto }
+    id: 'm_' + generateUUID(), senderId: sid, recipientId: rid, text, type: 'note_reply',
+    timestamp: Date.now(), status: 'sent', noteContext: { noteId: note.id, text: note.text, userPhoto: note.userPhoto }
   };
   await addMessage(msg);
   return msg;
@@ -729,9 +672,22 @@ export const deleteSavedMedia = async (id: string) => {
 
 export const admin_getAllUsers = async () => getAllUsers();
 export const admin_toggleAdminAccess = async (uid: string) => {
+  // Cycle through User -> Admin -> Co-Admin -> User (Owner is protected)
   const userRef = doc(db, "users", uid);
   const snap = await getDoc(userRef);
-  if (snap.exists()) await updateDoc(userRef, { isAdmin: !snap.data().isAdmin });
+  if (snap.exists()) {
+      const currentRole = snap.data().role || 'user';
+      let newRole: UserRole = 'user';
+      let isAdmin = false;
+      
+      if (currentRole === 'user') { newRole = 'admin'; isAdmin = true; }
+      else if (currentRole === 'admin') { newRole = 'co_admin'; isAdmin = true; }
+      else if (currentRole === 'co_admin') { newRole = 'user'; isAdmin = false; }
+      
+      if (snap.data().email === 'betterrroxx@gmail.com') return; // Cannot change owner
+
+      await updateDoc(userRef, { role: newRole, isAdmin });
+  }
 };
 export const admin_toggleGlobalBlock = async (uid: string) => {
   const userRef = doc(db, "users", uid);
