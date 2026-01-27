@@ -11,24 +11,24 @@ export const PLANS = {
 // --- NEW ROLE STYLES ---
 export const ROLE_STYLES: Record<UserRole, any> = {
   owner: {
-    label: 'OWNER VVIP',
-    badge: 'bg-gradient-to-r from-red-600 via-red-500 to-rose-600 text-yellow-100 shadow-[0_0_15px_rgba(220,38,38,0.6)] border border-yellow-400',
-    text: 'text-transparent bg-clip-text bg-gradient-to-r from-red-500 via-rose-500 to-amber-500 font-serif italic tracking-wider',
-    border: 'border-red-500 ring-2 ring-yellow-400 ring-offset-2 ring-offset-black',
-    glow: 'shadow-[0_0_30px_rgba(220,38,38,0.8)]',
+    label: 'FOUNDER', // Changed from OWNER VVIP to FOUNDER
+    badge: 'bg-gradient-to-r from-red-600 via-rose-600 to-red-600 text-white shadow-[0_0_15px_rgba(220,38,38,0.8)] border border-red-400 ring-1 ring-white/50 animate-pulse-slow',
+    text: 'text-transparent bg-clip-text bg-gradient-to-r from-red-500 via-rose-500 to-amber-500 font-black tracking-wider',
+    border: 'border-red-500 ring-2 ring-red-500/50',
+    glow: 'shadow-[0_0_30px_rgba(220,38,38,0.6)]',
     icon: '👑'
   },
   co_admin: {
     label: 'CO-ADMIN',
-    badge: 'bg-gradient-to-r from-cyan-500 via-blue-500 to-indigo-500 text-white shadow-[0_0_15px_rgba(6,182,212,0.6)] animate-shimmer',
+    badge: 'bg-gradient-to-r from-cyan-500 via-blue-500 to-indigo-500 text-white shadow-[0_0_15px_rgba(6,182,212,0.6)]',
     text: 'text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 to-blue-500 font-bold',
-    border: 'border-cyan-400 ring-2 ring-white/50',
+    border: 'border-cyan-400 ring-2 ring-cyan-400/50',
     glow: 'shadow-[0_0_20px_rgba(34,211,238,0.6)]',
     icon: '💎'
   },
   admin: {
     label: 'ADMIN',
-    badge: 'bg-gradient-to-r from-yellow-500 to-amber-600 text-white shadow-lg',
+    badge: 'bg-gradient-to-r from-yellow-500 to-amber-600 text-white shadow-[0_0_10px_rgba(245,158,11,0.5)]',
     text: 'text-amber-500 font-bold',
     border: 'border-amber-400',
     glow: 'shadow-[0_0_15px_rgba(251,191,36,0.5)]',

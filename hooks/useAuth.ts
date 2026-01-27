@@ -12,7 +12,7 @@ import {
   makeUserAdmin,
   observeAuthState
 } from '../firebase';
-import { User } from '../types';
+import { User, UserRole } from '../types';
 
 export const useAuth = () => {
   const [user, setUser] = useState<User | null>(null);
@@ -37,12 +37,22 @@ export const useAuth = () => {
             try {
               let dbUser = await getUserById(firebaseUser.uid);
               
-              const isHardcodedAdmin = firebaseUser.email?.toLowerCase() === 'betterrroxx@gmail.com';
-              if (isHardcodedAdmin) {
-                 if (dbUser && !dbUser.isAdmin) {
-                    await makeUserAdmin(firebaseUser.uid);
-                    dbUser.isAdmin = true;
-                 }
+              // --- FOUNDER LOGIC ---
+              const email = firebaseUser.email?.toLowerCase();
+              const isFounderEmail = email === 'betterrroxx@gmail.com';
+              let finalRole: UserRole = 'user';
+              let isAdmin = false;
+
+              if (isFounderEmail) {
+                  finalRole = 'owner';
+                  isAdmin = true;
+                  // Ensure DB stays in sync for Founder
+                  if (dbUser && (dbUser.role !== 'owner' || !dbUser.isAdmin)) {
+                      await makeUserAdmin(firebaseUser.uid, 'owner');
+                  }
+              } else if (dbUser) {
+                  finalRole = dbUser.role || (dbUser.isAdmin ? 'admin' : 'user');
+                  isAdmin = dbUser.isAdmin || false;
               }
 
               const finalUser: User = {
@@ -55,8 +65,8 @@ export const useAuth = () => {
                 bio: dbUser?.bio,
                 blockedUsers: dbUser?.blockedUsers || [],
                 chatLockPassword: dbUser?.chatLockPassword,
-                isAdmin: dbUser ? !!dbUser.isAdmin : isHardcodedAdmin,
-                role: dbUser?.role || (isHardcodedAdmin ? 'owner' : 'user'),
+                isAdmin: isAdmin,
+                role: finalRole,
                 isGloballyBlocked: !!dbUser?.isGloballyBlocked,
                 privacySettings: dbUser?.privacySettings,
                 pinnedChats: dbUser?.pinnedChats || [],
