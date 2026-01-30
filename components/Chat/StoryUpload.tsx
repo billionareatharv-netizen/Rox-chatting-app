@@ -1,8 +1,9 @@
 
 import React, { useState, useRef, useEffect } from 'react';
-import { User, Story } from '../../types';
+import { User, Story, MusicMetadata } from '../../types';
 import { addStory } from '../../firebase';
 import { hasPremiumAccess } from '../../premiumUtils';
+import { MusicPicker } from './MusicPicker';
 
 interface StoryUploadProps {
   currentUser: User;
@@ -27,6 +28,8 @@ export const StoryUpload: React.FC<StoryUploadProps> = ({ currentUser, onClose }
   const [mediaType, setMediaType] = useState<'image' | 'video' | null>(null);
   const [caption, setCaption] = useState('');
   const [isUploading, setIsUploading] = useState(false);
+  const [showMusicPicker, setShowMusicPicker] = useState(false);
+  const [selectedMusic, setSelectedMusic] = useState<MusicMetadata | null>(null);
   
   // Text Mode State
   const [textStatus, setTextStatus] = useState('');
@@ -34,7 +37,6 @@ export const StoryUpload: React.FC<StoryUploadProps> = ({ currentUser, onClose }
   const [textStyle, setTextStyle] = useState<'normal' | 'bold' | 'italic'>('bold');
   
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const canvasRef = useRef<HTMLCanvasElement>(null);
 
   // Premium Check
   const hasLongStatus = hasPremiumAccess(currentUser, 'status_duration_boost');
@@ -97,8 +99,6 @@ export const StoryUpload: React.FC<StoryUploadProps> = ({ currentUser, onClose }
       // Background
       if(bgColor.includes('gradient')) {
           const grad = ctx.createLinearGradient(0, 0, 0, 1920);
-          // Simplified gradient parsing logic for demo (would need robust parser for arbitrary CSS)
-          // Fallback to solid color if complex
           ctx.fillStyle = '#1e293b'; 
           if(bgColor.includes('#ee7752')) {
               const g = ctx.createLinearGradient(0,0,1080,1920);
@@ -121,7 +121,6 @@ export const StoryUpload: React.FC<StoryUploadProps> = ({ currentUser, onClose }
       const fontSize = textStatus.length < 50 ? 80 : 50;
       ctx.font = `${textStyle === 'bold' ? 'bold' : textStyle === 'italic' ? 'italic' : ''} ${fontSize}px sans-serif`;
       
-      // Wrap text
       const words = textStatus.split(' ');
       let line = '';
       const lines = [];
@@ -201,7 +200,8 @@ export const StoryUpload: React.FC<StoryUploadProps> = ({ currentUser, onClose }
         mediaUrl: mediaData,
         mediaType: type,
         caption: mode === 'media' ? caption : '',
-        timestamp: Date.now()
+        timestamp: Date.now(),
+        music: selectedMusic || undefined
       };
 
       await addStory(newStory);
@@ -233,7 +233,6 @@ export const StoryUpload: React.FC<StoryUploadProps> = ({ currentUser, onClose }
 
       {mode === 'text' ? (
           <div className="w-full h-full flex flex-col animate-in fade-in">
-              {/* Text Editor Area */}
               <div 
                 className="flex-1 flex items-center justify-center p-8 transition-colors duration-500 relative"
                 style={{ background: bgColor }}
@@ -247,16 +246,26 @@ export const StoryUpload: React.FC<StoryUploadProps> = ({ currentUser, onClose }
                     autoFocus
                   />
                   
-                  {/* Style Toggle */}
                   <button 
                     onClick={() => setTextStyle(prev => prev === 'normal' ? 'bold' : prev === 'bold' ? 'italic' : 'normal')}
                     className="absolute top-20 right-6 w-10 h-10 bg-black/20 rounded-full text-white font-serif flex items-center justify-center backdrop-blur-md"
                   >
                       {textStyle === 'normal' ? 'Aa' : textStyle === 'bold' ? 'B' : 'I'}
                   </button>
+
+                  {/* Music Sticker (Preview) */}
+                  {selectedMusic && (
+                      <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 translate-y-32 bg-white/20 backdrop-blur-md p-2 rounded-xl flex items-center gap-3 pr-4">
+                          <div className="w-10 h-10 bg-white/30 rounded-lg flex items-center justify-center text-white">🎵</div>
+                          <div className="text-left">
+                              <p className="text-white text-xs font-bold">{selectedMusic.title}</p>
+                              <p className="text-white/70 text-[10px]">{selectedMusic.artist}</p>
+                          </div>
+                          <button onClick={() => setSelectedMusic(null)} className="text-white opacity-60 hover:opacity-100">✕</button>
+                      </div>
+                  )}
               </div>
 
-              {/* Color Picker & Actions */}
               <div className="bg-black/80 p-6 pb-10 flex flex-col gap-6">
                   <div className="flex gap-3 overflow-x-auto no-scrollbar justify-center px-4">
                       {BG_COLORS.map(c => (
@@ -269,7 +278,7 @@ export const StoryUpload: React.FC<StoryUploadProps> = ({ currentUser, onClose }
                       ))}
                   </div>
                   <div className="flex items-center gap-4 px-4">
-                      <button onClick={() => setMode('media')} className="p-3 bg-slate-800 rounded-full text-white"><svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg></button>
+                      <button onClick={() => setShowMusicPicker(true)} className="p-3 bg-slate-800 rounded-full text-white"><span className="text-lg">🎵</span></button>
                       <button 
                         onClick={handleUpload}
                         disabled={!textStatus.trim() || isUploading}
@@ -308,7 +317,18 @@ export const StoryUpload: React.FC<StoryUploadProps> = ({ currentUser, onClose }
                   <img src={preview} alt="Preview" className="max-h-full w-full object-contain" />
                 )}
                 
-                {/* Caption Input Overlay */}
+                {/* Music Sticker */}
+                {selectedMusic && (
+                    <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 bg-black/40 backdrop-blur-md p-3 rounded-xl flex items-center gap-3 pr-4 border border-white/20 animate-in zoom-in">
+                        <div className="w-12 h-12 bg-white/20 rounded-lg flex items-center justify-center text-white text-2xl">🎵</div>
+                        <div className="text-left">
+                            <p className="text-white text-sm font-bold">{selectedMusic.title}</p>
+                            <p className="text-white/70 text-xs">{selectedMusic.artist}</p>
+                        </div>
+                        <button onClick={() => setSelectedMusic(null)} className="text-white ml-2 opacity-60 hover:opacity-100">✕</button>
+                    </div>
+                )}
+
                 <div className="absolute bottom-4 inset-x-4">
                    <input 
                     value={caption}
@@ -321,28 +341,28 @@ export const StoryUpload: React.FC<StoryUploadProps> = ({ currentUser, onClose }
 
               <div className="p-4 flex gap-4 bg-black">
                 <button 
-                  onClick={() => { setFile(null); setPreview(null); setMediaType(null); }}
-                  className="flex-1 py-4 bg-white/10 hover:bg-white/20 text-white rounded-2xl font-bold transition-all text-sm"
+                  onClick={() => setShowMusicPicker(true)}
+                  className="p-4 bg-slate-800 rounded-2xl text-white hover:bg-slate-700"
                 >
-                  Cancel
+                    <span className="text-xl">🎵</span>
                 </button>
                 <button 
                   onClick={handleUpload}
                   disabled={isUploading}
                   className="flex-[2] py-4 bg-indigo-500 hover:bg-indigo-600 disabled:opacity-50 text-white rounded-2xl font-bold shadow-xl transition-all flex items-center justify-center gap-2 text-sm"
                 >
-                  {isUploading ? (
-                    <>
-                      <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
-                      <span>Posting...</span>
-                    </>
-                  ) : (
-                    'Share Story'
-                  )}
+                  {isUploading ? 'Posting...' : 'Share Story'}
                 </button>
               </div>
             </div>
           )
+      )}
+
+      {showMusicPicker && (
+          <MusicPicker 
+            onClose={() => setShowMusicPicker(false)}
+            onSelect={setSelectedMusic}
+          />
       )}
     </div>
   );

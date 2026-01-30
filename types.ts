@@ -10,7 +10,7 @@ export interface UserSubscription {
 }
 
 export interface PremiumCustomization {
-  borderColor?: string; // Hex or tailwind class
+  borderColor?: string;
   glowEffect?: boolean;
   usernameColor?: string;
   badge?: PlanType;
@@ -25,9 +25,29 @@ export interface StoreItem {
   name: string;
   description?: string;
   price: number;
-  previewUrl: string; // Image or CSS class depending on implementation
-  value: string; // The actual class or data to apply
+  previewUrl: string;
+  value: string;
   category: string;
+}
+
+export interface Song {
+  id: string;
+  title: string;
+  artist: string;
+  url: string;
+  coverUrl?: string; // Optional album art
+  duration: number; // Total duration in seconds
+  category: string; // e.g. 'Trending', 'Love', 'Sad'
+  isActive: boolean;
+}
+
+export interface MusicMetadata {
+  songId: string;
+  url: string;
+  title: string;
+  artist: string;
+  startAt: number; // Timestamp to start playing from
+  duration: number; // How long to play (e.g. 15s)
 }
 
 export interface User {
@@ -42,11 +62,8 @@ export interface User {
   blockedUsers?: string[];
   pinnedChats?: string[]; 
   chatLockPassword?: string; 
-  
-  // Role System
   role: UserRole;
-  isAdmin?: boolean; // Kept for backward compatibility, mapped to role !== 'user'
-  
+  isAdmin?: boolean; 
   isGloballyBlocked?: boolean;
   privacySettings?: {
     lastSeen: 'everyone' | 'contacts' | 'nobody';
@@ -56,9 +73,13 @@ export interface User {
     appLockPin?: string; 
     biometricsEnabled?: boolean;
   };
-  // Feature: Premium System
   subscription?: UserSubscription;
   premiumCustomization?: PremiumCustomization;
+  // New: Wallpaper preferences
+  wallpapers?: {
+    default?: string; // Global wallpaper
+    [chatId: string]: string | undefined; // Specific chat wallpapers
+  };
 }
 
 export type MessageType = 'text' | 'image' | 'video' | 'file' | 'voice' | 'story_reply' | 'note_reply' | 'deleted' | 'poll' | 'sticker' | 'system';
@@ -135,6 +156,7 @@ export interface Story {
   timestamp: number;
   likes?: string[]; 
   views?: StoryView[];
+  music?: MusicMetadata; 
 }
 
 export interface Note {
@@ -144,7 +166,8 @@ export interface Note {
   userPhoto: string;
   text: string;
   timestamp: number;
-  statusColor?: string; // Premium Feature
+  statusColor?: string;
+  music?: MusicMetadata; 
 }
 
 export interface SavedMedia {
@@ -173,7 +196,7 @@ export interface Chat {
   updatedAt: number;
   typing?: { [uid: string]: boolean };
   lockedBy?: string[]; 
-  theme?: string; // Premium Feature
+  theme?: string; 
 }
 
 export interface AuthState {

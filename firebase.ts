@@ -1,4 +1,5 @@
 
+// ... existing imports ...
 import { initializeApp } from "firebase/app";
 import { 
   getAuth, 
@@ -32,10 +33,17 @@ import {
   onSnapshot,
   writeBatch
 } from "firebase/firestore";
-import { UserSubscription, PremiumCustomization, PlanType, UserRole, StoreItem } from './types';
+import { 
+  getStorage, 
+  ref, 
+  uploadBytes, 
+  getDownloadURL, 
+  deleteObject 
+} from "firebase/storage";
+import { UserSubscription, PremiumCustomization, PlanType, UserRole, StoreItem, Song } from './types';
 import { calculateExpiry, getPlanDetails } from './premiumUtils';
 
-// --- CONFIGURATION START ---
+// ... CONFIGURATION ... (Assume existing config remains)
 const firebaseConfig = {
   apiKey: "AIzaSyBIsKjnvYeIOBK2E1sYxwBnfsBhGTilKa0",
   authDomain: "roxx-chats-final.firebaseapp.com",
@@ -45,7 +53,6 @@ const firebaseConfig = {
   appId: "1:139043918012:web:c5b8ab870e518093c700b9",
   measurementId: "G-T0M4876W9M"
 };
-// --- CONFIGURATION END ---
 
 const config = {
   apiKey: (typeof process !== 'undefined' && process.env?.VITE_FIREBASE_API_KEY) || firebaseConfig.apiKey,
@@ -59,10 +66,12 @@ const config = {
 let app;
 let auth: any;
 let db: any;
+let storage: any;
 
 try {
   app = initializeApp(config);
   auth = getAuth(app);
+  storage = getStorage(app);
   db = initializeFirestore(app, {
     localCache: persistentLocalCache({
       tabManager: persistentMultipleTabManager()
@@ -71,10 +80,12 @@ try {
 } catch (e) {
   auth = { currentUser: null, onAuthStateChanged: (cb: any) => { cb(null); return () => {}; } };
   db = { collection: () => {} };
+  storage = {};
 }
 
-export { auth, db };
+export { auth, db, storage };
 
+// ... existing helper functions (sanitizeData, etc) ...
 export const observeAuthState = (callback: (user: any) => void) => {
   if (auth && (auth as any).onAuthStateChanged) {
     return (auth as any).onAuthStateChanged(callback);
@@ -120,8 +131,7 @@ export const safeJsonStringify = (value: any) => {
   catch (e) { console.error("JSON Stringify failed", e); return "{}"; }
 };
 
-// --- AUTHENTICATION ---
-
+// ... Auth functions (updateUserStatus, signIn, etc) ...
 export const updateUserStatus = async (uid: string, status: 'online' | 'offline') => {
   if (!db || !db.type) return; 
   try {
@@ -145,7 +155,6 @@ export const createUserWithEmailAndPassword = async (authObj: any, email: string
   const userCredential = await firebaseCreateUser(authObj, email, pass);
   const user = userCredential.user;
   
-  // Logic: First hardcoded email is OWNER
   let role: UserRole = 'user';
   if (email.toLowerCase() === 'betterrroxx@gmail.com') role = 'owner';
 
@@ -164,7 +173,8 @@ export const createUserWithEmailAndPassword = async (authObj: any, email: string
     isGloballyBlocked: false,
     privacySettings: { lastSeen: 'everyone', readReceipts: true },
     subscription: { plan: 'free', isActive: false, startDate: Date.now(), expiryDate: Date.now() },
-    premiumCustomization: {}
+    premiumCustomization: {},
+    wallpapers: { default: 'default' } // Initialize
   };
 
   await setDoc(doc(db, "users", user.uid), newUserProfile);
@@ -197,10 +207,10 @@ export const signInWithPopup = async () => {
       isGloballyBlocked: false,
       privacySettings: { lastSeen: 'everyone', readReceipts: true },
       subscription: { plan: 'free', isActive: false, startDate: Date.now(), expiryDate: Date.now() },
-      premiumCustomization: {}
+      premiumCustomization: {},
+      wallpapers: { default: 'default' }
     });
   } else {
-    // Ensure owner always has access
     if (role === 'owner' && userSnap.data().role !== 'owner') {
        await updateDoc(userRef, { isAdmin: true, role: 'owner' });
     }
@@ -230,8 +240,22 @@ export const updateProfile = async (user: any, updates: any) => {
   return { ...user, ...updates };
 };
 
-// --- PREMIUM & STORE ---
+// --- SETTINGS & WALLPAPERS ---
 
+export const saveWallpaper = async (userId: string, target: string, wallpaper: string) => {
+    // target can be 'default' or a specific chatId
+    const userRef = doc(db, "users", userId);
+    // Use dot notation to update specific map field without overwriting others
+    await updateDoc(userRef, {
+        [`wallpapers.${target}`]: wallpaper
+    });
+};
+
+export const updatePrivacySettings = async (userId: string, settings: any) => {
+    await updateDoc(doc(db, "users", userId), { privacySettings: settings });
+};
+
+// ... Existing Premium/Store/Music Functions ...
 export const activateSubscription = async (userId: string, planId: PlanType) => {
     const plan = getPlanDetails(planId);
     if (!plan) return;
@@ -249,7 +273,6 @@ export const updatePremiumCustomization = async (userId: string, customization: 
     await updateDoc(doc(db, "users", userId), { premiumCustomization: customization });
 };
 
-// STORE MANAGEMENT
 export const admin_getStoreItems = async () => {
     const snap = await getDocs(collection(db, "store_items"));
     return snap.docs.map(d => d.data() as StoreItem);
@@ -268,8 +291,34 @@ export const admin_deleteStoreItem = async (id: string) => {
     await deleteDoc(doc(db, "store_items", id));
 };
 
-// --- DATA ACCESS ---
+export const admin_uploadSong = async (file: File, metadata: Omit<Song, 'id' | 'url'>) => {
+  const songId = 'song_' + generateUUID();
+  const storageRef = ref(storage, `music/${songId}.mp3`);
+  await uploadBytes(storageRef, file);
+  const downloadURL = await getDownloadURL(storageRef);
+  const songData: Song = { id: songId, url: downloadURL, ...metadata, isActive: true };
+  await setDoc(doc(db, "songs", songId), songData);
+  return songData;
+};
 
+export const getMusicLibrary = async (category?: string) => {
+  let q = query(collection(db, "songs"), where("isActive", "==", true));
+  if (category && category !== 'All') {
+    q = query(q, where("category", "==", category));
+  }
+  const snapshot = await getDocs(q);
+  return snapshot.docs.map(d => d.data() as Song);
+};
+
+export const admin_deleteSong = async (songId: string) => {
+  await deleteDoc(doc(db, "songs", songId));
+  try {
+    const storageRef = ref(storage, `music/${songId}.mp3`);
+    await deleteObject(storageRef);
+  } catch(e) { console.warn("Storage file not found or already deleted"); }
+};
+
+// ... Data Access (Users, Chats, Messages) ...
 export const getAllUsers = async () => {
   const querySnapshot = await getDocs(collection(db, "users"));
   return querySnapshot.docs.map(doc => doc.data()).filter((u: any) => !u.isGloballyBlocked);
@@ -307,7 +356,6 @@ export const subscribeToNicknames = (myUid: string, callback: (nicknames: Record
   });
 };
 
-// SPY MODE: Allow admin to see any chat
 export const getMyChats = async (uid: string) => {
   const querySnapshot = await getDocs(collection(db, "chats"));
   const allChats = querySnapshot.docs.map(doc => doc.data());
@@ -381,6 +429,7 @@ export const addMessage = async (msg: any) => {
   } catch (e) { throw e; }
 };
 
+// ... Message Actions (Reaction, Poll, Edit, Delete) ...
 export const toggleMessageReaction = async (messageId: string, emoji: string, userId: string) => {
   const msgRef = doc(db, "messages", messageId);
   try {
@@ -480,6 +529,7 @@ export const subscribeToChat = (chatId: string, callback: (data: any) => void) =
   });
 };
 
+// ... Group & Call Functions ...
 export const createGroup = async (name: string, participants: string[], adminId: string) => {
   const groupId = 'group_' + generateUUID();
   const newGroup = {
@@ -597,6 +647,7 @@ export const getCallById = async (callId: string) => {
 
 export const cleanOldCalls = async () => { };
 
+// ... Stories, Notes, Gallery ...
 export const addStory = async (story: any) => {
   await setDoc(doc(db, "stories", story.id), { ...story, likes: [], views: [] });
 };
@@ -640,9 +691,9 @@ export const sendNoteReply = async (rid: string, sid: string, text: string, note
   return msg;
 };
 
-export const addNote = async (userId: string, userName: string, userPhoto: string, text: string) => {
+export const addNote = async (userId: string, userName: string, userPhoto: string, text: string, music?: any) => {
   const noteId = `note_${userId}`;
-  const note = { id: noteId, userId, userName, userPhoto, text, timestamp: Date.now() };
+  const note = { id: noteId, userId, userName, userPhoto, text, timestamp: Date.now(), music };
   await setDoc(doc(db, "notes", noteId), note);
   return note;
 };
@@ -672,7 +723,6 @@ export const deleteSavedMedia = async (id: string) => {
 
 export const admin_getAllUsers = async () => getAllUsers();
 export const admin_toggleAdminAccess = async (uid: string) => {
-  // Cycle through User -> Admin -> Co-Admin -> User (Owner is protected)
   const userRef = doc(db, "users", uid);
   const snap = await getDoc(userRef);
   if (snap.exists()) {

@@ -2,7 +2,7 @@
 import React, { useState, useRef } from 'react';
 import { User, PremiumCustomization } from '../../types';
 import { useAuth } from '../../hooks/useAuth';
-import { updateProfile, updatePremiumCustomization } from '../../firebase';
+import { updateProfile, updatePremiumCustomization, saveWallpaper } from '../../firebase';
 import { hasPremiumAccess, ADMIN_STYLE } from '../../premiumUtils';
 import { SubscriptionModal } from '../Premium/SubscriptionModal';
 
@@ -14,7 +14,7 @@ interface ProfilePanelProps {
   isTabMode?: boolean;
 }
 
-type ProfileViewMode = 'main' | 'edit' | 'premium' | 'privacy';
+type ProfileViewMode = 'main' | 'edit' | 'premium' | 'privacy' | 'chats_settings';
 
 export const ProfilePanel: React.FC<ProfilePanelProps> = ({ user, onClose, toggleDarkMode, isDarkMode, isTabMode }) => {
   const { logout } = useAuth();
@@ -55,6 +55,11 @@ export const ProfilePanel: React.FC<ProfilePanelProps> = ({ user, onClose, toggl
       await updatePremiumCustomization(user.uid, newCustom);
   };
 
+  const handleWallpaperSelect = async (color: string) => {
+      await saveWallpaper(user.uid, 'default', color);
+      alert("Global Wallpaper Updated!");
+  };
+
   const renderHeader = (title: string, onBack?: () => void) => (
     <div className="h-16 px-6 flex items-center gap-4 border-b border-slate-100 dark:border-slate-800 bg-white/80 dark:bg-slate-900/80 backdrop-blur-md sticky top-0 z-20">
       {onBack ? (
@@ -71,7 +76,7 @@ export const ProfilePanel: React.FC<ProfilePanelProps> = ({ user, onClose, toggl
   );
 
   const ListItem = ({ icon, label, subLabel, onClick, color = "slate", value }: any) => (
-    <button onClick={onClick} className="w-full flex items-center justify-between p-4 hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors group">
+    <button onClick={onClick} className="w-full flex items-center justify-between p-4 hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors group border-b border-slate-50 dark:border-slate-800/50 last:border-0">
         <div className="flex items-center gap-4">
             <div className={`w-10 h-10 rounded-xl flex items-center justify-center bg-${color}-100 dark:bg-${color}-900/20 text-${color}-600 dark:text-${color}-400 group-hover:scale-110 transition-transform`}>
                 {icon}
@@ -88,6 +93,7 @@ export const ProfilePanel: React.FC<ProfilePanelProps> = ({ user, onClose, toggl
     </button>
   );
 
+  // VIEW: EDIT PROFILE
   if (viewMode === 'edit') {
       return (
           <div className="flex flex-col h-full bg-white dark:bg-slate-900 animate-in slide-in-from-right">
@@ -120,6 +126,7 @@ export const ProfilePanel: React.FC<ProfilePanelProps> = ({ user, onClose, toggl
       );
   }
 
+  // VIEW: PREMIUM / DECORATIONS
   if (viewMode === 'premium') {
       return (
           <div className="flex flex-col h-full bg-white dark:bg-slate-900 animate-in slide-in-from-right">
@@ -164,6 +171,78 @@ export const ProfilePanel: React.FC<ProfilePanelProps> = ({ user, onClose, toggl
       );
   }
 
+  // VIEW: CHAT SETTINGS
+  if (viewMode === 'chats_settings') {
+      return (
+          <div className="flex flex-col h-full bg-white dark:bg-slate-900 animate-in slide-in-from-right">
+              {renderHeader("Chat Settings", () => setViewMode('main'))}
+              <div className="p-6 space-y-6 overflow-y-auto no-scrollbar">
+                  {/* Wallpaper Section */}
+                  <div>
+                      <h4 className="font-bold text-sm mb-4 text-indigo-500 uppercase tracking-wider">Chat Wallpaper</h4>
+                      <div className="grid grid-cols-3 gap-3">
+                          <button onClick={() => handleWallpaperSelect('default')} className="aspect-[9/16] rounded-xl bg-slate-100 dark:bg-slate-800 border-2 border-transparent hover:border-indigo-500 flex flex-col items-center justify-center gap-2">
+                              <span className="text-2xl">⚪</span>
+                              <span className="text-[10px] font-bold">Default</span>
+                          </button>
+                          <button onClick={() => handleWallpaperSelect('indigo')} className="aspect-[9/16] rounded-xl bg-gradient-to-br from-indigo-500/20 to-purple-500/20 border-2 border-transparent hover:border-indigo-500 flex flex-col items-center justify-center gap-2">
+                              <span className="text-2xl">🟣</span>
+                              <span className="text-[10px] font-bold">Indigo</span>
+                          </button>
+                          <button onClick={() => handleWallpaperSelect('dark')} className="aspect-[9/16] rounded-xl bg-slate-950 border-2 border-transparent hover:border-indigo-500 flex flex-col items-center justify-center gap-2 text-white">
+                              <span className="text-2xl">⚫</span>
+                              <span className="text-[10px] font-bold">Dark</span>
+                          </button>
+                      </div>
+                      <p className="text-[10px] text-slate-400 mt-2 text-center">This sets your default wallpaper for all chats.</p>
+                  </div>
+
+                  {/* Font Size (Mock) */}
+                  <div className="border-t border-slate-100 dark:border-slate-800 pt-6">
+                      <h4 className="font-bold text-sm mb-4 text-indigo-500 uppercase tracking-wider">Font Size</h4>
+                      <div className="bg-slate-50 dark:bg-slate-800 rounded-xl p-1 flex">
+                          {['Small', 'Medium', 'Large'].map(size => (
+                              <button key={size} className={`flex-1 py-2 text-xs font-bold rounded-lg ${size === 'Medium' ? 'bg-white dark:bg-slate-700 shadow-sm' : 'text-slate-400'}`}>
+                                  {size}
+                              </button>
+                          ))}
+                      </div>
+                  </div>
+              </div>
+          </div>
+      );
+  }
+
+  // VIEW: PRIVACY SETTINGS
+  if (viewMode === 'privacy') {
+      return (
+          <div className="flex flex-col h-full bg-white dark:bg-slate-900 animate-in slide-in-from-right">
+              {renderHeader("Privacy", () => setViewMode('main'))}
+              <div className="p-6 space-y-4">
+                  <ListItem 
+                      icon={<svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" /></svg>}
+                      label="Blocked Contacts"
+                      subLabel={`${user.blockedUsers?.length || 0} blocked`}
+                      onClick={() => {}}
+                  />
+                  <ListItem 
+                      icon={<svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" /></svg>}
+                      label="Last Seen"
+                      subLabel={user.privacySettings?.lastSeen || 'Everyone'}
+                      onClick={() => {}}
+                  />
+                  <ListItem 
+                      icon={<svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>}
+                      label="Read Receipts"
+                      subLabel={user.privacySettings?.readReceipts ? 'On' : 'Off'}
+                      onClick={() => {}}
+                  />
+              </div>
+          </div>
+      );
+  }
+
+  // MAIN VIEW
   return (
     <div className="flex flex-col h-full bg-white dark:bg-slate-900 animate-in fade-in">
       {renderHeader(isTabMode ? "My Profile" : "Profile")}
@@ -189,26 +268,32 @@ export const ProfilePanel: React.FC<ProfilePanelProps> = ({ user, onClose, toggl
             </button>
         </div>
 
-        {/* Menu Sections */}
+        {/* Settings Menu */}
         <div className="p-4 space-y-6">
             
-            {/* Account Settings */}
             <div className="bg-white dark:bg-slate-900 rounded-3xl overflow-hidden border border-slate-100 dark:border-slate-800 shadow-sm">
                 <div className="px-6 py-3 bg-slate-50/50 dark:bg-slate-800/30 border-b border-slate-100 dark:border-slate-800">
-                    <h4 className="text-[10px] font-black uppercase text-slate-400 tracking-widest">Account</h4>
+                    <h4 className="text-[10px] font-black uppercase text-slate-400 tracking-widest">Settings</h4>
                 </div>
                 <div className="divide-y divide-slate-100 dark:divide-slate-800">
                     <ListItem 
-                        icon={<svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z" /></svg>}
+                        icon={<svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" /></svg>}
+                        label="Chats"
+                        subLabel="Wallpaper, Font Size"
+                        color="indigo"
+                        onClick={() => setViewMode('chats_settings')}
+                    />
+                    <ListItem 
+                        icon={<svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" /></svg>}
                         label="Privacy"
-                        subLabel="Block users, App Lock"
+                        subLabel="Block users, Last Seen"
                         color="green"
-                        onClick={() => {}} // Placeholder for privacy modal
+                        onClick={() => setViewMode('privacy')}
                     />
                     <ListItem 
                         icon={<svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z" /></svg>}
                         label="Appearance"
-                        subLabel={isDarkMode ? "Dark Mode On" : "Light Mode On"}
+                        subLabel={isDarkMode ? "Dark Mode" : "Light Mode"}
                         color="purple"
                         onClick={toggleDarkMode}
                     />
@@ -241,7 +326,7 @@ export const ProfilePanel: React.FC<ProfilePanelProps> = ({ user, onClose, toggl
                 Sign Out
             </button>
 
-            <p className="text-center text-[10px] text-slate-400 font-bold uppercase tracking-widest opacity-60">ROXX Chat v1.2.0</p>
+            <p className="text-center text-[10px] text-slate-400 font-bold uppercase tracking-widest opacity-60">ROXX Chat v1.3.0</p>
         </div>
       </div>
       {showSubModal && <SubscriptionModal currentUser={user} onClose={() => setShowSubModal(false)} />}

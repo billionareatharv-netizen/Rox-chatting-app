@@ -21,10 +21,37 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({ stories: initialStorie
   const [showSentAnim, setShowSentAnim] = useState(false);
   const [isPaused, setIsPaused] = useState(false);
   const [showMenu, setShowMenu] = useState(false);
+  
   const menuRef = useRef<HTMLDivElement>(null);
+  const audioRef = useRef<HTMLAudioElement>(null);
 
   const story = stories[currentIndex];
   const isOwner = story && currentUser && String(story.userId) === String(currentUser.uid);
+
+  // Audio Playback Logic
+  useEffect(() => {
+      if (audioRef.current) {
+          audioRef.current.pause();
+          audioRef.current.currentTime = 0;
+          
+          if (story && story.music) {
+              audioRef.current.src = story.music.url;
+              audioRef.current.currentTime = story.music.startAt;
+              // Browsers require interaction. If story is opened via click, this should work.
+              // If failed (e.g. rapid switching), catch error.
+              if (!isPaused) {
+                  audioRef.current.play().catch(e => console.warn("Audio autoplay blocked", e));
+              }
+          }
+      }
+  }, [currentIndex, story]);
+
+  useEffect(() => {
+      if(audioRef.current) {
+          if(isPaused) audioRef.current.pause();
+          else if(story && story.music && audioRef.current.src) audioRef.current.play().catch(()=>{});
+      }
+  }, [isPaused]);
 
   useEffect(() => {
     if (!story) return;
@@ -129,6 +156,10 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({ stories: initialStorie
 
   return (
     <div className="fixed inset-0 z-[110] bg-black flex flex-col h-full transition-all overflow-hidden touch-none">
+      
+      {/* Hidden Audio Player */}
+      <audio ref={audioRef} loop={false} />
+
       {/* Header with Progress Bars */}
       <div className="absolute top-0 inset-x-0 z-[130] pt-4 safe-area-top bg-gradient-to-b from-black/60 to-transparent pb-8">
         <div className="flex gap-1.5 px-3 mb-3">
@@ -147,9 +178,17 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({ stories: initialStorie
             <img src={story.userPhoto} className="w-10 h-10 rounded-full border border-white/20 object-cover shadow-sm" alt="" />
             <div>
               <h4 className="text-white font-bold text-sm leading-none mb-0.5 shadow-black drop-shadow-md">{story.userName}</h4>
-              <span className="text-white/80 text-[10px] font-medium drop-shadow-md">
-                {new Date(story.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-              </span>
+              <div className="flex items-center gap-2">
+                  <span className="text-white/80 text-[10px] font-medium drop-shadow-md">
+                    {new Date(story.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                  </span>
+                  {story.music && (
+                      <div className="flex items-center gap-1 bg-white/20 backdrop-blur-sm px-2 py-0.5 rounded-md">
+                          <span className="text-[10px]">🎵</span>
+                          <span className="text-[9px] text-white font-bold animate-pulse">{story.music.title}</span>
+                      </div>
+                  )}
+              </div>
             </div>
           </div>
           <div className="flex items-center gap-4">
@@ -202,7 +241,18 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({ stories: initialStorie
             <img key={story.id} src={story.mediaUrl} className="max-h-full w-full object-contain select-none" alt="" onDoubleClick={handleLike} />
         )}
 
-        {/* Caption Area - Positioned above footer */}
+        {/* Music Sticker Visual (if playing) */}
+        {story.music && (
+            <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 bg-black/40 backdrop-blur-md p-3 rounded-xl flex items-center gap-3 border border-white/20 pointer-events-none z-30 animate-float">
+                <div className="w-10 h-10 bg-white/20 rounded-lg flex items-center justify-center text-white text-xl animate-spin-slow">💿</div>
+                <div className="text-left">
+                    <p className="text-white text-sm font-bold">{story.music.title}</p>
+                    <p className="text-white/70 text-xs">{story.music.artist}</p>
+                </div>
+            </div>
+        )}
+
+        {/* Caption Area */}
         {story.caption && (
           <div className="absolute bottom-28 inset-x-0 flex justify-center z-40 pointer-events-none">
             <div className="bg-black/50 backdrop-blur-sm px-4 py-2 rounded-xl max-w-[80%] text-center">

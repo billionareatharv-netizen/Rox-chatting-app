@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect } from 'react';
-import { User, Chat, Message, StoreItem, UserRole } from '../../types';
+import { User, Chat, Message, StoreItem, UserRole, Song } from '../../types';
 import { 
   admin_getAllUsers, 
   admin_toggleGlobalBlock, 
@@ -13,7 +13,10 @@ import {
   getUserById,
   admin_getStoreItems,
   admin_addStoreItem,
-  admin_deleteStoreItem
+  admin_deleteStoreItem,
+  admin_uploadSong,
+  admin_deleteSong,
+  getMusicLibrary
 } from '../../firebase';
 import { ROLE_STYLES } from '../../premiumUtils';
 
@@ -22,13 +25,14 @@ interface AdminDashboardProps {
   onExit: () => void;
 }
 
-type AdminView = 'users' | 'store' | 'spy';
+type AdminView = 'users' | 'store' | 'music' | 'spy';
 
 export const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, onExit }) => {
   const [activeView, setActiveView] = useState<AdminView>('users');
   const [users, setUsers] = useState<User[]>([]);
   const [stats, setStats] = useState({ users: 0, messages: 0, chats: 0, stories: 0 });
   const [storeItems, setStoreItems] = useState<StoreItem[]>([]);
+  const [songs, setSongs] = useState<Song[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   
@@ -41,16 +45,23 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, onE
   // Store Form State
   const [newItem, setNewItem] = useState<Partial<StoreItem>>({ type: 'decoration', price: 99 });
 
+  // Music Form State
+  const [newSong, setNewSong] = useState<Partial<Song>>({ category: 'Trending', duration: 180 });
+  const [songFile, setSongFile] = useState<File | null>(null);
+  const [isUploadingSong, setIsUploadingSong] = useState(false);
+
   const refreshData = async () => {
     setIsLoading(true);
-    const [allUsers, systemStats, items] = await Promise.all([
+    const [allUsers, systemStats, items, musicLib] = await Promise.all([
       admin_getAllUsers(),
       admin_getStats(),
-      admin_getStoreItems()
+      admin_getStoreItems(),
+      getMusicLibrary()
     ]);
     setUsers(allUsers);
     setStats(systemStats);
     setStoreItems(items);
+    setSongs(musicLib);
     setIsLoading(false);
   };
 
@@ -99,6 +110,27 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, onE
       }
   };
 
+  // --- MUSIC MANAGEMENT ---
+  const handleUploadSong = async () => {
+      if (!songFile || !newSong.title || !newSong.artist) return;
+      setIsUploadingSong(true);
+      try {
+          await admin_uploadSong(songFile, newSong as any);
+          setNewSong({ category: 'Trending', duration: 180, title: '', artist: '' });
+          setSongFile(null);
+          refreshData();
+          alert("Song Uploaded!");
+      } catch(e) { console.error(e); alert("Failed to upload"); }
+      finally { setIsUploadingSong(false); }
+  };
+
+  const handleDeleteSong = async (id: string) => {
+      if (confirm("Delete Song?")) {
+          await admin_deleteSong(id);
+          refreshData();
+      }
+  };
+
   const NavItem = ({ label, icon, view }: { label: string, icon: string, view: AdminView }) => (
     <button 
         onClick={() => { setActiveView(view); setSpyTarget(null); setIsMobileMenuOpen(false); }}
@@ -123,7 +155,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, onE
           </button>
       </div>
 
-      {/* Sidebar (Desktop & Mobile Overlay) */}
+      {/* Sidebar */}
       <div className={`fixed inset-y-0 left-0 w-64 bg-slate-900 border-r border-slate-800 z-40 transform transition-transform duration-300 lg:relative lg:translate-x-0 ${isMobileMenuOpen ? 'translate-x-0' : '-translate-x-full'}`}>
         <div className="p-6 border-b border-slate-800 h-20 hidden lg:flex flex-col justify-center">
             <h1 className={`text-xl font-black ${ROLE_STYLES[currentUser.role]?.text || 'text-white'}`}>
@@ -131,11 +163,12 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, onE
             </h1>
             <p className="text-[10px] text-slate-500 uppercase tracking-widest mt-1">System Control v3.0</p>
         </div>
-        <div className="lg:hidden h-20"></div> {/* Spacer for mobile header */}
+        <div className="lg:hidden h-20"></div> 
         
         <nav className="flex-1 p-4 space-y-2">
             <NavItem label="Database" icon="👥" view="users" />
             <NavItem label="Store" icon="🛍️" view="store" />
+            <NavItem label="Music" icon="🎵" view="music" />
             {spyTarget && (
                 <button 
                     onClick={() => { setActiveView('spy'); setIsMobileMenuOpen(false); }}
@@ -281,6 +314,60 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, onE
                                   </div>
                                   <button onClick={() => handleDeleteItem(item.id)} className="absolute top-2 right-2 p-2 bg-red-500/10 text-red-500 rounded-lg opacity-0 group-hover:opacity-100 transition-opacity hover:bg-red-500 hover:text-white">
                                     <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+                                  </button>
+                              </div>
+                          ))}
+                      </div>
+                  </div>
+              </div>
+          )}
+
+          {/* MUSIC VIEW */}
+          {activeView === 'music' && (
+              <div className="flex-1 overflow-y-auto p-4 lg:p-8 no-scrollbar">
+                  <div className="grid grid-cols-1 xl:grid-cols-3 gap-8">
+                      {/* Upload Form */}
+                      <div className="bg-slate-900 p-6 rounded-[2rem] border border-slate-800 h-fit shadow-xl">
+                          <h3 className="text-xl font-bold mb-6 text-white">Upload Music</h3>
+                          <div className="space-y-4">
+                              <input placeholder="Song Title" value={newSong.title || ''} onChange={e => setNewSong({...newSong, title: e.target.value})} className="w-full bg-slate-950 p-3 rounded-xl border border-slate-800 text-white outline-none focus:border-indigo-500" />
+                              <input placeholder="Artist Name" value={newSong.artist || ''} onChange={e => setNewSong({...newSong, artist: e.target.value})} className="w-full bg-slate-950 p-3 rounded-xl border border-slate-800 text-white outline-none focus:border-indigo-500" />
+                              <select 
+                                value={newSong.category} 
+                                onChange={e => setNewSong({...newSong, category: e.target.value})}
+                                className="w-full bg-slate-950 p-3 rounded-xl border border-slate-800 text-white outline-none focus:border-indigo-500"
+                              >
+                                  <option value="Trending">Trending</option>
+                                  <option value="Love">Love</option>
+                                  <option value="Sad">Sad</option>
+                                  <option value="Party">Party</option>
+                                  <option value="Chill">Chill</option>
+                              </select>
+                              <div className="border border-dashed border-slate-700 p-4 rounded-xl text-center cursor-pointer hover:bg-slate-800/50 transition-all relative">
+                                  <input type="file" accept="audio/*" className="absolute inset-0 opacity-0 cursor-pointer" onChange={e => setSongFile(e.target.files?.[0] || null)} />
+                                  <p className="text-sm font-bold text-slate-400">{songFile ? songFile.name : "Select MP3 File"}</p>
+                              </div>
+                              <button onClick={handleUploadSong} disabled={isUploadingSong} className="w-full py-4 bg-pink-600 hover:bg-pink-500 rounded-xl font-black uppercase tracking-widest text-white transition-all shadow-lg shadow-pink-900/20 active:scale-95 disabled:opacity-50">
+                                  {isUploadingSong ? 'Uploading...' : 'Upload Song'}
+                              </button>
+                          </div>
+                      </div>
+
+                      {/* Music List */}
+                      <div className="xl:col-span-2 space-y-3">
+                          {songs.map(song => (
+                              <div key={song.id} className="flex items-center justify-between p-4 bg-slate-900 rounded-2xl border border-slate-800">
+                                  <div className="flex items-center gap-4">
+                                      <div className="w-12 h-12 bg-slate-800 rounded-full flex items-center justify-center text-slate-500">
+                                          🎵
+                                      </div>
+                                      <div>
+                                          <h4 className="font-bold text-white">{song.title}</h4>
+                                          <p className="text-xs text-slate-500">{song.artist} • {song.category}</p>
+                                      </div>
+                                  </div>
+                                  <button onClick={() => handleDeleteSong(song.id)} className="p-3 bg-red-500/10 text-red-500 rounded-xl hover:bg-red-500 hover:text-white transition-all">
+                                      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
                                   </button>
                               </div>
                           ))}
