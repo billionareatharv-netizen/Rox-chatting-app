@@ -45,8 +45,10 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, onE
   // Store Form State
   const [newItem, setNewItem] = useState<Partial<StoreItem>>({ type: 'decoration', price: 99 });
 
-  // Music Form State
-  const [newSong, setNewSong] = useState<Partial<Song>>({ category: 'Trending', duration: 180 });
+  // Music State
+  const [isMusicModalOpen, setIsMusicModalOpen] = useState(false);
+  const [musicSearch, setMusicSearch] = useState('');
+  const [newSong, setNewSong] = useState<Partial<Song>>({ category: 'Trending', duration: 30 });
   const [songFile, setSongFile] = useState<File | null>(null);
   const [isUploadingSong, setIsUploadingSong] = useState(false);
 
@@ -112,16 +114,30 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, onE
 
   // --- MUSIC MANAGEMENT ---
   const handleUploadSong = async () => {
-      if (!songFile || !newSong.title || !newSong.artist) return;
+      if (!songFile) {
+          alert("Please select an MP3 file.");
+          return;
+      }
+      if (!newSong.title || !newSong.artist) {
+          alert("Please enter title and artist.");
+          return;
+      }
+
       setIsUploadingSong(true);
       try {
+          // Pass the file directly. Firebase storage logic is in firebase.ts
           await admin_uploadSong(songFile, newSong as any);
-          setNewSong({ category: 'Trending', duration: 180, title: '', artist: '' });
+          setNewSong({ category: 'Trending', duration: 30, title: '', artist: '' });
           setSongFile(null);
+          setIsMusicModalOpen(false);
           refreshData();
-          alert("Song Uploaded!");
-      } catch(e) { console.error(e); alert("Failed to upload"); }
-      finally { setIsUploadingSong(false); }
+          alert("Song Uploaded Successfully!");
+      } catch(e) { 
+          console.error("Upload failed", e); 
+          alert("Failed to upload song. Check console/permissions."); 
+      } finally { 
+          setIsUploadingSong(false); 
+      }
   };
 
   const handleDeleteSong = async (id: string) => {
@@ -130,6 +146,11 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, onE
           refreshData();
       }
   };
+
+  const filteredSongs = songs.filter(s => 
+      s.title.toLowerCase().includes(musicSearch.toLowerCase()) || 
+      s.artist.toLowerCase().includes(musicSearch.toLowerCase())
+  );
 
   const NavItem = ({ label, icon, view }: { label: string, icon: string, view: AdminView }) => (
     <button 
@@ -324,55 +345,94 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, onE
 
           {/* MUSIC VIEW */}
           {activeView === 'music' && (
-              <div className="flex-1 overflow-y-auto p-4 lg:p-8 no-scrollbar">
-                  <div className="grid grid-cols-1 xl:grid-cols-3 gap-8">
-                      {/* Upload Form */}
-                      <div className="bg-slate-900 p-6 rounded-[2rem] border border-slate-800 h-fit shadow-xl">
-                          <h3 className="text-xl font-bold mb-6 text-white">Upload Music</h3>
-                          <div className="space-y-4">
-                              <input placeholder="Song Title" value={newSong.title || ''} onChange={e => setNewSong({...newSong, title: e.target.value})} className="w-full bg-slate-950 p-3 rounded-xl border border-slate-800 text-white outline-none focus:border-indigo-500" />
-                              <input placeholder="Artist Name" value={newSong.artist || ''} onChange={e => setNewSong({...newSong, artist: e.target.value})} className="w-full bg-slate-950 p-3 rounded-xl border border-slate-800 text-white outline-none focus:border-indigo-500" />
-                              <select 
-                                value={newSong.category} 
-                                onChange={e => setNewSong({...newSong, category: e.target.value})}
-                                className="w-full bg-slate-950 p-3 rounded-xl border border-slate-800 text-white outline-none focus:border-indigo-500"
-                              >
-                                  <option value="Trending">Trending</option>
-                                  <option value="Love">Love</option>
-                                  <option value="Sad">Sad</option>
-                                  <option value="Party">Party</option>
-                                  <option value="Chill">Chill</option>
-                              </select>
-                              <div className="border border-dashed border-slate-700 p-4 rounded-xl text-center cursor-pointer hover:bg-slate-800/50 transition-all relative">
-                                  <input type="file" accept="audio/*" className="absolute inset-0 opacity-0 cursor-pointer" onChange={e => setSongFile(e.target.files?.[0] || null)} />
-                                  <p className="text-sm font-bold text-slate-400">{songFile ? songFile.name : "Select MP3 File"}</p>
-                              </div>
-                              <button onClick={handleUploadSong} disabled={isUploadingSong} className="w-full py-4 bg-pink-600 hover:bg-pink-500 rounded-xl font-black uppercase tracking-widest text-white transition-all shadow-lg shadow-pink-900/20 active:scale-95 disabled:opacity-50">
-                                  {isUploadingSong ? 'Uploading...' : 'Upload Song'}
-                              </button>
-                          </div>
+              <div className="flex-1 flex flex-col p-4 lg:p-8 no-scrollbar h-full">
+                  {/* Top Bar: Search + Add Button */}
+                  <div className="flex flex-col sm:flex-row items-center justify-between gap-4 mb-6">
+                      <div className="relative w-full sm:max-w-md">
+                          <input 
+                            value={musicSearch}
+                            onChange={(e) => setMusicSearch(e.target.value)}
+                            placeholder="Search songs..."
+                            className="w-full bg-slate-900 border border-slate-800 rounded-xl py-3 pl-12 pr-4 text-white focus:outline-none focus:border-indigo-500"
+                          />
+                          <svg className="absolute left-4 top-3.5 w-5 h-5 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
                       </div>
+                      <button 
+                        onClick={() => setIsMusicModalOpen(true)}
+                        className="w-full sm:w-auto px-6 py-3 bg-pink-600 hover:bg-pink-500 text-white rounded-xl font-bold shadow-lg shadow-pink-900/20 active:scale-95 transition-all flex items-center justify-center gap-2"
+                      >
+                          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 4v16m8-8H4" /></svg>
+                          Add Music
+                      </button>
+                  </div>
 
-                      {/* Music List */}
-                      <div className="xl:col-span-2 space-y-3">
-                          {songs.map(song => (
-                              <div key={song.id} className="flex items-center justify-between p-4 bg-slate-900 rounded-2xl border border-slate-800">
+                  {/* List of Songs */}
+                  <div className="flex-1 overflow-y-auto space-y-3 pb-20">
+                      {filteredSongs.length === 0 ? (
+                          <div className="text-center py-20 text-slate-500">No songs found.</div>
+                      ) : (
+                          filteredSongs.map(song => (
+                              <div key={song.id} className="flex items-center justify-between p-4 bg-slate-900 rounded-2xl border border-slate-800 hover:border-slate-700 transition-colors group">
                                   <div className="flex items-center gap-4">
-                                      <div className="w-12 h-12 bg-slate-800 rounded-full flex items-center justify-center text-slate-500">
+                                      <div className="w-12 h-12 bg-slate-800 rounded-full flex items-center justify-center text-slate-500 group-hover:bg-indigo-500 group-hover:text-white transition-colors">
                                           🎵
                                       </div>
                                       <div>
                                           <h4 className="font-bold text-white">{song.title}</h4>
-                                          <p className="text-xs text-slate-500">{song.artist} • {song.category}</p>
+                                          <p className="text-xs text-slate-500">{song.artist} • <span className="bg-slate-800 px-2 py-0.5 rounded text-[10px] uppercase">{song.category}</span></p>
                                       </div>
                                   </div>
-                                  <button onClick={() => handleDeleteSong(song.id)} className="p-3 bg-red-500/10 text-red-500 rounded-xl hover:bg-red-500 hover:text-white transition-all">
-                                      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+                                  <div className="flex items-center gap-2">
+                                      <button onClick={() => handleDeleteSong(song.id)} className="p-3 bg-red-500/10 text-red-500 rounded-xl hover:bg-red-500 hover:text-white transition-all">
+                                          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+                                      </button>
+                                  </div>
+                              </div>
+                          ))
+                      )}
+                  </div>
+
+                  {/* Upload Modal */}
+                  {isMusicModalOpen && (
+                      <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm">
+                          <div className="bg-slate-900 p-6 rounded-[2rem] border border-slate-800 w-full max-w-md shadow-2xl animate-in zoom-in-95">
+                              <div className="flex justify-between items-center mb-6">
+                                  <h3 className="text-xl font-bold text-white">Upload New Song</h3>
+                                  <button onClick={() => setIsMusicModalOpen(false)} className="text-slate-400 hover:text-white">✕</button>
+                              </div>
+                              <div className="space-y-4">
+                                  <input placeholder="Song Title" value={newSong.title || ''} onChange={e => setNewSong({...newSong, title: e.target.value})} className="w-full bg-slate-950 p-3 rounded-xl border border-slate-800 text-white outline-none focus:border-indigo-500" />
+                                  <input placeholder="Artist Name" value={newSong.artist || ''} onChange={e => setNewSong({...newSong, artist: e.target.value})} className="w-full bg-slate-950 p-3 rounded-xl border border-slate-800 text-white outline-none focus:border-indigo-500" />
+                                  <select 
+                                    value={newSong.category} 
+                                    onChange={e => setNewSong({...newSong, category: e.target.value})}
+                                    className="w-full bg-slate-950 p-3 rounded-xl border border-slate-800 text-white outline-none focus:border-indigo-500"
+                                  >
+                                      <option value="Trending">Trending</option>
+                                      <option value="Love">Love</option>
+                                      <option value="Sad">Sad</option>
+                                      <option value="Party">Party</option>
+                                      <option value="Chill">Chill</option>
+                                  </select>
+                                  <div className="border border-dashed border-slate-700 p-6 rounded-xl text-center cursor-pointer hover:bg-slate-800/50 transition-all relative">
+                                      <input type="file" accept="audio/mpeg,audio/mp3" className="absolute inset-0 opacity-0 cursor-pointer z-10" onChange={e => setSongFile(e.target.files?.[0] || null)} />
+                                      <div className="flex flex-col items-center gap-2">
+                                          <span className="text-2xl">📂</span>
+                                          <p className="text-sm font-bold text-slate-400">{songFile ? songFile.name : "Tap to select MP3"}</p>
+                                      </div>
+                                  </div>
+                                  <button onClick={handleUploadSong} disabled={isUploadingSong} className="w-full py-4 bg-pink-600 hover:bg-pink-500 rounded-xl font-black uppercase tracking-widest text-white transition-all shadow-lg shadow-pink-900/20 active:scale-95 disabled:opacity-50 flex items-center justify-center gap-2">
+                                      {isUploadingSong ? (
+                                          <>
+                                            <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                                            Uploading...
+                                          </>
+                                      ) : 'Upload Song'}
                                   </button>
                               </div>
-                          ))}
+                          </div>
                       </div>
-                  </div>
+                  )}
               </div>
           )}
 

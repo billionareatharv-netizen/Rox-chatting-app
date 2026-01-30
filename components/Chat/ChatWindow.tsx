@@ -86,6 +86,7 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ chat, currentUser, onClo
   const displayName = isGroup ? chat.name : (otherUser ? (nicknames[otherUser.uid] || otherUser.name) : 'Loading...');
   
   // Wallpaper Logic
+  // Using wallpapers?.default helps fallback
   const wallpaperPref = currentUser.wallpapers?.[chat.id] || currentUser.wallpapers?.default || 'default';
   const isCustomWallpaper = wallpaperPref.startsWith('http') || wallpaperPref.startsWith('data:');
   const wallpaperClass = !isCustomWallpaper ? WALLPAPER_CLASSES[wallpaperPref] || WALLPAPER_CLASSES['default'] : '';
@@ -273,8 +274,8 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ chat, currentUser, onClo
   return (
     <div className={`flex flex-col h-[100dvh] bg-white dark:bg-slate-900 animate-in fade-in duration-300 relative overflow-hidden ${FONT_SIZE_CLASSES[fontSize]}`}>
       
-      {/* Background with Pattern */}
-      <div className={`absolute inset-0 z-0 ${wallpaperClass}`}>
+      {/* Background with Pattern - Key ensures re-render on pref change */}
+      <div key={wallpaperPref} className={`absolute inset-0 z-0 ${wallpaperClass}`}>
         {isCustomWallpaper && <img src={wallpaperPref} className="absolute inset-0 w-full h-full object-cover" alt="" /> }
         <div className="absolute inset-0 opacity-[0.06] pointer-events-none mix-blend-overlay" style={{ backgroundImage: `url('${BG_PATTERN}')` }}></div>
       </div>
