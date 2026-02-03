@@ -28,70 +28,75 @@ export const useAuth = () => {
     const unsubscribe = observeAuthState(async (firebaseUser: any) => {
         if (!mounted) return;
 
-        if (firebaseUser) {
+        if (firebaseUser && db) {
             // Subscribe to real-time updates of the user document
-            userUnsub = onSnapshot(doc(db, "users", firebaseUser.uid), (docSnap) => {
-                if (docSnap.exists()) {
-                    const dbUser = docSnap.data();
-                    
-                    // --- FOUNDER LOGIC ---
-                    const email = firebaseUser.email?.toLowerCase();
-                    const isFounderEmail = email === 'betterrroxx@gmail.com';
-                    let finalRole: UserRole = 'user';
-                    let isAdmin = false;
+            try {
+              userUnsub = onSnapshot(doc(db, "users", firebaseUser.uid), (docSnap) => {
+                  if (docSnap.exists()) {
+                      const dbUser = docSnap.data();
+                      
+                      // --- FOUNDER LOGIC ---
+                      const email = firebaseUser.email?.toLowerCase();
+                      const isFounderEmail = email === 'betterrroxx@gmail.com';
+                      let finalRole: UserRole = 'user';
+                      let isAdmin = false;
 
-                    if (isFounderEmail) {
-                        finalRole = 'owner';
-                        isAdmin = true;
-                        // Ensure DB stays in sync for Founder (Background check)
-                        if (dbUser.role !== 'owner' || !dbUser.isAdmin) {
-                            makeUserAdmin(firebaseUser.uid, 'owner');
-                        }
-                    } else {
-                        finalRole = dbUser.role || (dbUser.isAdmin ? 'admin' : 'user');
-                        isAdmin = dbUser.isAdmin || false;
-                    }
+                      if (isFounderEmail) {
+                          finalRole = 'owner';
+                          isAdmin = true;
+                          // Ensure DB stays in sync for Founder (Background check)
+                          if (dbUser.role !== 'owner' || !dbUser.isAdmin) {
+                              makeUserAdmin(firebaseUser.uid, 'owner');
+                          }
+                      } else {
+                          finalRole = dbUser.role || (dbUser.isAdmin ? 'admin' : 'user');
+                          isAdmin = dbUser.isAdmin || false;
+                      }
 
-                    const finalUser: User = {
-                        uid: firebaseUser.uid,
-                        name: dbUser.name || firebaseUser.displayName || 'Anonymous',
-                        email: firebaseUser.email || '',
-                        photoURL: dbUser.photoURL || firebaseUser.photoURL || `https://picsum.photos/seed/${firebaseUser.uid}/200`,
-                        status: dbUser.status || 'online',
-                        lastSeen: dbUser.lastSeen || Date.now(),
-                        bio: dbUser.bio,
-                        blockedUsers: dbUser.blockedUsers || [],
-                        chatLockPassword: dbUser.chatLockPassword,
-                        isAdmin: isAdmin,
-                        role: finalRole,
-                        isGloballyBlocked: !!dbUser.isGloballyBlocked,
-                        privacySettings: dbUser.privacySettings,
-                        pinnedChats: dbUser.pinnedChats || [],
-                        subscription: dbUser.subscription,
-                        premiumCustomization: dbUser.premiumCustomization,
-                        username: dbUser.username,
-                        security: dbUser.security,
-                        wallpapers: dbUser.wallpapers || {}
-                    };
-                    setUser(finalUser);
-                } else {
-                    // Fallback if doc doesn't exist yet
-                    setUser({
-                        uid: firebaseUser.uid,
-                        name: firebaseUser.displayName || 'User',
-                        email: firebaseUser.email || '',
-                        photoURL: firebaseUser.photoURL || '',
-                        status: 'online',
-                        lastSeen: Date.now(),
-                        isAdmin: false,
-                        role: 'user'
-                    } as User);
-                }
-                setLoading(false);
-            }, (error) => {
-                console.error("User snapshot error:", error);
-                setLoading(false);
-            });
+                      const finalUser: User = {
+                          uid: firebaseUser.uid,
+                          name: dbUser.name || firebaseUser.displayName || 'Anonymous',
+                          email: firebaseUser.email || '',
+                          photoURL: dbUser.photoURL || firebaseUser.photoURL || `https://picsum.photos/seed/${firebaseUser.uid}/200`,
+                          status: dbUser.status || 'online',
+                          lastSeen: dbUser.lastSeen || Date.now(),
+                          bio: dbUser.bio,
+                          blockedUsers: dbUser.blockedUsers || [],
+                          chatLockPassword: dbUser.chatLockPassword,
+                          isAdmin: isAdmin,
+                          role: finalRole,
+                          isGloballyBlocked: !!dbUser.isGloballyBlocked,
+                          privacySettings: dbUser.privacySettings,
+                          pinnedChats: dbUser.pinnedChats || [],
+                          subscription: dbUser.subscription,
+                          premiumCustomization: dbUser.premiumCustomization,
+                          username: dbUser.username,
+                          security: dbUser.security,
+                          wallpapers: dbUser.wallpapers || {}
+                      };
+                      setUser(finalUser);
+                  } else {
+                      // Fallback if doc doesn't exist yet
+                      setUser({
+                          uid: firebaseUser.uid,
+                          name: firebaseUser.displayName || 'User',
+                          email: firebaseUser.email || '',
+                          photoURL: firebaseUser.photoURL || '',
+                          status: 'online',
+                          lastSeen: Date.now(),
+                          isAdmin: false,
+                          role: 'user'
+                      } as User);
+                  }
+                  setLoading(false);
+              }, (error) => {
+                  console.error("User snapshot error:", error);
+                  setLoading(false);
+              });
+            } catch (e) {
+               console.error("Failed to setup user snapshot", e);
+               setLoading(false);
+            }
         } else {
             if (userUnsub) userUnsub();
             setUser(null);
@@ -108,7 +113,7 @@ export const useAuth = () => {
 
   // Presence System
   useEffect(() => {
-    if (!user?.uid) return;
+    if (!user?.uid || !db) return;
 
     const uid = user.uid;
 

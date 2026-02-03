@@ -1,5 +1,5 @@
 
-import { initializeApp } from "firebase/app";
+import { initializeApp, getApp, getApps } from "firebase/app";
 import { 
   getAuth, 
   signInWithEmailAndPassword as firebaseSignIn, 
@@ -91,40 +91,26 @@ let db: any;
 let storage: any;
 
 try {
-  app = initializeApp(config);
+  app = !getApps().length ? initializeApp(config) : getApp();
+  auth = getAuth(app);
   
-  try {
-    auth = getAuth(app);
-  } catch (e) {
-    console.error("Auth init failed:", e);
-    auth = { currentUser: null, onAuthStateChanged: (cb: any) => { cb(null); return () => {}; } };
-  }
-
   try {
     storage = getStorage(app);
   } catch (e) {
-    console.error("Storage init failed:", e);
+    console.warn("Storage not available");
     storage = null;
   }
 
+  // Use the most standard Firestore initialization to maximize compatibility
   try {
-    db = initializeFirestore(app, {
-      localCache: persistentLocalCache({
-        tabManager: persistentMultipleTabManager()
-      })
-    });
+    db = getFirestore(app);
   } catch (err) {
-    console.warn("Firestore persistence failed, falling back to basic init.", err);
-    try {
-      db = getFirestore(app);
-    } catch (e) {
-      console.error("Firestore init failed:", e);
-      db = null;
-    }
+    console.error("Firestore init failed completely:", err);
+    db = null;
   }
 } catch (e) {
-  console.error("Firebase overall init crash:", e);
-  auth = { currentUser: null, onAuthStateChanged: (cb: any) => { cb(null); return () => {}; } };
+  console.error("Firebase critical init crash:", e);
+  auth = null;
   db = null; 
   storage = null;
 }
@@ -161,7 +147,7 @@ export const safeJsonStringify = (value: any) => {
 };
 
 export const observeAuthState = (callback: (user: any) => void) => {
-  if (!auth || typeof auth.onAuthStateChanged !== 'function') return () => {};
+  if (!auth) return () => {};
   return onAuthStateChanged(auth, callback);
 };
 
@@ -176,14 +162,14 @@ export const makeUserAdmin = async (uid: string, role: UserRole = 'admin') => {
 };
 
 export const signInWithEmailAndPassword = async (authObj: any, email: string, pass: string) => {
-  if (!authObj) throw new Error("Auth not initialized");
+  if (!authObj) throw new Error("Auth service is unavailable.");
   const userCredential = await firebaseSignIn(authObj, email, pass);
   await updateUserStatus(userCredential.user.uid, 'online');
   return userCredential;
 };
 
 export const createUserWithEmailAndPassword = async (authObj: any, email: string, pass: string) => {
-  if (!authObj) throw new Error("Auth not initialized");
+  if (!authObj) throw new Error("Auth service is unavailable.");
   const userCredential = await firebaseCreateUser(authObj, email, pass);
   const user = userCredential.user;
   let role: UserRole = 'user';
@@ -212,7 +198,7 @@ export const createUserWithEmailAndPassword = async (authObj: any, email: string
 };
 
 export const signInWithPopup = async () => {
-  if (!auth || typeof auth.onAuthStateChanged !== 'function') return;
+  if (!auth) return;
   const provider = new GoogleAuthProvider();
   const res = await firebaseSignInWithPopup(auth, provider);
   const user = res.user;
@@ -252,7 +238,7 @@ export const signInWithPopup = async () => {
 
 export const signOut = async () => {
   if (auth?.currentUser) await updateUserStatus(auth.currentUser.uid, 'offline');
-  if (auth && typeof auth.signOut === 'function') await firebaseSignOut(auth);
+  if (auth) await firebaseSignOut(auth);
 };
 
 export const updateProfile = async (user: any, updates: any) => {
