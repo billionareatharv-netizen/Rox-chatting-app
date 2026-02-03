@@ -10,6 +10,7 @@ import { PublicProfile } from './PublicProfile';
 import { CallModal } from './CallModal';
 import { HomeFeed } from './HomeFeed';
 import { BottomNav } from './BottomNav';
+import { ExploreView } from './ExploreView';
 import { initiateCall, getIncomingCall, getUserById, updateCallStatus, cleanOldCalls, subscribeToNicknames } from '../../firebase';
 
 interface ChatDashboardProps {
@@ -61,7 +62,6 @@ export const ChatDashboard: React.FC<ChatDashboardProps> = ({ currentUser, toggl
     });
   };
 
-  // Main view switcher based on activeTab
   const renderTabContent = () => {
     switch (activeTab) {
       case 'home':
@@ -94,20 +94,17 @@ export const ChatDashboard: React.FC<ChatDashboardProps> = ({ currentUser, toggl
         );
       case 'search':
         return (
-          <div className="flex-1 flex items-center justify-center p-8 text-center animate-in fade-in">
-             <div className="max-w-xs">
-                <span className="material-symbols-outlined text-6xl text-primary mb-4">explore</span>
-                <h2 className="text-xl font-bold">Explore Content</h2>
-                <p className="text-sm text-slate-500 mt-2">Search for creators and trending topics coming soon.</p>
-             </div>
-          </div>
+          <ExploreView 
+            currentUser={currentUser}
+            onOpenProfile={setViewingUser}
+          />
         );
       case 'reels':
         return (
-          <div className="flex-1 flex items-center justify-center p-8 text-center animate-in fade-in">
+          <div className="flex-1 flex items-center justify-center p-8 text-center animate-in fade-in bg-black">
              <div className="max-w-xs">
                 <span className="material-symbols-outlined text-6xl text-primary mb-4">movie</span>
-                <h2 className="text-xl font-bold">Lumina Reels</h2>
+                <h2 className="text-xl font-bold text-white">Lumina Reels</h2>
                 <p className="text-sm text-slate-500 mt-2">Short-form video experience is being polished.</p>
              </div>
           </div>
@@ -122,7 +119,6 @@ export const ChatDashboard: React.FC<ChatDashboardProps> = ({ currentUser, toggl
       
       {/* Top Main Content Area */}
       <div className="flex-1 relative flex flex-col overflow-hidden">
-        {/* If a chat is selected, it covers the whole screen (Mobile) or stays relative */}
         {selectedChat ? (
           <ChatWindow 
             chat={selectedChat} 
