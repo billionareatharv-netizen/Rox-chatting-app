@@ -15,20 +15,6 @@ interface SidebarProps {
   nicknames: Record<string, string>; 
 }
 
-const SidebarSkeleton = () => (
-  <div className="space-y-4 p-4 animate-pulse">
-    {[1, 2, 3, 4, 5].map(i => (
-      <div key={i} className="flex items-center gap-4">
-        <div className="w-12 h-12 bg-slate-200 dark:bg-slate-800 rounded-full"></div>
-        <div className="flex-1 space-y-2">
-          <div className="h-4 bg-slate-200 dark:bg-slate-800 rounded w-1/3"></div>
-          <div className="h-3 bg-slate-200 dark:bg-slate-800 rounded w-2/3"></div>
-        </div>
-      </div>
-    ))}
-  </div>
-);
-
 export const Sidebar: React.FC<SidebarProps> = ({ 
   currentUser, onChatSelect, activeChatId, nicknames
 }) => {
@@ -45,8 +31,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const [showGallery, setShowGallery] = useState(false);
   const [showAccountSwitch, setShowAccountSwitch] = useState(false);
 
-  const searchInputRef = useRef<HTMLInputElement>(null);
-
   useEffect(() => {
     const unsubUser = subscribeToUser(currentUser.uid, (data) => {
         setPinnedChats(data.pinnedChats || []);
@@ -62,25 +46,12 @@ export const Sidebar: React.FC<SidebarProps> = ({
         setAllUsers(usersData.filter(u => u.uid !== currentUser.uid && !myBlocked.includes(u.uid)));
         setChats(chatsData);
         setLoading(false);
-      } catch(e) {
-        console.error(e);
-      }
+      } catch(e) { }
     };
 
     fetchData();
-    
-    const itv = setInterval(async () => {
-       const chatsData = await getMyChats(currentUser.uid);
-       setChats(prev => {
-         if (prev.length === chatsData.length && prev[0]?.lastMessage?.timestamp === chatsData[0]?.lastMessage?.timestamp) return prev;
-         return chatsData;
-       });
-    }, 5000);
-
-    return () => {
-        unsubUser();
-        clearInterval(itv);
-    };
+    const itv = setInterval(fetchData, 5000);
+    return () => { unsubUser(); clearInterval(itv); };
   }, [currentUser.uid]);
 
   const searchResults = useMemo(() => {
@@ -96,13 +67,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
     });
 
     if (!term) return { chats: visibleChats, users: [] };
-
     const matchedUsers = allUsers.filter(u => (nicknames[u.uid] || u.name).toLowerCase().includes(term));
     const matchedChats = visibleChats.filter(c => {
       const name = c.type === 'group' ? c.name : (nicknames[c.participants.find(p=>p!==currentUser.uid)!] || 'User');
       return name?.toLowerCase().includes(term);
     });
-
     return { chats: matchedChats, users: matchedUsers };
   }, [search, allUsers, chats, currentUser.uid, pinnedChats, nicknames]);
 
@@ -110,84 +79,70 @@ export const Sidebar: React.FC<SidebarProps> = ({
     if (chat.type === 'group') return { name: chat.name || 'Group', photo: chat.groupIcon || `https://picsum.photos/seed/${chat.id}/200` };
     const otherId = chat.participants.find(p => p !== currentUser.uid);
     const user = allUsers.find(u => u.uid === otherId);
-    return { 
-        name: user ? (nicknames[user.uid] || user.name) : 'User', 
-        photo: user?.photoURL || `https://picsum.photos/seed/${otherId}/200`, 
-        userObj: user 
-    };
+    return { name: user ? (nicknames[user.uid] || user.name) : 'User', photo: user?.photoURL || `https://picsum.photos/seed/${otherId}/200`, userObj: user };
   };
 
   return (
-    <div className="w-full h-full flex flex-col bg-white dark:bg-slate-900 animate-in slide-in-from-left duration-300 relative border-r border-slate-100 dark:border-slate-800">
+    <div className="w-full h-full flex flex-col bg-background-light dark:bg-background-dark animate-in slide-in-from-left duration-300">
       {/* Header */}
-      <div className="h-20 px-5 flex items-center justify-between shrink-0 bg-white/80 dark:bg-slate-900/80 backdrop-blur-sm z-10 sticky top-0">
-         {isSearchOpen ? (
-             <div className="flex-1 flex bg-slate-100 dark:bg-slate-800 rounded-2xl px-4 py-2">
-                 <input autoFocus ref={searchInputRef} value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search..." className="bg-transparent flex-1 outline-none text-sm" />
-                 <button onClick={()=>setIsSearchOpen(false)}>✕</button>
-             </div>
-         ) : (
-             <>
-                <div>
-                    <h2 className="text-xl font-bold dark:text-white">Messages</h2>
-                    <p className="text-[10px] font-bold text-slate-400 uppercase">{chats.length} chats</p>
-                </div>
-                <div className="flex gap-2">
-                    <button onClick={()=>setShowStore(true)} className="p-2 text-indigo-500 hover:bg-indigo-50 rounded-xl transition-colors">🛍️</button>
-                    <button onClick={()=>setIsSearchOpen(true)} className="p-2 text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl">🔍</button>
-                    <button onClick={()=>setShowMenu(!showMenu)} className="p-2 text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl">⋮</button>
-                </div>
-             </>
-         )}
-         {showMenu && (
-             <div className="absolute right-4 top-16 bg-white dark:bg-slate-800 shadow-xl rounded-xl p-2 z-50 flex flex-col w-48 border border-slate-100 dark:border-slate-700">
-                 <button onClick={()=>{setShowGroupModal(true); setShowMenu(false)}} className="p-3 text-left hover:bg-slate-50 dark:hover:bg-slate-700 rounded-lg text-sm font-bold">Create Group</button>
-                 <button onClick={()=>{setShowGallery(true); setShowMenu(false)}} className="p-3 text-left hover:bg-slate-50 dark:hover:bg-slate-700 rounded-lg text-sm font-bold">Gallery</button>
-                 <button onClick={()=>{setShowAccountSwitch(true); setShowMenu(false)}} className="p-3 text-left hover:bg-slate-50 dark:hover:bg-slate-700 rounded-lg text-sm font-bold">Switch Account</button>
-             </div>
-         )}
+      <div className="h-20 px-6 flex items-center justify-between shrink-0 bg-background-light/80 dark:bg-background-dark/80 backdrop-blur-md border-b border-gray-100 dark:border-border-dark sticky top-0 z-10">
+         <div>
+            <h2 className="text-xl font-bold tracking-tight">Messages</h2>
+            <p className="text-[10px] font-black uppercase text-primary tracking-[0.2em]">{chats.length} Active Conversations</p>
+         </div>
+         <div className="flex gap-2">
+            <button onClick={()=>setShowGroupModal(true)} className="p-2 bg-slate-100 dark:bg-slate-800 rounded-full hover:bg-primary hover:text-white transition-all">
+                <span className="material-symbols-outlined text-xl">add_comment</span>
+            </button>
+            <button onClick={()=>setShowMenu(!showMenu)} className="p-2 bg-slate-100 dark:bg-slate-800 rounded-full">
+                <span className="material-symbols-outlined text-xl">more_vert</span>
+            </button>
+         </div>
       </div>
 
-      <div className="flex-1 overflow-y-auto space-y-2 px-3 pb-24 no-scrollbar pt-2">
-        {loading ? <SidebarSkeleton /> : (
-            <>
-                {searchResults.chats.length === 0 && searchResults.users.length === 0 && (
-                    <div className="text-center py-10 text-slate-400 text-sm">No chats found.</div>
-                )}
-                {searchResults.chats.map(chat => {
-                    const info = getChatInfo(chat);
-                    const isActive = activeChatId === chat.id;
-                    const isPinned = pinnedChats.includes(chat.id);
-                    
-                    // Determine styling based on role
-                    let borderClass = 'border-2 border-transparent';
-                    if (info.userObj?.role === 'owner') borderClass = ROLE_STYLES.owner.border;
-                    else if (info.userObj?.role === 'admin') borderClass = ROLE_STYLES.admin.border;
+      {showMenu && (
+          <div className="absolute right-6 top-16 bg-white dark:bg-slate-900 shadow-2xl rounded-2xl p-2 z-50 w-48 border border-gray-100 dark:border-border-dark animate-in zoom-in-95">
+              <button onClick={()=>{setShowGallery(true); setShowMenu(false)}} className="w-full p-3 text-left hover:bg-slate-50 dark:hover:bg-slate-800 rounded-xl text-sm font-bold flex items-center gap-3">
+                  <span className="material-symbols-outlined text-lg">photo_library</span> Gallery
+              </button>
+              <button onClick={()=>{setShowAccountSwitch(true); setShowMenu(false)}} className="w-full p-3 text-left hover:bg-slate-50 dark:hover:bg-slate-800 rounded-xl text-sm font-bold flex items-center gap-3">
+                  <span className="material-symbols-outlined text-lg">sync_alt</span> Switch Account
+              </button>
+          </div>
+      )}
 
-                    return (
-                        <div key={chat.id} onClick={() => onChatSelect(chat)} className={`flex items-center gap-4 p-3.5 rounded-[1.2rem] cursor-pointer transition-all ${isActive ? 'bg-indigo-600 text-white shadow-lg' : 'hover:bg-slate-50 dark:hover:bg-slate-800/60'}`}>
-                            <div className="relative">
-                                <img src={info.photo} className={`w-12 h-12 rounded-full object-cover ${borderClass}`} alt="" />
-                                {info.userObj?.status === 'online' && !isActive && <div className="absolute bottom-0 right-0 w-3.5 h-3.5 bg-green-500 rounded-full border-2 border-white"></div>}
-                            </div>
-                            <div className="flex-1 min-w-0">
-                                <div className="flex justify-between">
-                                    <h4 className="font-bold text-[15px] truncate flex items-center gap-1">
-                                        {info.name}
-                                        {info.userObj?.role === 'owner' && <span className="text-[10px]">{ROLE_STYLES.owner.icon}</span>}
-                                    </h4>
-                                    <span className="text-[10px] opacity-70">{chat.lastMessage ? new Date(chat.lastMessage.timestamp).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'}) : ''}</span>
-                                </div>
-                                <div className="flex justify-between items-center">
-                                    <p className="text-[13px] truncate opacity-70">{chat.lastMessage?.text || 'No messages'}</p>
-                                    {isPinned && <span className="text-[10px]">📌</span>}
-                                </div>
-                            </div>
-                        </div>
-                    );
-                })}
-            </>
-        )}
+      {/* List */}
+      <div className="flex-1 overflow-y-auto px-4 py-2 space-y-2 no-scrollbar">
+          {searchResults.chats.map(chat => {
+              const info = getChatInfo(chat);
+              const isActive = activeChatId === chat.id;
+              const isPinned = pinnedChats.includes(chat.id);
+              
+              return (
+                  <div 
+                    key={chat.id} 
+                    onClick={() => onChatSelect(chat)} 
+                    className={`flex items-center gap-4 p-4 rounded-2xl cursor-pointer transition-all ${isActive ? 'bg-primary text-white shadow-lg shadow-primary/20' : 'hover:bg-white dark:hover:bg-card-dark border border-transparent hover:border-gray-100 dark:hover:border-border-dark'}`}
+                  >
+                      <div className="relative">
+                          <img src={info.photo} className="w-14 h-14 rounded-full object-cover border-2 border-white dark:border-slate-800 shadow-sm" alt="" />
+                          {info.userObj?.status === 'online' && <div className="absolute bottom-0 right-0 w-4 h-4 bg-green-500 rounded-full border-2 border-white dark:border-background-dark"></div>}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                          <div className="flex justify-between items-center mb-0.5">
+                              <h4 className="font-bold text-[15px] truncate">{info.name}</h4>
+                              <span className={`text-[10px] font-bold ${isActive ? 'text-white/80' : 'text-slate-400'}`}>
+                                  {chat.lastMessage ? new Date(chat.lastMessage.timestamp).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'}) : ''}
+                              </span>
+                          </div>
+                          <div className="flex items-center justify-between">
+                            <p className={`text-[13px] truncate ${isActive ? 'text-white/70' : 'text-slate-500'}`}>{chat.lastMessage?.text || 'Start chatting...'}</p>
+                            {isPinned && <span className="material-symbols-outlined text-sm rotate-45">push_pin</span>}
+                          </div>
+                      </div>
+                  </div>
+              );
+          })}
       </div>
 
       {showGroupModal && <CreateGroupModal currentUser={currentUser} onClose={() => setShowGroupModal(false)} onCreated={onChatSelect} />}

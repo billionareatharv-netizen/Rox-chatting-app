@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect } from 'react';
-import { User, Chat, Story, CallSession } from '../../types';
+import { User, Chat, Story, CallSession, Post } from '../../types';
 import { Sidebar } from './Sidebar';
 import { ChatWindow } from './ChatWindow';
 import { ProfilePanel } from './ProfilePanel';
@@ -61,16 +61,26 @@ export const ChatDashboard: React.FC<ChatDashboardProps> = ({ currentUser, toggl
     });
   };
 
-  const renderActiveView = () => {
+  // Main view switcher based on activeTab
+  const renderTabContent = () => {
     switch (activeTab) {
+      case 'home':
+        return (
+          <HomeFeed 
+            currentUser={currentUser}
+            onOpenDMs={() => setActiveTab('chats')}
+            onUploadPost={() => setShowStoryUpload(true)}
+            onOpenStory={setViewingStories}
+          />
+        );
       case 'chats':
         return (
-            <Sidebar 
-                currentUser={currentUser} 
-                onChatSelect={setSelectedChat} 
-                activeChatId={selectedChat?.id}
-                nicknames={nicknames}
-            />
+          <Sidebar 
+            currentUser={currentUser} 
+            onChatSelect={setSelectedChat} 
+            activeChatId={selectedChat?.id}
+            nicknames={nicknames}
+          />
         );
       case 'profile':
         return (
@@ -82,31 +92,37 @@ export const ChatDashboard: React.FC<ChatDashboardProps> = ({ currentUser, toggl
             isTabMode={true}
           />
         );
-      case 'home':
-      default:
+      case 'search':
         return (
-          <HomeFeed 
-            currentUser={currentUser}
-            onOpenDMs={() => setActiveTab('chats')}
-            onUploadPost={() => setShowStoryUpload(true)}
-            onOpenStory={setViewingStories}
-          />
+          <div className="flex-1 flex items-center justify-center p-8 text-center animate-in fade-in">
+             <div className="max-w-xs">
+                <span className="material-symbols-outlined text-6xl text-primary mb-4">explore</span>
+                <h2 className="text-xl font-bold">Explore Content</h2>
+                <p className="text-sm text-slate-500 mt-2">Search for creators and trending topics coming soon.</p>
+             </div>
+          </div>
         );
+      case 'reels':
+        return (
+          <div className="flex-1 flex items-center justify-center p-8 text-center animate-in fade-in">
+             <div className="max-w-xs">
+                <span className="material-symbols-outlined text-6xl text-primary mb-4">movie</span>
+                <h2 className="text-xl font-bold">Lumina Reels</h2>
+                <p className="text-sm text-slate-500 mt-2">Short-form video experience is being polished.</p>
+             </div>
+          </div>
+        );
+      default:
+        return null;
     }
   };
 
   return (
-    <div className="flex h-[100dvh] w-full bg-background-light dark:bg-background-dark transition-colors duration-300 overflow-hidden font-display">
-      {/* Desktop/Wide Chat Sidebar (Optional behavior) */}
-      <div className={`${(selectedChat || activeTab === 'chats') ? 'flex' : 'hidden lg:flex'} w-full lg:w-96 h-full shrink-0 border-r border-slate-200 dark:border-slate-800 z-20 flex-col bg-white dark:bg-card-dark`}>
-        <div className="flex-1 overflow-hidden flex flex-col relative">
-          {renderActiveView()}
-        </div>
-        <BottomNav activeTab={activeTab} onTabChange={setActiveTab} currentUser={currentUser} />
-      </div>
-
-      {/* Main Area (Post Feed or Active Chat) */}
-      <div className={`${(!selectedChat && activeTab !== 'chats') ? 'flex' : 'hidden lg:flex'} flex-1 h-full relative overflow-hidden bg-slate-100/30 dark:bg-slate-900/40`}>
+    <div className="flex flex-col h-[100dvh] w-full bg-background-light dark:bg-background-dark overflow-hidden font-display">
+      
+      {/* Top Main Content Area */}
+      <div className="flex-1 relative flex flex-col overflow-hidden">
+        {/* If a chat is selected, it covers the whole screen (Mobile) or stays relative */}
         {selectedChat ? (
           <ChatWindow 
             chat={selectedChat} 
@@ -117,12 +133,23 @@ export const ChatDashboard: React.FC<ChatDashboardProps> = ({ currentUser, toggl
             nicknames={nicknames}
           />
         ) : (
-          <div className="w-full h-full">
-            {activeTab !== 'chats' && <HomeFeed currentUser={currentUser} onOpenDMs={() => setActiveTab('chats')} onUploadPost={() => setShowStoryUpload(true)} onOpenStory={setViewingStories} />}
-          </div>
+          renderTabContent()
         )}
       </div>
 
+      {/* Global Bottom Navigation */}
+      {!selectedChat && (
+        <BottomNav 
+          activeTab={activeTab} 
+          onTabChange={(tab) => {
+            if (tab === 'add') setShowStoryUpload(true);
+            else setActiveTab(tab);
+          }} 
+          currentUser={currentUser} 
+        />
+      )}
+
+      {/* Modals & Overlays */}
       {showStoryUpload && <StoryUpload currentUser={currentUser} onClose={() => setShowStoryUpload(false)} />}
       {viewingStories && <StoryViewer stories={viewingStories} currentUser={currentUser} onClose={() => setViewingStories(null)} />}
       {viewingUser && <PublicProfile user={viewingUser} onClose={() => setViewingUser(null)} onCallStart={startCall} nickname={nicknames[viewingUser.uid]} />}
