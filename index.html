@@ -14,10 +14,10 @@
         theme: {
           extend: {
             colors: {
-              "primary": "#f20d80",
-              "background-light": "#f8f5f7",
-              "background-dark": "#0a0a0a",
-              "card-dark": "#1a1a1a",
+              "primary": "#330df2",
+              "background-light": "#f6f5f8",
+              "background-dark": "#0a090f",
+              "card-dark": "#1a1826",
               "border-dark": "#2d2d2d",
             },
             fontFamily: {
@@ -28,16 +28,6 @@
               "lg": "2rem",
               "xl": "3rem",
               "full": "9999px"
-            },
-            animation: {
-              'pulse-slow': 'pulse 4s cubic-bezier(0.4, 0, 0.6, 1) infinite',
-              'shimmer': 'shimmer 2.5s linear infinite',
-            },
-            keyframes: {
-              shimmer: {
-                '0%': { backgroundPosition: '-1000px 0' },
-                '100%': { backgroundPosition: '1000px 0' }
-              }
             }
           }
         }
@@ -57,20 +47,27 @@
         -ms-overflow-style: none;
         scrollbar-width: none;
       }
-      .gradient-border-btn {
-        position: relative;
-        background: #0a0a0a;
-        background-clip: padding-box;
-        border: 1px solid transparent;
+      .glass {
+        background: rgba(26, 24, 38, 0.7);
+        backdrop-filter: blur(12px);
+        -webkit-backdrop-filter: blur(12px);
+        border-top: 1px solid rgba(255, 255, 255, 0.05);
       }
-      .gradient-border-btn::before {
-        content: '';
-        position: absolute;
-        top: 0; right: 0; bottom: 0; left: 0;
-        z-index: -1;
-        margin: -1px;
-        border-radius: inherit;
-        background: linear-gradient(to right, #f20d80, transparent);
+      .header-glass {
+        background: rgba(10, 9, 15, 0.85);
+        backdrop-filter: blur(10px);
+        -webkit-backdrop-filter: blur(10px);
+        border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+      }
+      .message-gradient {
+        background: linear-gradient(135deg, #330df2 0%, #6d28d9 100%);
+      }
+      .glow-button {
+        box-shadow: 0 0 15px rgba(51, 13, 242, 0.4);
+      }
+      .bg-pattern {
+        background-image: radial-gradient(#1e1b2e 0.5px, transparent 0.5px);
+        background-size: 24px 24px;
       }
     </style>
   <script type="importmap">
