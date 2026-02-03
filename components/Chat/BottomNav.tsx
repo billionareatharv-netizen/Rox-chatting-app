@@ -5,44 +5,52 @@ import { NavTab } from './ChatDashboard';
 interface BottomNavProps {
   activeTab: NavTab;
   onTabChange: (tab: NavTab) => void;
+  currentUser: any;
 }
 
-export const BottomNav: React.FC<BottomNavProps> = ({ activeTab, onTabChange }) => {
+export const BottomNav: React.FC<BottomNavProps> = ({ activeTab, onTabChange, currentUser }) => {
   return (
-    <div className="h-20 bg-white dark:bg-slate-900 border-t border-slate-100 dark:border-slate-800 flex items-center justify-around px-4 sticky bottom-0 z-50">
-      <NavItem 
-        label="Chats" 
-        isActive={activeTab === 'chats'} 
-        onClick={() => onTabChange('chats')}
-        icon={<svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 10h.01M12 10h.01M16 10h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" /></svg>} 
-      />
-      <NavItem 
-        label="Status" 
-        isActive={activeTab === 'status'} 
-        onClick={() => onTabChange('status')}
-        icon={<svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" /></svg>} 
-      />
-      <NavItem 
-        label="Profile" 
-        isActive={activeTab === 'profile'} 
-        onClick={() => onTabChange('profile')}
-        icon={<svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" /></svg>} 
-      />
-    </div>
+    <nav className="fixed bottom-0 left-0 right-0 z-[60] pb-8 pt-3 px-6 bg-background-light/95 dark:bg-background-dark/95 backdrop-blur-xl border-t border-slate-200 dark:border-white/5 safe-area-bottom">
+        <div className="max-w-md mx-auto flex items-center justify-between">
+            <button 
+                onClick={() => onTabChange('home')}
+                className={`flex flex-col items-center gap-1 transition-all ${activeTab === 'home' ? 'text-primary' : 'opacity-40 text-slate-500 dark:text-white'}`}
+            >
+                <span className="material-symbols-outlined text-3xl" style={activeTab === 'home' ? { fontVariationSettings: "'FILL' 1" } : {}}>home</span>
+                {activeTab === 'home' && <div className="h-1 w-1 bg-primary rounded-full"></div>}
+            </button>
+
+            <button 
+                onClick={() => onTabChange('search')}
+                className={`flex flex-col items-center gap-1 transition-all ${activeTab === 'search' ? 'text-primary' : 'opacity-40 text-slate-500 dark:text-white'}`}
+            >
+                <span className="material-symbols-outlined text-3xl" style={activeTab === 'search' ? { fontVariationSettings: "'FILL' 1" } : {}}>search</span>
+            </button>
+
+            <button 
+                onClick={() => onTabChange('add')}
+                className="flex items-center justify-center bg-primary size-12 rounded-full shadow-lg shadow-primary/20 -mt-8 border-4 border-background-light dark:border-background-dark active:scale-90 transition-transform"
+            >
+                <span className="material-symbols-outlined text-white text-3xl font-bold">add</span>
+            </button>
+
+            <button 
+                onClick={() => onTabChange('reels')}
+                className={`flex flex-col items-center gap-1 transition-all ${activeTab === 'reels' ? 'text-primary' : 'opacity-40 text-slate-500 dark:text-white'}`}
+            >
+                <span className="material-symbols-outlined text-3xl" style={activeTab === 'reels' ? { fontVariationSettings: "'FILL' 1" } : {}}>video_library</span>
+            </button>
+
+            <button 
+                onClick={() => onTabChange('profile')}
+                className={`flex flex-col items-center gap-1 transition-all ${activeTab === 'profile' ? 'opacity-100' : 'opacity-40'}`}
+            >
+                <div 
+                    className={`w-8 h-8 rounded-full border-2 bg-center bg-cover ${activeTab === 'profile' ? 'border-primary shadow-lg' : 'border-slate-400 dark:border-white/40'}`}
+                    style={{ backgroundImage: `url("${currentUser.photoURL}")` }}
+                ></div>
+            </button>
+        </div>
+    </nav>
   );
 };
-
-const NavItem = ({ label, isActive, onClick, icon }: { label: string, isActive: boolean, onClick: () => void, icon: any }) => (
-  <button 
-    onClick={onClick}
-    className={`flex flex-col items-center gap-1.5 transition-all duration-300 relative py-1 px-4 rounded-2xl ${isActive ? 'text-indigo-600 dark:text-indigo-400' : 'text-slate-400 hover:text-slate-600'}`}
-  >
-    <div className={`transition-transform duration-300 ${isActive ? 'scale-110 -translate-y-0.5' : 'group-hover:scale-105'}`}>
-      {icon}
-    </div>
-    <span className={`text-[10px] font-black uppercase tracking-widest transition-opacity ${isActive ? 'opacity-100' : 'opacity-60'}`}>{label}</span>
-    {isActive && (
-      <div className="absolute -bottom-1 w-1.5 h-1.5 bg-indigo-600 rounded-full shadow-[0_0_10px_rgba(79,70,229,0.8)]"></div>
-    )}
-  </button>
-);

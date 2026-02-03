@@ -35,9 +35,9 @@ export interface Song {
   title: string;
   artist: string;
   url: string;
-  coverUrl?: string; // Optional album art
-  duration: number; // Total duration in seconds
-  category: string; // e.g. 'Trending', 'Love', 'Sad'
+  coverUrl?: string;
+  duration: number;
+  category: string;
   isActive: boolean;
 }
 
@@ -46,8 +46,8 @@ export interface MusicMetadata {
   url: string;
   title: string;
   artist: string;
-  startAt: number; // Timestamp to start playing from
-  duration: number; // How long to play (e.g. 15s)
+  startAt: number;
+  duration: number;
 }
 
 export interface User {
@@ -75,11 +75,25 @@ export interface User {
   };
   subscription?: UserSubscription;
   premiumCustomization?: PremiumCustomization;
-  // New: Wallpaper preferences
   wallpapers?: {
-    default?: string; // Global wallpaper
-    [chatId: string]: string | undefined; // Specific chat wallpapers
+    default?: string;
+    [chatId: string]: string | undefined;
   };
+}
+
+export interface Post {
+  id: string;
+  userId: string;
+  userName: string;
+  userPhoto: string;
+  mediaUrl: string;
+  mediaType: 'image' | 'video';
+  caption?: string;
+  location?: string;
+  timestamp: number;
+  likes: string[]; // UIDs
+  bookmarks: string[]; // UIDs
+  commentCount: number;
 }
 
 export type MessageType = 'text' | 'image' | 'video' | 'file' | 'voice' | 'story_reply' | 'note_reply' | 'deleted' | 'poll' | 'sticker' | 'system';

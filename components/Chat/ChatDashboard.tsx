@@ -8,7 +8,7 @@ import { StoryUpload } from './StoryUpload';
 import { StoryViewer } from './StoryViewer';
 import { PublicProfile } from './PublicProfile';
 import { CallModal } from './CallModal';
-import { StatusView } from './StatusView';
+import { HomeFeed } from './HomeFeed';
 import { BottomNav } from './BottomNav';
 import { initiateCall, getIncomingCall, getUserById, updateCallStatus, cleanOldCalls, subscribeToNicknames } from '../../firebase';
 
@@ -18,50 +18,37 @@ interface ChatDashboardProps {
   isDarkMode: boolean;
 }
 
-export type NavTab = 'chats' | 'status' | 'profile';
+export type NavTab = 'home' | 'search' | 'add' | 'reels' | 'profile' | 'chats';
 
 export const ChatDashboard: React.FC<ChatDashboardProps> = ({ currentUser, toggleDarkMode, isDarkMode }) => {
-  const [activeTab, setActiveTab] = useState<NavTab>('chats');
+  const [activeTab, setActiveTab] = useState<NavTab>('home');
   const [selectedChat, setSelectedChat] = useState<Chat | null>(null);
   const [showStoryUpload, setShowStoryUpload] = useState(false);
   const [viewingStories, setViewingStories] = useState<Story[] | null>(null);
   const [viewingUser, setViewingUser] = useState<User | null>(null);
   const [activeCall, setActiveCall] = useState<CallSession | null>(null);
-  
-  // Feature 3: Nicknames
   const [nicknames, setNicknames] = useState<Record<string, string>>({});
 
   useEffect(() => {
-    const unsub = subscribeToNicknames(currentUser.uid, (data) => {
-      setNicknames(data);
-    });
+    const unsub = subscribeToNicknames(currentUser.uid, (data) => setNicknames(data));
     return () => unsub();
   }, [currentUser.uid]);
 
-  // Poll for incoming calls
   useEffect(() => {
     const poll = async () => {
       cleanOldCalls();
       if (activeCall) return; 
-      
       const incoming = await getIncomingCall(currentUser.uid);
       if (incoming) {
         const caller = await getUserById(incoming.callerId);
         if (caller) {
           setActiveCall({
-            id: incoming.id,
-            partner: caller,
-            type: incoming.type,
-            callerId: incoming.callerId,
-            receiverId: incoming.receiverId,
-            status: incoming.status,
-            isIncoming: true,
-            timestamp: incoming.timestamp
+            id: incoming.id, partner: caller, type: incoming.type, callerId: incoming.callerId,
+            receiverId: incoming.receiverId, status: incoming.status, isIncoming: true, timestamp: incoming.timestamp
           });
         }
       }
     };
-    
     const itv = setInterval(poll, 3000);
     return () => clearInterval(itv);
   }, [currentUser.uid, activeCall]);
@@ -69,73 +56,57 @@ export const ChatDashboard: React.FC<ChatDashboardProps> = ({ currentUser, toggl
   const startCall = async (user: User, type: 'voice' | 'video') => {
     const call = await initiateCall(currentUser.uid, user.uid, type);
     setActiveCall({ 
-      id: call.id,
-      partner: user, 
-      type, 
-      callerId: currentUser.uid,
-      receiverId: user.uid,
-      status: 'ringing',
-      isIncoming: false,
-      timestamp: call.timestamp
+      id: call.id, partner: user, type, callerId: currentUser.uid, receiverId: user.uid,
+      status: 'ringing', isIncoming: false, timestamp: call.timestamp
     });
-  };
-
-  const handleCallEnd = async () => {
-    if (activeCall) {
-      await updateCallStatus(activeCall.id, 'ended');
-      setActiveCall(null);
-    }
   };
 
   const renderActiveView = () => {
     switch (activeTab) {
-      case 'status':
+      case 'chats':
         return (
-          <StatusView 
-            currentUser={currentUser}
-            onStoryUpload={() => setShowStoryUpload(true)}
-            onStoryView={setViewingStories}
-            onChatSelect={(chat) => {
-              setSelectedChat(chat);
-              setActiveTab('chats');
-            }}
-          />
+            <Sidebar 
+                currentUser={currentUser} 
+                onChatSelect={setSelectedChat} 
+                activeChatId={selectedChat?.id}
+                nicknames={nicknames}
+            />
         );
       case 'profile':
         return (
           <ProfilePanel 
             user={currentUser} 
-            onClose={() => setActiveTab('chats')} 
+            onClose={() => setActiveTab('home')} 
             toggleDarkMode={toggleDarkMode}
             isDarkMode={isDarkMode}
             isTabMode={true}
           />
         );
-      case 'chats':
+      case 'home':
       default:
         return (
-          <Sidebar 
-            currentUser={currentUser} 
-            onChatSelect={setSelectedChat} 
-            activeChatId={selectedChat?.id}
-            nicknames={nicknames}
+          <HomeFeed 
+            currentUser={currentUser}
+            onOpenDMs={() => setActiveTab('chats')}
+            onUploadPost={() => setShowStoryUpload(true)}
+            onOpenStory={setViewingStories}
           />
         );
     }
   };
 
   return (
-    <div className="flex h-[100dvh] w-full bg-slate-50 dark:bg-slate-950 transition-colors duration-300 overflow-hidden">
-      {/* Sidebar/Main Navigation Area */}
-      <div className={`${selectedChat ? 'hidden lg:flex' : 'flex'} w-full lg:w-96 h-full shrink-0 border-r border-slate-200 dark:border-slate-800 shadow-xl z-20 flex-col bg-white dark:bg-slate-900`}>
+    <div className="flex h-[100dvh] w-full bg-background-light dark:bg-background-dark transition-colors duration-300 overflow-hidden font-display">
+      {/* Desktop/Wide Chat Sidebar (Optional behavior) */}
+      <div className={`${(selectedChat || activeTab === 'chats') ? 'flex' : 'hidden lg:flex'} w-full lg:w-96 h-full shrink-0 border-r border-slate-200 dark:border-slate-800 z-20 flex-col bg-white dark:bg-card-dark`}>
         <div className="flex-1 overflow-hidden flex flex-col relative">
           {renderActiveView()}
         </div>
-        <BottomNav activeTab={activeTab} onTabChange={setActiveTab} />
+        <BottomNav activeTab={activeTab} onTabChange={setActiveTab} currentUser={currentUser} />
       </div>
 
-      {/* Main Chat Area */}
-      <div className={`${!selectedChat ? 'hidden lg:flex' : 'flex'} flex-1 h-full relative overflow-hidden bg-slate-100/30 dark:bg-slate-900/40`}>
+      {/* Main Area (Post Feed or Active Chat) */}
+      <div className={`${(!selectedChat && activeTab !== 'chats') ? 'flex' : 'hidden lg:flex'} flex-1 h-full relative overflow-hidden bg-slate-100/30 dark:bg-slate-900/40`}>
         {selectedChat ? (
           <ChatWindow 
             chat={selectedChat} 
@@ -146,56 +117,16 @@ export const ChatDashboard: React.FC<ChatDashboardProps> = ({ currentUser, toggl
             nicknames={nicknames}
           />
         ) : (
-          <div className="hidden lg:flex flex-1 flex-col items-center justify-center p-8 text-center h-full relative">
-            <div className="absolute inset-0 opacity-5 dark:opacity-[0.02] pointer-events-none overflow-hidden">
-                <svg className="w-full h-full" viewBox="0 0 100 100" preserveAspectRatio="none">
-                    <path d="M0,0 L100,100 M100,0 L0,100" stroke="currentColor" strokeWidth="0.1" fill="none" />
-                </svg>
-            </div>
-            <div className="w-32 h-32 bg-indigo-500/10 dark:bg-indigo-500/5 rounded-full flex items-center justify-center mb-8 animate-float">
-              <svg className="w-16 h-16 text-indigo-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.2" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
-              </svg>
-            </div>
-            <h2 className="text-3xl font-extrabold mb-3 bg-clip-text text-transparent bg-gradient-to-r from-indigo-500 to-purple-600">Connect instantly.</h2>
-            <p className="text-slate-500 dark:text-slate-400 max-w-sm text-lg font-medium leading-relaxed">
-              Select a conversation to start chatting, or explore recent stories from your contacts.
-            </p>
+          <div className="w-full h-full">
+            {activeTab !== 'chats' && <HomeFeed currentUser={currentUser} onOpenDMs={() => setActiveTab('chats')} onUploadPost={() => setShowStoryUpload(true)} onOpenStory={setViewingStories} />}
           </div>
         )}
       </div>
 
-      {/* Overlays */}
-      {showStoryUpload && (
-        <StoryUpload 
-          currentUser={currentUser} 
-          onClose={() => setShowStoryUpload(false)} 
-        />
-      )}
-
-      {viewingStories && (
-        <StoryViewer 
-          stories={viewingStories} 
-          currentUser={currentUser}
-          onClose={() => setViewingStories(null)} 
-        />
-      )}
-
-      {viewingUser && (
-        <PublicProfile 
-          user={viewingUser} 
-          onClose={() => setViewingUser(null)} 
-          onCallStart={startCall}
-          nickname={nicknames[viewingUser.uid]}
-        />
-      )}
-
-      {activeCall && (
-        <CallModal 
-          session={activeCall}
-          onHangUp={handleCallEnd} 
-        />
-      )}
+      {showStoryUpload && <StoryUpload currentUser={currentUser} onClose={() => setShowStoryUpload(false)} />}
+      {viewingStories && <StoryViewer stories={viewingStories} currentUser={currentUser} onClose={() => setViewingStories(null)} />}
+      {viewingUser && <PublicProfile user={viewingUser} onClose={() => setViewingUser(null)} onCallStart={startCall} nickname={nicknames[viewingUser.uid]} />}
+      {activeCall && <CallModal session={activeCall} onHangUp={() => setActiveCall(null)} />}
     </div>
   );
 };

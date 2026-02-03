@@ -1,7 +1,7 @@
-
 import React, { useState, useRef, useEffect, memo } from 'react';
 import { Message, User } from '../../types';
-import { toggleMessageReaction, voteOnPoll, auth } from '../../firebase';
+// Fixed: Removed non-existent export 'voteOnPoll' from firebase imports
+import { toggleMessageReaction, auth } from '../../firebase';
 import { ROLE_STYLES } from '../../premiumUtils';
 
 interface MessageBubbleProps {
