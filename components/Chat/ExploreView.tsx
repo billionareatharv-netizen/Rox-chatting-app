@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
 import { User, Post } from '../../types';
-import { getFeedPosts } from '../../firebase';
+import { getFeedPosts, getAllUsers } from '../../firebase';
 
 interface ExploreViewProps {
   currentUser: User;
@@ -28,29 +28,52 @@ const DISCOVERY_MOCK: DiscoveryItem[] = [
     { id: 'd6', type: 'image', category: 'Fashion', title: 'Minimalist Watch', likes: '1.2k', url: 'https://lh3.googleusercontent.com/aida-public/AB6AXuADnR8RVB9pUgs0hwQZSLhUjCONnE5MRO1gf-U07cbAWEoo6d7bPtnrDEHylv-OguHC20OnvZ6wjlmIXPtUQtVJJpazki-_n4wkdNvD8CHVfCJZpPVt20IOElY-dHOlLLB5VqhkItqpWrEg3kcLkJ_JftgwFQza2fHHPIznehyuWCcA_IaLQklpazQlTuKxgJ32Zl_JOPUDmp2m1xo09KDrfzTceXDn5i4zJ5pV7_jMvi9Y8Rto_s3J94DQG0Ef4b0g5G9najID' }
 ];
 
-const CATEGORIES = ['Architecture', 'Travel', 'Art', 'Tech', 'Fashion', 'Cuisine'];
+const CATEGORIES = ['All', 'Architecture', 'Travel', 'Art', 'Tech', 'Fashion', 'Cuisine'];
 
 export const ExploreView: React.FC<ExploreViewProps> = ({ currentUser, onOpenProfile }) => {
   const [searchTerm, setSearchTerm] = useState('');
-  const [activeCategory, setActiveCategory] = useState('Architecture');
+  const [activeCategory, setActiveCategory] = useState('All');
   const [realPosts, setRealPosts] = useState<Post[]>([]);
+  const [allUsers, setAllUsers] = useState<User[]>([]);
 
   useEffect(() => {
     getFeedPosts().then(setRealPosts);
+    getAllUsers().then(setAllUsers);
   }, []);
 
   const filteredDiscovery = useMemo(() => {
     return DISCOVERY_MOCK.filter(item => {
         const matchesCategory = activeCategory === 'All' || item.category === activeCategory;
-        const matchesSearch = item.title.toLowerCase().includes(searchTerm.toLowerCase());
-        return matchesCategory && matchesSearch;
+        const matchesSearch = item.title.toLowerCase().includes(searchTerm.toLowerCase()) || 
+                             item.category.toLowerCase().includes(searchTerm.toLowerCase());
+        return matchesCategory && (searchTerm === '' || matchesSearch);
     });
   }, [activeCategory, searchTerm]);
+
+  const searchedUsers = useMemo(() => {
+    if (searchTerm.trim().length === 0) return [];
+    const term = searchTerm.toLowerCase();
+    return allUsers.filter(u => 
+        u.name.toLowerCase().includes(term) || 
+        u.email.toLowerCase().includes(term) ||
+        (u.username && u.username.toLowerCase().includes(term))
+    );
+  }, [searchTerm, allUsers]);
+
+  const searchedPosts = useMemo(() => {
+    if (searchTerm.trim().length === 0) return realPosts;
+    const term = searchTerm.toLowerCase();
+    return realPosts.filter(p => 
+        (p.caption && p.caption.toLowerCase().includes(term)) || 
+        p.userName.toLowerCase().includes(term) ||
+        (p.location && p.location.toLowerCase().includes(term))
+    );
+  }, [searchTerm, realPosts]);
 
   return (
     <div className="flex-1 flex flex-col bg-background-light dark:bg-[#121212] overflow-hidden animate-in fade-in transition-colors duration-300">
         
-        {/* Top App Bar - Simplified without simulated status bars */}
+        {/* Top App Bar */}
         <header className="flex items-center justify-between px-6 pt-6 pb-2 sticky top-0 z-50 bg-background-light/80 dark:bg-[#121212]/80 backdrop-blur-md">
             <h1 className="text-2xl font-black tracking-tighter text-slate-900 dark:text-white uppercase">Explore</h1>
             <div className="flex items-center gap-4">
@@ -77,24 +100,59 @@ export const ExploreView: React.FC<ExploreViewProps> = ({ currentUser, onOpenPro
                     placeholder="Search creators, trends, and art" 
                     type="text"
                 />
+                {searchTerm && (
+                    <button 
+                        onClick={() => setSearchTerm('')}
+                        className="absolute right-4 text-slate-400"
+                    >
+                        <span className="material-symbols-outlined text-xl">close</span>
+                    </button>
+                )}
             </label>
         </div>
 
-        {/* Category Chips */}
-        <div className="flex gap-3 px-6 py-2 overflow-x-auto no-scrollbar">
-            {CATEGORIES.map(cat => (
-                <button 
-                    key={cat}
-                    onClick={() => setActiveCategory(cat)}
-                    className={`flex h-11 shrink-0 items-center justify-center gap-x-2 rounded-full px-6 transition-all font-black text-xs uppercase tracking-widest ${activeCategory === cat ? 'bg-primary text-white shadow-lg shadow-primary/30' : 'bg-slate-200 dark:bg-white/10 text-slate-600 dark:text-white/80 hover:bg-slate-300 dark:hover:bg-white/20'}`}
-                >
-                    {cat}
-                </button>
-            ))}
-        </div>
+        {/* Category Chips - Hide when searching for users */}
+        {!searchTerm && (
+            <div className="flex gap-3 px-6 py-2 overflow-x-auto no-scrollbar">
+                {CATEGORIES.map(cat => (
+                    <button 
+                        key={cat}
+                        onClick={() => setActiveCategory(cat)}
+                        className={`flex h-11 shrink-0 items-center justify-center gap-x-2 rounded-full px-6 transition-all font-black text-xs uppercase tracking-widest ${activeCategory === cat ? 'bg-primary text-white shadow-lg shadow-primary/30' : 'bg-slate-200 dark:bg-white/10 text-slate-600 dark:text-white/80 hover:bg-slate-300 dark:hover:bg-white/20'}`}
+                    >
+                        {cat}
+                    </button>
+                ))}
+            </div>
+        )}
 
-        {/* Masonry Grid Layout */}
-        <main className="flex-1 overflow-y-auto px-4 py-6 mb-24 no-scrollbar">
+        {/* Main Content Area */}
+        <main className="flex-1 overflow-y-auto px-4 py-2 mb-24 no-scrollbar">
+            
+            {/* User Search Results */}
+            {searchTerm && searchedUsers.length > 0 && (
+                <section className="mb-6 animate-in slide-in-from-top-4">
+                    <h2 className="px-2 mb-4 text-[11px] font-black uppercase text-primary tracking-[0.2em]">Users</h2>
+                    <div className="flex flex-col gap-2">
+                        {searchedUsers.map(user => (
+                            <div 
+                                key={user.uid} 
+                                onClick={() => onOpenProfile(user)}
+                                className="flex items-center gap-4 p-3 bg-white dark:bg-white/5 rounded-2xl border border-slate-100 dark:border-white/10 cursor-pointer active:scale-[0.98] transition-all"
+                            >
+                                <img src={user.photoURL} className="size-12 rounded-full object-cover border-2 border-primary/20" alt="" />
+                                <div className="flex-1 min-w-0">
+                                    <h3 className="font-bold text-sm truncate text-slate-900 dark:text-white">{user.name}</h3>
+                                    <p className="text-[10px] text-slate-500 font-medium truncate">@{user.username || user.email.split('@')[0]}</p>
+                                </div>
+                                <span className="material-symbols-outlined text-slate-400">chevron_right</span>
+                            </div>
+                        ))}
+                    </div>
+                </section>
+            )}
+
+            {/* Masonry Grid Layout */}
             <div className="grid grid-cols-2 gap-3 auto-rows-[160px]">
                 {filteredDiscovery.map(item => (
                     <div 
@@ -130,10 +188,10 @@ export const ExploreView: React.FC<ExploreViewProps> = ({ currentUser, onOpenPro
                 ))}
 
                 {/* Real User Posts Integration */}
-                {searchTerm === '' && realPosts.map(post => (
+                {searchedPosts.map(post => (
                     <div 
                         key={post.id}
-                        className="relative overflow-hidden rounded-3xl bg-slate-800 group cursor-pointer transition-transform active:scale-95"
+                        className="relative overflow-hidden rounded-3xl bg-slate-800 group cursor-pointer transition-transform active:scale-95 animate-in fade-in zoom-in-95"
                     >
                         <div 
                             className="absolute inset-0 bg-cover bg-center"
@@ -148,7 +206,7 @@ export const ExploreView: React.FC<ExploreViewProps> = ({ currentUser, onOpenPro
                 ))}
             </div>
 
-            {filteredDiscovery.length === 0 && (
+            {searchedPosts.length === 0 && filteredDiscovery.length === 0 && searchedUsers.length === 0 && (
                 <div className="flex flex-col items-center justify-center py-32 opacity-40 text-slate-500">
                     <span className="material-symbols-outlined text-7xl mb-4">search_off</span>
                     <p className="font-black uppercase tracking-[0.2em] text-xs">No matches found</p>

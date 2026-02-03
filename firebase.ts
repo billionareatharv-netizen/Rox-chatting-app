@@ -1,5 +1,4 @@
 
-// ... existing imports ...
 import { initializeApp } from "firebase/app";
 import { 
   getAuth, 
@@ -40,10 +39,24 @@ import {
   getDownloadURL, 
   deleteObject 
 } from "firebase/storage";
-import { UserSubscription, PremiumCustomization, PlanType, UserRole, StoreItem, Song, Post } from './types';
+// Fix: Added missing types (User, Chat, Message, Story, Note, SavedMedia) to the imports from types.ts
+import { 
+  UserSubscription, 
+  PremiumCustomization, 
+  PlanType, 
+  UserRole, 
+  StoreItem, 
+  Song, 
+  Post,
+  User,
+  Chat,
+  Message,
+  Story,
+  Note,
+  SavedMedia
+} from './types';
 import { calculateExpiry, getPlanDetails } from './premiumUtils';
 
-// ... existing config and initialization ...
 const firebaseConfig = {
   apiKey: "AIzaSyBIsKjnvYeIOBK2E1sYxwBnfsBhGTilKa0",
   authDomain: "roxx-chats-final.firebaseapp.com",
@@ -85,7 +98,6 @@ try {
 
 export { auth, db, storage };
 
-// ... existing helper functions (sanitizeData, generateUUID, etc) ...
 const generateUUID = () => {
   return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
     var r = Math.random() * 16 | 0, v = c == 'x' ? r : (r & 0x3 | 0x8);
@@ -119,7 +131,6 @@ export const observeAuthState = (callback: (user: any) => void) => {
   return onAuthStateChanged(auth, callback);
 };
 
-// ... existing Auth & User functions ...
 export const updateUserStatus = async (uid: string, status: 'online' | 'offline') => {
   try { await updateDoc(doc(db, "users", uid), { status: status, lastSeen: Date.now() }); } catch (e) { }
 };
@@ -219,8 +230,6 @@ export const updatePrivacySettings = async (userId: string, settings: any) => {
     await updateDoc(doc(db, "users", userId), { privacySettings: settings });
 };
 
-// --- NEW: POSTS COLLECTION FUNCTIONS ---
-
 export const addPost = async (post: Omit<Post, 'id' | 'likes' | 'bookmarks' | 'commentCount'>) => {
   const postId = 'post_' + generateUUID();
   const fullPost: Post = {
@@ -238,6 +247,13 @@ export const getFeedPosts = async () => {
   const q = query(collection(db, "posts"), orderBy("timestamp", "desc"), limit(20));
   const snapshot = await getDocs(q);
   return snapshot.docs.map(d => d.data() as Post);
+};
+
+export const subscribeToPosts = (callback: (posts: Post[]) => void) => {
+  const q = query(collection(db, "posts"), orderBy("timestamp", "desc"), limit(20));
+  return onSnapshot(q, (snapshot) => {
+    callback(snapshot.docs.map(d => d.data() as Post));
+  });
 };
 
 export const toggleLikePost = async (postId: string, userId: string) => {
@@ -260,7 +276,6 @@ export const toggleBookmarkPost = async (postId: string, userId: string) => {
   }
 };
 
-// ... existing Stories, Music, Chat functions (omitted for brevity, keep all) ...
 export const activateSubscription = async (userId: string, planId: PlanType) => {
     const plan = getPlanDetails(planId);
     if (!plan) return;
@@ -309,12 +324,12 @@ export const admin_deleteSong = async (songId: string) => {
 
 export const getAllUsers = async () => {
   const querySnapshot = await getDocs(collection(db, "users"));
-  return querySnapshot.docs.map(doc => doc.data()).filter((u: any) => !u.isGloballyBlocked);
+  return querySnapshot.docs.map(doc => doc.data() as User).filter((u: any) => !u.isGloballyBlocked);
 };
 
 export const getUserById = async (uid: string) => {
   const snap = await getDoc(doc(db, "users", uid));
-  return snap.exists() ? snap.data() : null;
+  return snap.exists() ? snap.data() as User : null;
 };
 
 export const subscribeToUser = (uid: string, callback: (user: any) => void) => {
@@ -336,13 +351,13 @@ export const subscribeToNicknames = (myUid: string, callback: (nicknames: Record
 
 export const getMyChats = async (uid: string) => {
   const querySnapshot = await getDocs(collection(db, "chats"));
-  return querySnapshot.docs.map(doc => doc.data()).filter((c: any) => c.participants && c.participants.includes(uid))
+  return querySnapshot.docs.map(doc => doc.data() as Chat).filter((c: any) => c.participants && c.participants.includes(uid))
                  .sort((a: any, b: any) => (b.updatedAt || 0) - (a.updatedAt || 0));
 };
 
 export const getMessages = async (chatId: string, viewingAsAdmin: boolean = false) => {
   const snapshot = await getDocs(collection(db, "messages"));
-  const allMsgs = snapshot.docs.map(doc => doc.data());
+  const allMsgs = snapshot.docs.map(doc => doc.data() as Message);
   const currentUid = auth.currentUser?.uid;
   let filteredMsgs;
   if (chatId.startsWith('group_')) filteredMsgs = allMsgs.filter((m: any) => m.recipientId === chatId);
@@ -467,7 +482,7 @@ export const initiateCall = async (callerId: string, receiverId: string, type: '
 export const getIncomingCall = async (userId: string) => {
   const q = query(collection(db, "calls"), where("receiverId", "==", userId), where("status", "==", "ringing"));
   const snapshot = await getDocs(q);
-  return snapshot.docs.map(doc => doc.data()).sort((a: any, b: any) => b.timestamp - a.timestamp)[0];
+  return snapshot.docs.map(doc => doc.data() as any).sort((a: any, b: any) => b.timestamp - a.timestamp)[0];
 };
 
 export const updateCallStatus = async (callId: string, status: string) => {
@@ -500,7 +515,7 @@ export const addStory = async (story: any) => {
 export const getStories = async () => {
   const yesterday = Date.now() - 86400000;
   const snapshot = await getDocs(query(collection(db, "stories"), where("timestamp", ">", yesterday)));
-  return snapshot.docs.map(doc => doc.data());
+  return snapshot.docs.map(doc => doc.data() as Story);
 };
 export const viewStory = async (storyId: string, userId: string, userName: string) => {
   await updateDoc(doc(db, "stories", storyId), { views: arrayUnion({ userId, userName, timestamp: Date.now() }) });
@@ -531,7 +546,7 @@ export const addNote = async (userId: string, userName: string, userPhoto: strin
 export const getNotes = async () => {
   const yesterday = Date.now() - 86400000;
   const snapshot = await getDocs(query(collection(db, "notes"), where("timestamp", ">", yesterday)));
-  return snapshot.docs.map(doc => doc.data());
+  return snapshot.docs.map(doc => doc.data() as Note);
 };
 
 export const sendNoteReply = async (rid: string, sid: string, text: string, note: any) => {
@@ -547,7 +562,7 @@ export const saveMediaToGallery = async (userId: string, mediaUrl: string, media
 
 export const getSavedGallery = async (userId: string) => {
   const snapshot = await getDocs(query(collection(db, "saved_media"), where("userId", "==", userId)));
-  return snapshot.docs.map(doc => doc.data()).sort((a: any, b: any) => b.savedAt - a.savedAt);
+  return snapshot.docs.map(doc => doc.data() as SavedMedia).sort((a: any, b: any) => b.savedAt - a.savedAt);
 };
 
 export const deleteSavedMedia = async (id: string) => { await deleteDoc(doc(db, "saved_media", id)); };

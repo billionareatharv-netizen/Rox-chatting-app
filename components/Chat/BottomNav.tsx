@@ -35,10 +35,11 @@ export const BottomNav: React.FC<BottomNavProps> = ({ activeTab, onTabChange, cu
             </button>
 
             <button 
-                onClick={() => onTabChange('reels')}
-                className={`flex flex-col items-center gap-1 transition-all ${activeTab === 'reels' ? 'text-primary' : 'opacity-40 text-slate-500 dark:text-white'}`}
+                onClick={() => onTabChange('activity')}
+                className={`flex flex-col items-center gap-1 transition-all ${activeTab === 'activity' ? 'text-primary' : 'opacity-40 text-slate-500 dark:text-white'}`}
             >
-                <span className="material-symbols-outlined text-3xl" style={activeTab === 'reels' ? { fontVariationSettings: "'FILL' 1" } : {}}>video_library</span>
+                <span className="material-symbols-outlined text-3xl" style={activeTab === 'activity' ? { fontVariationSettings: "'FILL' 1" } : {}}>favorite</span>
+                {activeTab === 'activity' && <div className="h-1 w-1 bg-primary rounded-full"></div>}
             </button>
 
             <button 

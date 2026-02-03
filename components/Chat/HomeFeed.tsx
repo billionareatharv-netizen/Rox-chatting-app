@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { Post, User, Story } from '../../types';
-import { getFeedPosts, toggleLikePost, toggleBookmarkPost, getStories } from '../../firebase';
+import { toggleLikePost, toggleBookmarkPost, getStories, subscribeToPosts } from '../../firebase';
 
 interface HomeFeedProps {
   currentUser: User;
@@ -16,20 +16,25 @@ export const HomeFeed: React.FC<HomeFeedProps> = ({ currentUser, onOpenDMs, onUp
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const load = async () => {
-      const [feed, activeStories] = await Promise.all([
-        getFeedPosts(),
-        getStories()
-      ]);
-      setPosts(feed);
+    // Subscribe to posts for real-time updates
+    const unsubPosts = subscribeToPosts((updatedPosts) => {
+        setPosts(updatedPosts);
+        setLoading(false);
+    });
+
+    const loadStories = async () => {
+      const activeStories = await getStories();
       setStories(activeStories);
-      setLoading(false);
     };
-    load();
+    loadStories();
+
+    return () => unsubPosts();
   }, []);
 
   const handleLike = async (postId: string) => {
     await toggleLikePost(postId, currentUser.uid);
+    // Real-time listener will update the state naturally, 
+    // but optimistic update improves UX
     setPosts(prev => prev.map(p => {
         if(p.id === postId) {
             const isLiked = p.likes.includes(currentUser.uid);
@@ -125,13 +130,13 @@ export const HomeFeed: React.FC<HomeFeedProps> = ({ currentUser, onOpenDMs, onUp
                     </div>
                 ) : (
                     posts.map(post => (
-                        <article key={post.id} className="relative w-full @container">
+                        <article key={post.id} className="relative w-full @container animate-in slide-in-from-bottom-5">
                             {/* Post Header Overlay */}
                             <div className="absolute top-0 left-0 right-0 z-10 p-4 flex items-center justify-between bg-gradient-to-b from-black/50 to-transparent">
                                 <div className="flex items-center gap-3">
-                                    <img src={post.userPhoto} className="w-10 h-10 rounded-full border border-white/20 object-cover" alt="" />
+                                    <img src={post.userPhoto} className="w-10 h-10 rounded-full border border-white/20 object-cover shadow-lg" alt="" />
                                     <div className="flex flex-col">
-                                        <span className="text-sm font-bold text-white leading-none">{post.userName}</span>
+                                        <span className="text-sm font-bold text-white leading-none shadow-sm">{post.userName}</span>
                                         <span className="text-[10px] text-white/70 flex items-center gap-1">
                                             <span className="material-symbols-outlined text-[10px]">location_on</span> {post.location || 'Unknown'}
                                         </span>
@@ -151,7 +156,7 @@ export const HomeFeed: React.FC<HomeFeedProps> = ({ currentUser, onOpenDMs, onUp
                                 )}
                             </div>
 
-                            {/* Glass Interaction Bar */}
+                            {/* Interaction Bar */}
                             <div className="absolute bottom-4 left-4 right-4 z-10">
                                 <div className="bg-black/40 backdrop-blur-xl border border-white/10 rounded-xl p-3 flex flex-col gap-3">
                                     <div className="flex items-center justify-between w-full">
