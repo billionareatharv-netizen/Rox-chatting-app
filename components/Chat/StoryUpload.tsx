@@ -29,11 +29,16 @@ export const StoryUpload: React.FC<StoryUploadProps> = ({ currentUser, onClose }
   const [isUploading, setIsUploading] = useState(false);
   const [showMusicPicker, setShowMusicPicker] = useState(false);
   const [selectedMusic, setSelectedMusic] = useState<MusicMetadata | null>(null);
+
+  // Feature Toggles (Visual Feedback)
+  const [flashOn, setFlashOn] = useState(false);
+  const [timerOn, setTimerOn] = useState(false);
+  const [magicOn, setMagicOn] = useState(false);
   
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // File size limit detection
-  const isApp = window.matchMedia('(display-mode: standalone)').matches || (window.navigator as any).standalone;
+  // File size limit logic: standalone detection
+  const isApp = window.matchMedia('(display-mode: standalone)').matches || (window.navigator as any).standalone === true;
   const MAX_SIZE_MB = isApp ? 150 : 15;
 
   useEffect(() => {
@@ -63,9 +68,6 @@ export const StoryUpload: React.FC<StoryUploadProps> = ({ currentUser, onClose }
     if (!file || !preview) return;
     setIsUploading(true);
     try {
-      // In a real app, you'd upload to Firebase Storage and get a URL. 
-      // Here we use the Base64/DataURL for logic as per previous implementation 
-      // but strictly adhering to the "fully functional" request.
       const reader = new FileReader();
       reader.readAsDataURL(file);
       reader.onload = async () => {
@@ -92,121 +94,126 @@ export const StoryUpload: React.FC<StoryUploadProps> = ({ currentUser, onClose }
             mediaUrl: mediaData,
             mediaType: mediaType!,
             caption,
-            location: 'Default Location',
+            location: 'ROXX Universe',
             timestamp: Date.now()
           });
         }
         onClose();
       };
     } catch (e) {
-      alert("Failed to upload. Media might be too large for storage.");
+      alert("Failed to upload. Media might be too large.");
     } finally {
       setIsUploading(false);
     }
   };
 
   return (
-    <div className="fixed inset-0 z-[500] bg-black text-white font-display overflow-hidden animate-in fade-in flex flex-col">
+    <div className="fixed inset-0 z-[500] bg-black text-white font-display overflow-hidden animate-in fade-in flex flex-col h-[100dvh]">
       <input type="file" ref={fileInputRef} onChange={handleFileChange} accept="image/*,video/*" className="hidden" />
 
-      {/* Viewfinder / Preview */}
-      <div className="absolute inset-0 z-0">
+      {/* Camera Viewfinder Background */}
+      <div className="absolute inset-0 z-0 overflow-hidden bg-slate-900">
         {preview ? (
-            <div className={`w-full h-full relative overflow-hidden flex items-center justify-center ${selectedFilter.class}`}>
+            <div className={`w-full h-full relative transition-all duration-500 ${selectedFilter.class}`}>
                 {mediaType === 'video' ? (
                     <video src={preview} className="w-full h-full object-cover" autoPlay muted loop playsInline />
                 ) : (
                     <img src={preview} className="w-full h-full object-cover" alt="Preview" />
                 )}
-                <div className="absolute inset-0 bg-black/20 pointer-events-none"></div>
+                <div className="absolute inset-0 bg-black/10 pointer-events-none"></div>
             </div>
         ) : (
-            <div className="w-full h-full bg-slate-900 flex items-center justify-center">
-                <div className="text-center opacity-40">
-                    <span className="material-symbols-outlined text-8xl mb-4">camera</span>
-                    <p className="font-bold tracking-widest uppercase">Viewfinder Ready</p>
-                </div>
+            <div className="w-full h-full flex flex-col items-center justify-center opacity-30 gap-4">
+                <span className="material-symbols-outlined text-8xl">camera_enhance</span>
+                <p className="font-black tracking-[0.3em] uppercase text-sm">Viewfinder Ready</p>
             </div>
         )}
       </div>
 
-      {/* Top Controls */}
-      <div className="relative z-10 flex items-center justify-between p-6 pt-12">
-        <button onClick={onClose} className="flex items-center justify-center size-10 rounded-full bg-black/40 backdrop-blur-xl text-white transition-transform active:scale-90">
+      {/* Top Controls Overlay - No simulated iOS bars */}
+      <div className="relative z-10 flex items-center justify-between p-6 pt-10">
+        <button 
+            onClick={onClose} 
+            className="flex items-center justify-center size-12 rounded-full bg-black/40 backdrop-blur-xl border border-white/10 text-white transition-all active:scale-90"
+        >
             <span className="material-symbols-outlined">close</span>
         </button>
         <div className="flex gap-2">
-            <button className="flex items-center justify-center size-10 rounded-full bg-black/40 backdrop-blur-xl text-white">
+            <button className="flex items-center justify-center size-12 rounded-full bg-black/40 backdrop-blur-xl border border-white/10 text-white active:bg-white/20">
                 <span className="material-symbols-outlined">settings</span>
             </button>
         </div>
       </div>
 
-      {/* Right Toolbar */}
+      {/* Floating Vertical Toolbar (Right Side) */}
       <div className="absolute right-6 top-1/2 -translate-y-1/2 z-20 flex flex-col gap-4">
         <div className="flex flex-col gap-2 p-2 rounded-full bg-black/40 backdrop-blur-xl border border-white/10">
-            <button className="p-3 text-white hover:text-primary transition-all active:scale-110">
-                <span className="material-symbols-outlined">flash_on</span>
+            <button onClick={() => setFlashOn(!flashOn)} className={`p-3 transition-colors ${flashOn ? 'text-yellow-400' : 'text-white'}`}>
+                <span className="material-symbols-outlined" style={{ fontVariationSettings: flashOn ? "'FILL' 1" : "" }}>flash_on</span>
             </button>
-            <button onClick={() => fileInputRef.current?.click()} className="p-3 text-white hover:text-primary transition-all active:scale-110">
+            <button onClick={() => fileInputRef.current?.click()} className="p-3 text-white hover:text-primary transition-all active:rotate-180">
                 <span className="material-symbols-outlined">sync</span>
             </button>
-            <button className="p-3 text-white hover:text-primary transition-all active:scale-110">
+            <button onClick={() => setTimerOn(!timerOn)} className={`p-3 transition-colors ${timerOn ? 'text-primary' : 'text-white'}`}>
                 <span className="material-symbols-outlined">timer</span>
             </button>
-            <button className="p-3 text-white hover:text-primary transition-all active:scale-110">
-                <span className="material-symbols-outlined">magic_button</span>
+            <button onClick={() => setMagicOn(!magicOn)} className={`p-3 transition-colors ${magicOn ? 'text-primary' : 'text-white'}`}>
+                <span className="material-symbols-outlined" style={{ fontVariationSettings: magicOn ? "'FILL' 1" : "" }}>magic_button</span>
             </button>
-            <button onClick={() => setShowMusicPicker(true)} className={`p-3 transition-all active:scale-110 ${selectedMusic ? 'text-primary' : 'text-white'}`}>
+            <button onClick={() => setShowMusicPicker(true)} className={`p-3 transition-colors ${selectedMusic ? 'text-primary' : 'text-white'}`}>
                 <span className="material-symbols-outlined">music_note</span>
             </button>
         </div>
       </div>
 
-      {/* Main Bottom UI Area */}
-      <div className="mt-auto relative z-10 flex flex-col items-center">
+      {/* Bottom Controls Area */}
+      <div className="mt-auto relative z-20 w-full flex flex-col items-center">
         
-        {/* Post Prep: Captioning (If media selected) */}
+        {/* Caption Panel (Visible only when file is selected) */}
         {preview && (
-            <div className="w-full px-6 mb-4 animate-in slide-in-from-bottom-5">
-                <div className="bg-black/60 backdrop-blur-2xl p-4 rounded-[2rem] border border-white/10 flex flex-col gap-4 shadow-2xl">
+            <div className="w-full px-6 mb-4 animate-in slide-in-from-bottom-10">
+                <div className="bg-black/60 backdrop-blur-3xl p-6 rounded-[2.5rem] border border-white/10 flex flex-col gap-5 shadow-2xl">
                     <textarea 
                         value={caption}
                         onChange={(e) => setCaption(e.target.value)}
-                        placeholder="Write a caption..."
-                        className="bg-transparent border-none focus:ring-0 text-white placeholder-white/40 text-sm font-medium resize-none h-16 w-full text-center"
+                        placeholder="Write a creative caption..."
+                        className="bg-transparent border-none focus:ring-0 text-white placeholder-white/30 text-sm font-bold resize-none h-20 w-full text-center"
                     />
                     {selectedMusic && (
-                        <div className="flex items-center justify-center gap-2 bg-white/10 p-2 rounded-xl">
-                            <span className="text-xs">🎵 {selectedMusic.title} - {selectedMusic.artist}</span>
-                            <button onClick={() => setSelectedMusic(null)} className="text-white/40">✕</button>
+                        <div className="flex items-center justify-center gap-3 bg-white/10 py-2 px-4 rounded-2xl animate-pulse">
+                            <span className="text-xs font-black">🎵 {selectedMusic.title} - {selectedMusic.artist}</span>
+                            <button onClick={() => setSelectedMusic(null)} className="text-white/40 hover:text-white">✕</button>
                         </div>
                     )}
                     <button 
                         onClick={handleUpload}
                         disabled={isUploading}
-                        className="w-full py-4 bg-primary rounded-2xl font-black uppercase tracking-[0.2em] shadow-lg shadow-primary/20 active:scale-95 transition-all disabled:opacity-50"
+                        className="w-full py-5 bg-primary text-white rounded-3xl font-black uppercase tracking-[0.2em] shadow-lg shadow-primary/30 active:scale-95 transition-all disabled:opacity-50 flex items-center justify-center gap-3"
                     >
-                        {isUploading ? 'Publishing...' : `Share ${mode}`}
+                        {isUploading ? (
+                            <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
+                        ) : (
+                            `Publish ${mode}`
+                        )}
                     </button>
                 </div>
             </div>
         )}
 
-        {/* Filter Carousel */}
+        {/* Filter Carousel - Only visible when NO preview */}
         {!preview && (
             <div className="flex w-full overflow-x-auto no-scrollbar px-4 py-6 scroll-smooth">
-                <div className="flex flex-row items-end justify-center gap-6 mx-auto pb-2">
+                <div className="flex flex-row items-end justify-center gap-6 mx-auto">
                     {FILTERS.map((f) => (
                         <button 
                             key={f.name}
                             onClick={() => setSelectedFilter(f)}
-                            className="flex flex-col items-center gap-2 min-w-[70px] transition-all group"
+                            className="flex flex-col items-center gap-3 min-w-[70px] transition-all"
                         >
                             <div className={`size-14 rounded-full border-2 transition-all overflow-hidden ${selectedFilter.name === f.name ? 'size-20 border-primary ring-4 ring-black/50 scale-110 shadow-lg' : 'border-white/20'}`}>
                                 <img src={f.preview} className="w-full h-full object-cover" alt={f.name} />
                             </div>
-                            <p className={`text-[11px] font-bold tracking-wider uppercase ${selectedFilter.name === f.name ? 'text-primary' : 'text-white/60'}`}>{f.name}</p>
+                            <p className={`text-[10px] font-black tracking-widest uppercase ${selectedFilter.name === f.name ? 'text-primary' : 'text-white/60'}`}>{f.name}</p>
                         </button>
                     ))}
                 </div>
@@ -215,25 +222,25 @@ export const StoryUpload: React.FC<StoryUploadProps> = ({ currentUser, onClose }
 
         {/* Main Capture Control */}
         {!preview && (
-            <div className="flex items-center justify-center gap-10 p-4 pb-8">
+            <div className="flex items-center justify-center gap-10 p-4 pb-8 w-full max-w-sm">
                 <button 
                     onClick={() => fileInputRef.current?.click()}
-                    className="flex shrink-0 items-center justify-center rounded-full size-12 bg-black/40 backdrop-blur-xl border border-white/10 text-white transition-transform active:scale-90 overflow-hidden"
+                    className="flex shrink-0 items-center justify-center rounded-full size-12 bg-white/10 backdrop-blur-xl border border-white/10 text-white transition-transform active:scale-90 overflow-hidden"
                 >
                     <div className="w-8 h-8 rounded-lg overflow-hidden border border-white/30 bg-slate-800 flex items-center justify-center">
                         <span className="material-symbols-outlined text-sm">photo_library</span>
                     </div>
                 </button>
 
-                {/* Capture Button */}
+                {/* Capture Button Container */}
                 <div className="relative flex items-center justify-center group" onClick={() => fileInputRef.current?.click()}>
                     <div className="absolute size-24 bg-primary/20 rounded-full animate-pulse group-active:scale-125 transition-transform"></div>
-                    <button className="relative flex shrink-0 items-center justify-center rounded-full size-20 border-[6px] border-white/40 bg-white/10 p-1">
-                        <div className="size-full bg-white rounded-full transition-transform group-active:scale-90 shadow-[0_0_20px_2px_rgba(242,13,128,0.5)]"></div>
+                    <button className="relative flex shrink-0 items-center justify-center rounded-full size-20 border-[6px] border-white/40 bg-white/5 p-1">
+                        <div className="size-full bg-white rounded-full transition-transform group-active:scale-90 shadow-[0_0_20px_2px_rgba(242,13,128,0.4)]"></div>
                     </button>
                 </div>
 
-                <button className="flex shrink-0 items-center justify-center rounded-full size-12 bg-black/40 backdrop-blur-xl border border-white/10 text-white transition-transform active:scale-90">
+                <button className="flex shrink-0 items-center justify-center rounded-full size-12 bg-white/10 backdrop-blur-xl border border-white/10 text-white transition-transform active:scale-90">
                     <span className="material-symbols-outlined text-[28px]">photo_filter</span>
                 </button>
             </div>
@@ -244,7 +251,7 @@ export const StoryUpload: React.FC<StoryUploadProps> = ({ currentUser, onClose }
             <div className="flex px-8 pb-10 w-full max-w-sm">
                 <div className="flex h-12 flex-1 items-center justify-center rounded-full bg-black/40 backdrop-blur-xl p-1.5 border border-white/10">
                     {(['Post', 'Story', 'Live'] as CameraMode[]).map((m) => (
-                        <label key={m} className={`flex cursor-pointer h-full grow items-center justify-center overflow-hidden rounded-full px-4 text-xs font-bold uppercase tracking-[0.1em] transition-all ${mode === m ? 'bg-white text-black' : 'text-white/50 hover:text-white'}`}>
+                        <label key={m} className={`flex cursor-pointer h-full grow items-center justify-center overflow-hidden rounded-full px-4 text-[10px] font-black uppercase tracking-[0.2em] transition-all ${mode === m ? 'bg-white text-black' : 'text-white/40 hover:text-white'}`}>
                             <span>{m}</span>
                             <input 
                                 type="radio" 
@@ -259,9 +266,6 @@ export const StoryUpload: React.FC<StoryUploadProps> = ({ currentUser, onClose }
             </div>
         )}
       </div>
-
-      {/* iOS Style Indicator */}
-      <div className="absolute bottom-1.5 left-1/2 -translate-x-1/2 w-32 h-1 bg-white/40 rounded-full pointer-events-none"></div>
 
       {showMusicPicker && (
           <MusicPicker 

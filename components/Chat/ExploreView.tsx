@@ -50,18 +50,8 @@ export const ExploreView: React.FC<ExploreViewProps> = ({ currentUser, onOpenPro
   return (
     <div className="flex-1 flex flex-col bg-background-light dark:bg-[#121212] overflow-hidden animate-in fade-in transition-colors duration-300">
         
-        {/* Simulated iOS Status Bar Space */}
-        <div className="flex justify-between items-center px-8 pt-4 pb-2 text-[10px] font-bold opacity-60 text-slate-900 dark:text-white">
-            <span>9:41</span>
-            <div className="flex items-center gap-1">
-                <span className="material-symbols-outlined text-[12px]">signal_cellular_4_bar</span>
-                <span className="material-symbols-outlined text-[12px]">wifi</span>
-                <span className="material-symbols-outlined text-[12px] rotate-90">battery_full</span>
-            </div>
-        </div>
-
-        {/* Top App Bar */}
-        <header className="flex items-center justify-between px-4 py-2 sticky top-0 z-50 bg-background-light/80 dark:bg-[#121212]/80 backdrop-blur-md">
+        {/* Top App Bar - Simplified without simulated status bars */}
+        <header className="flex items-center justify-between px-6 pt-6 pb-2 sticky top-0 z-50 bg-background-light/80 dark:bg-[#121212]/80 backdrop-blur-md">
             <h1 className="text-2xl font-black tracking-tighter text-slate-900 dark:text-white uppercase">Explore</h1>
             <div className="flex items-center gap-4">
                 <button className="flex items-center justify-center size-10 rounded-full bg-slate-200/50 dark:bg-white/10 hover:bg-primary/20 transition-colors">
@@ -75,7 +65,7 @@ export const ExploreView: React.FC<ExploreViewProps> = ({ currentUser, onOpenPro
         </header>
 
         {/* Search Bar */}
-        <div className="px-4 py-3">
+        <div className="px-6 py-4">
             <label className="relative flex items-center w-full">
                 <div className="absolute left-4 text-slate-400 dark:text-slate-500">
                     <span className="material-symbols-outlined">search</span>
@@ -83,7 +73,7 @@ export const ExploreView: React.FC<ExploreViewProps> = ({ currentUser, onOpenPro
                 <input 
                     value={searchTerm}
                     onChange={(e) => setSearchTerm(e.target.value)}
-                    className="w-full h-12 pl-12 pr-4 bg-slate-200/50 dark:bg-white/5 border-none rounded-xl focus:ring-2 focus:ring-primary text-slate-900 dark:text-white placeholder-slate-400 dark:placeholder-slate-500 transition-all font-medium" 
+                    className="w-full h-14 pl-12 pr-4 bg-slate-200/50 dark:bg-white/5 border-none rounded-2xl focus:ring-2 focus:ring-primary text-slate-900 dark:text-white placeholder-slate-400 dark:placeholder-slate-500 transition-all font-bold text-sm" 
                     placeholder="Search creators, trends, and art" 
                     type="text"
                 />
@@ -91,12 +81,12 @@ export const ExploreView: React.FC<ExploreViewProps> = ({ currentUser, onOpenPro
         </div>
 
         {/* Category Chips */}
-        <div className="flex gap-3 px-4 py-2 overflow-x-auto no-scrollbar">
+        <div className="flex gap-3 px-6 py-2 overflow-x-auto no-scrollbar">
             {CATEGORIES.map(cat => (
                 <button 
                     key={cat}
                     onClick={() => setActiveCategory(cat)}
-                    className={`flex h-10 shrink-0 items-center justify-center gap-x-2 rounded-full px-6 transition-all font-bold text-sm ${activeCategory === cat ? 'bg-primary text-white shadow-lg shadow-primary/30' : 'bg-slate-200 dark:bg-white/10 text-slate-600 dark:text-white/80 hover:bg-slate-300 dark:hover:bg-white/20'}`}
+                    className={`flex h-11 shrink-0 items-center justify-center gap-x-2 rounded-full px-6 transition-all font-black text-xs uppercase tracking-widest ${activeCategory === cat ? 'bg-primary text-white shadow-lg shadow-primary/30' : 'bg-slate-200 dark:bg-white/10 text-slate-600 dark:text-white/80 hover:bg-slate-300 dark:hover:bg-white/20'}`}
                 >
                     {cat}
                 </button>
@@ -109,59 +99,59 @@ export const ExploreView: React.FC<ExploreViewProps> = ({ currentUser, onOpenPro
                 {filteredDiscovery.map(item => (
                     <div 
                         key={item.id}
-                        className={`relative overflow-hidden rounded-2xl bg-slate-800 group cursor-pointer transition-transform active:scale-95 ${item.isLarge ? 'row-span-2' : ''}`}
+                        className={`relative overflow-hidden rounded-3xl bg-slate-800 group cursor-pointer transition-transform active:scale-95 ${item.isLarge ? 'row-span-2' : ''}`}
                     >
                         {/* Background Layer */}
                         <div 
                             className="absolute inset-0 bg-cover bg-center transition-transform duration-700 group-hover:scale-110"
                             style={{ backgroundImage: `url("${item.url}")` }}
                         ></div>
-                        <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent"></div>
+                        <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/20 to-transparent"></div>
 
                         {/* Video Icon */}
                         {item.type === 'video' && (
-                            <div className="absolute top-3 right-3 bg-black/40 backdrop-blur-md rounded-full p-1.5 z-10">
+                            <div className="absolute top-4 right-4 bg-black/40 backdrop-blur-md rounded-full p-2 z-10 border border-white/10">
                                 <span className="material-symbols-outlined text-[18px] text-white">play_arrow</span>
                             </div>
                         )}
 
                         {/* Text Overlay */}
-                        <div className="absolute bottom-4 left-4 right-4 flex flex-col gap-1 pointer-events-none">
+                        <div className="absolute bottom-5 left-5 right-5 flex flex-col gap-1 pointer-events-none">
                             {item.isLarge && (
-                                <span className="text-[10px] font-black text-primary uppercase tracking-[0.2em]">Featured</span>
+                                <span className="text-[9px] font-black text-primary uppercase tracking-[0.3em] mb-1">Featured</span>
                             )}
-                            <h3 className={`font-bold text-white leading-tight line-clamp-2 ${item.isLarge ? 'text-lg' : 'text-sm'}`}>{item.title}</h3>
+                            <h3 className={`font-black text-white leading-tight line-clamp-2 ${item.isLarge ? 'text-lg tracking-tight' : 'text-xs'}`}>{item.title}</h3>
                             <div className="flex items-center gap-2 mt-1 opacity-80 text-white">
                                 <span className="material-symbols-outlined text-[14px]">favorite</span>
-                                <span className="text-[10px] font-bold">{item.likes}</span>
+                                <span className="text-[10px] font-black uppercase tracking-widest">{item.likes}</span>
                             </div>
                         </div>
                     </div>
                 ))}
 
-                {/* Real User Posts Integration (Added at the end) */}
+                {/* Real User Posts Integration */}
                 {searchTerm === '' && realPosts.map(post => (
                     <div 
                         key={post.id}
-                        className="relative overflow-hidden rounded-2xl bg-slate-800 group cursor-pointer transition-transform active:scale-95"
+                        className="relative overflow-hidden rounded-3xl bg-slate-800 group cursor-pointer transition-transform active:scale-95"
                     >
                         <div 
                             className="absolute inset-0 bg-cover bg-center"
                             style={{ backgroundImage: `url("${post.mediaUrl}")` }}
                         ></div>
-                        <div className="absolute inset-0 bg-black/30"></div>
-                        <div className="absolute bottom-3 left-3 flex items-center gap-1.5 text-white">
-                            <img src={post.userPhoto} className="w-4 h-4 rounded-full border border-white/40" alt=""/>
-                            <span className="text-[10px] font-bold truncate max-w-[80px]">{post.userName}</span>
+                        <div className="absolute inset-0 bg-black/40"></div>
+                        <div className="absolute bottom-4 left-4 flex items-center gap-2 text-white">
+                            <img src={post.userPhoto} className="w-5 h-5 rounded-full border border-white/40 shadow-lg" alt=""/>
+                            <span className="text-[9px] font-black uppercase tracking-widest truncate max-w-[80px]">{post.userName}</span>
                         </div>
                     </div>
                 ))}
             </div>
 
             {filteredDiscovery.length === 0 && (
-                <div className="text-center py-20 opacity-40 text-slate-500">
-                    <span className="material-symbols-outlined text-6xl">search_off</span>
-                    <p className="font-bold uppercase tracking-widest mt-4">No results for "{searchTerm}"</p>
+                <div className="flex flex-col items-center justify-center py-32 opacity-40 text-slate-500">
+                    <span className="material-symbols-outlined text-7xl mb-4">search_off</span>
+                    <p className="font-black uppercase tracking-[0.2em] text-xs">No matches found</p>
                 </div>
             )}
         </main>
