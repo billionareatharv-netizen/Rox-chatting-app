@@ -89,6 +89,7 @@ export const ChatDashboard: React.FC<ChatDashboardProps> = ({ currentUser, toggl
             onChatSelect={setSelectedChat} 
             activeChatId={selectedChat?.id}
             nicknames={nicknames}
+            onBack={() => setActiveTab('home')}
           />
         );
       case 'profile':

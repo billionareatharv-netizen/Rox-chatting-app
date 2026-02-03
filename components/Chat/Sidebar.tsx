@@ -1,41 +1,33 @@
 
-import React, { useState, useMemo, useEffect, useRef } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { User, Chat } from '../../types';
-import { getAllUsers, getMyChats, togglePinChat, subscribeToUser } from '../../firebase';
+import { getAllUsers, getMyChats, subscribeToUser } from '../../firebase';
 import { CreateGroupModal } from './CreateGroupModal';
 import { AppGallery } from './AppGallery';
 import { AccountSwitchModal } from './AccountSwitchModal';
 import { PremiumStore } from '../Premium/PremiumStore';
-import { ROLE_STYLES, getBadgeIcon } from '../../premiumUtils';
 
 interface SidebarProps {
   currentUser: User;
   onChatSelect: (chat: Chat) => void;
   activeChatId?: string;
   nicknames: Record<string, string>; 
+  onBack?: () => void;
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({ 
-  currentUser, onChatSelect, activeChatId, nicknames
+  currentUser, onChatSelect, activeChatId, nicknames, onBack
 }) => {
   const [search, setSearch] = useState('');
-  const [isSearchOpen, setIsSearchOpen] = useState(false);
   const [allUsers, setAllUsers] = useState<User[]>([]);
   const [chats, setChats] = useState<Chat[]>([]);
   const [loading, setLoading] = useState(true);
   const [showGroupModal, setShowGroupModal] = useState(false);
-  const [showStore, setShowStore] = useState(false);
-  const [pinnedChats, setPinnedChats] = useState<string[]>([]);
-  
   const [showMenu, setShowMenu] = useState(false);
   const [showGallery, setShowGallery] = useState(false);
   const [showAccountSwitch, setShowAccountSwitch] = useState(false);
 
   useEffect(() => {
-    const unsubUser = subscribeToUser(currentUser.uid, (data) => {
-        setPinnedChats(data.pinnedChats || []);
-    });
-
     const fetchData = async () => {
       try {
         const [usersData, chatsData] = await Promise.all([
@@ -51,104 +43,183 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
     fetchData();
     const itv = setInterval(fetchData, 5000);
-    return () => { unsubUser(); clearInterval(itv); };
+    return () => clearInterval(itv);
   }, [currentUser.uid]);
+
+  const activeUsers = useMemo(() => {
+    return allUsers.filter(u => u.status === 'online');
+  }, [allUsers]);
 
   const searchResults = useMemo(() => {
     const term = search.toLowerCase().trim();
     let visibleChats = chats.filter(c => !c.lockedBy?.includes(currentUser.uid));
     
-    visibleChats.sort((a, b) => {
-        const isAPinned = pinnedChats.includes(a.id);
-        const isBPinned = pinnedChats.includes(b.id);
-        if (isAPinned && !isBPinned) return -1;
-        if (!isAPinned && isBPinned) return 1;
-        return (b.updatedAt || 0) - (a.updatedAt || 0);
-    });
+    visibleChats.sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
 
-    if (!term) return { chats: visibleChats, users: [] };
-    const matchedUsers = allUsers.filter(u => (nicknames[u.uid] || u.name).toLowerCase().includes(term));
-    const matchedChats = visibleChats.filter(c => {
-      const name = c.type === 'group' ? c.name : (nicknames[c.participants.find(p=>p!==currentUser.uid)!] || 'User');
+    if (!term) return visibleChats;
+    return visibleChats.filter(c => {
+      const otherId = c.participants.find(p => p !== currentUser.uid);
+      const otherUser = allUsers.find(u => u.uid === otherId);
+      const name = c.type === 'group' ? c.name : (nicknames[otherId!] || otherUser?.name || 'User');
       return name?.toLowerCase().includes(term);
     });
-    return { chats: matchedChats, users: matchedUsers };
-  }, [search, allUsers, chats, currentUser.uid, pinnedChats, nicknames]);
+  }, [search, allUsers, chats, currentUser.uid, nicknames]);
 
   const getChatInfo = (chat: Chat) => {
     if (chat.type === 'group') return { name: chat.name || 'Group', photo: chat.groupIcon || `https://picsum.photos/seed/${chat.id}/200` };
     const otherId = chat.participants.find(p => p !== currentUser.uid);
     const user = allUsers.find(u => u.uid === otherId);
-    return { name: user ? (nicknames[user.uid] || user.name) : 'User', photo: user?.photoURL || `https://picsum.photos/seed/${otherId}/200`, userObj: user };
+    return { 
+        name: user ? (nicknames[user.uid] || user.name) : 'User', 
+        photo: user?.photoURL || `https://picsum.photos/seed/${otherId}/200`, 
+        userObj: user 
+    };
+  };
+
+  const getTimeLabel = (timestamp?: number) => {
+      if (!timestamp) return '';
+      const date = new Date(timestamp);
+      const now = new Date();
+      if (date.toDateString() === now.toDateString()) {
+          return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+      }
+      return date.toLocaleDateString([], { month: 'short', day: 'numeric' });
   };
 
   return (
-    <div className="w-full h-full flex flex-col bg-background-light dark:bg-background-dark animate-in slide-in-from-left duration-300">
-      {/* Header */}
-      <div className="h-20 px-6 flex items-center justify-between shrink-0 bg-background-light/80 dark:bg-background-dark/80 backdrop-blur-md border-b border-gray-100 dark:border-border-dark sticky top-0 z-10">
-         <div>
-            <h2 className="text-xl font-bold tracking-tight">Messages</h2>
-            <p className="text-[10px] font-black uppercase text-primary tracking-[0.2em]">{chats.length} Active Conversations</p>
-         </div>
-         <div className="flex gap-2">
-            <button onClick={()=>setShowGroupModal(true)} className="p-2 bg-slate-100 dark:bg-slate-800 rounded-full hover:bg-primary hover:text-white transition-all">
-                <span className="material-symbols-outlined text-xl">add_comment</span>
-            </button>
-            <button onClick={()=>setShowMenu(!showMenu)} className="p-2 bg-slate-100 dark:bg-slate-800 rounded-full">
-                <span className="material-symbols-outlined text-xl">more_vert</span>
-            </button>
-         </div>
-      </div>
+    <div className="w-full h-full flex flex-col bg-background-light dark:bg-background-dark animate-in fade-in duration-300 overflow-hidden">
+      
+      {/* Top Navigation */}
+      <header className="sticky top-0 z-50 bg-background-light/80 dark:bg-background-dark/80 backdrop-blur-md px-4 pt-6 pb-2 shrink-0">
+        <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center gap-2">
+                <button onClick={onBack} className="p-1 -ml-1 text-slate-900 dark:text-white active:scale-90 transition-transform">
+                    <span className="material-symbols-outlined text-2xl">arrow_back_ios</span>
+                </button>
+                <h1 className="text-2xl font-black tracking-tighter text-slate-900 dark:text-white uppercase">Messages</h1>
+            </div>
+            <div className="flex gap-3">
+                <button className="w-10 h-10 flex items-center justify-center rounded-full bg-slate-200/50 dark:bg-white/5 text-slate-900 dark:text-white active:scale-95 transition-all">
+                    <span className="material-symbols-outlined text-[22px]">video_call</span>
+                </button>
+                <button 
+                    onClick={() => setShowMenu(!showMenu)}
+                    className={`w-10 h-10 flex items-center justify-center rounded-full transition-all ${showMenu ? 'bg-primary text-white' : 'bg-slate-200/50 dark:bg-white/5 text-slate-900 dark:text-white'}`}
+                >
+                    <span className="material-symbols-outlined text-[22px]">edit_square</span>
+                </button>
+            </div>
+        </div>
 
+        {/* Glassmorphism Search Bar */}
+        <div className="mb-4">
+            <div className="relative flex items-center w-full h-12 rounded-full bg-slate-200/50 dark:bg-[#2b2839]/60 backdrop-blur-xl border border-transparent dark:border-white/5 px-4">
+                <span className="material-symbols-outlined text-[#a19cba] mr-2">search</span>
+                <input 
+                    value={search}
+                    onChange={(e) => setSearch(e.target.value)}
+                    className="flex-1 bg-transparent border-none text-slate-900 dark:text-white focus:ring-0 placeholder:text-[#a19cba] text-sm font-bold" 
+                    placeholder="Search messages..."
+                />
+            </div>
+        </div>
+      </header>
+
+      {/* Menu Popover */}
       {showMenu && (
-          <div className="absolute right-6 top-16 bg-white dark:bg-slate-900 shadow-2xl rounded-2xl p-2 z-50 w-48 border border-gray-100 dark:border-border-dark animate-in zoom-in-95">
-              <button onClick={()=>{setShowGallery(true); setShowMenu(false)}} className="w-full p-3 text-left hover:bg-slate-50 dark:hover:bg-slate-800 rounded-xl text-sm font-bold flex items-center gap-3">
+          <div className="absolute right-6 top-20 bg-white dark:bg-slate-900 shadow-2xl rounded-2xl p-2 z-[60] w-52 border border-gray-100 dark:border-white/10 animate-in zoom-in-95">
+              <button onClick={()=>{setShowGallery(true); setShowMenu(false)}} className="w-full p-3 text-left hover:bg-slate-50 dark:hover:bg-white/5 rounded-xl text-xs font-black uppercase tracking-widest flex items-center gap-3">
                   <span className="material-symbols-outlined text-lg">photo_library</span> Gallery
               </button>
-              <button onClick={()=>{setShowAccountSwitch(true); setShowMenu(false)}} className="w-full p-3 text-left hover:bg-slate-50 dark:hover:bg-slate-800 rounded-xl text-sm font-bold flex items-center gap-3">
+              <button onClick={()=>{setShowAccountSwitch(true); setShowMenu(false)}} className="w-full p-3 text-left hover:bg-slate-50 dark:hover:bg-white/5 rounded-xl text-xs font-black uppercase tracking-widest flex items-center gap-3">
                   <span className="material-symbols-outlined text-lg">sync_alt</span> Switch Account
               </button>
           </div>
       )}
 
-      {/* List */}
-      <div className="flex-1 overflow-y-auto px-4 py-2 space-y-2 no-scrollbar">
-          {searchResults.chats.map(chat => {
-              const info = getChatInfo(chat);
-              const isActive = activeChatId === chat.id;
-              const isPinned = pinnedChats.includes(chat.id);
-              
-              return (
-                  <div 
-                    key={chat.id} 
-                    onClick={() => onChatSelect(chat)} 
-                    className={`flex items-center gap-4 p-4 rounded-2xl cursor-pointer transition-all ${isActive ? 'bg-primary text-white shadow-lg shadow-primary/20' : 'hover:bg-white dark:hover:bg-card-dark border border-transparent hover:border-gray-100 dark:hover:border-border-dark'}`}
-                  >
-                      <div className="relative">
-                          <img src={info.photo} className="w-14 h-14 rounded-full object-cover border-2 border-white dark:border-slate-800 shadow-sm" alt="" />
-                          {info.userObj?.status === 'online' && <div className="absolute bottom-0 right-0 w-4 h-4 bg-green-500 rounded-full border-2 border-white dark:border-background-dark"></div>}
-                      </div>
-                      <div className="flex-1 min-w-0">
-                          <div className="flex justify-between items-center mb-0.5">
-                              <h4 className="font-bold text-[15px] truncate">{info.name}</h4>
-                              <span className={`text-[10px] font-bold ${isActive ? 'text-white/80' : 'text-slate-400'}`}>
-                                  {chat.lastMessage ? new Date(chat.lastMessage.timestamp).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'}) : ''}
-                              </span>
-                          </div>
-                          <div className="flex items-center justify-between">
-                            <p className={`text-[13px] truncate ${isActive ? 'text-white/70' : 'text-slate-500'}`}>{chat.lastMessage?.text || 'Start chatting...'}</p>
-                            {isPinned && <span className="material-symbols-outlined text-sm rotate-45">push_pin</span>}
-                          </div>
-                      </div>
-                  </div>
-              );
-          })}
+      <div className="flex-1 overflow-y-auto no-scrollbar pb-32">
+        {/* Active Now Section */}
+        {!search && activeUsers.length > 0 && (
+            <section className="mb-6">
+                <div className="flex items-center justify-between px-4 pb-3">
+                    <h3 className="text-slate-500 dark:text-white/60 text-[10px] font-black uppercase tracking-[0.2em]">Active Now</h3>
+                    <span className="text-primary text-[10px] font-black uppercase tracking-widest cursor-pointer">See All</span>
+                </div>
+                <div className="flex w-full overflow-x-auto px-4 gap-5 no-scrollbar scroll-smooth">
+                    {activeUsers.map(user => (
+                        <div key={user.uid} className="flex flex-col items-center gap-2 min-w-[64px] group cursor-pointer" onClick={() => onChatSelect({ id: [currentUser.uid, user.uid].sort().join('_'), type: 'private', participants: [currentUser.uid, user.uid], updatedAt: Date.now() })}>
+                            <div className="relative">
+                                <div className="w-16 h-16 rounded-full border-2 border-primary p-0.5 transition-transform group-hover:scale-105">
+                                    <img src={user.photoURL} className="w-full h-full rounded-full object-cover" alt="" />
+                                </div>
+                                <div className="absolute bottom-0 right-0 w-4.5 h-4.5 bg-green-500 border-[3px] border-background-light dark:border-background-dark rounded-full"></div>
+                            </div>
+                            <p className="text-slate-900 dark:text-white text-[10px] font-black uppercase tracking-tight truncate w-16 text-center">{user.name.split(' ')[0]}</p>
+                        </div>
+                    ))}
+                </div>
+            </section>
+        )}
+
+        {/* Message List */}
+        <main className="flex-1 px-2 space-y-1">
+            {loading ? (
+                <div className="flex justify-center py-10"><div className="w-6 h-6 border-2 border-primary border-t-transparent rounded-full animate-spin"></div></div>
+            ) : searchResults.length === 0 ? (
+                <div className="text-center py-20 opacity-30">
+                    <span className="material-symbols-outlined text-5xl">chat_bubble</span>
+                    <p className="text-[10px] font-black uppercase tracking-widest mt-2">No conversations found</p>
+                </div>
+            ) : (
+                searchResults.map(chat => {
+                    const info = getChatInfo(chat);
+                    const isActive = activeChatId === chat.id;
+                    const isUnread = chat.lastMessage && chat.lastMessage.senderId !== currentUser.uid; // Simple logic
+                    
+                    return (
+                        <div 
+                            key={chat.id} 
+                            onClick={() => onChatSelect(chat)} 
+                            className={`flex items-center gap-4 px-4 py-4 rounded-3xl group cursor-pointer transition-all active:scale-[0.98] ${isActive ? 'bg-primary text-white shadow-lg shadow-primary/20' : isUnread ? 'bg-indigo-500/5 dark:bg-[#330df2]/10 border-l-4 border-primary' : 'hover:bg-slate-100 dark:hover:bg-white/5'}`}
+                        >
+                            <div className="relative shrink-0">
+                                <img src={info.photo} className={`w-14 h-14 rounded-full object-cover border-2 ${isActive ? 'border-white/30' : 'border-transparent'}`} alt="" />
+                                {info.userObj?.status === 'online' && !isActive && (
+                                    <div className="absolute -bottom-0.5 -right-0.5 w-4 h-4 bg-green-500 rounded-full border-2 border-background-light dark:border-background-dark"></div>
+                                )}
+                                {isUnread && !isActive && (
+                                    <div className="absolute -top-1 -right-1 w-4 h-4 bg-primary rounded-full border-2 border-background-light dark:border-background-dark shadow-md"></div>
+                                )}
+                            </div>
+                            <div className="flex-1 min-w-0">
+                                <div className="flex justify-between items-baseline mb-0.5">
+                                    <h4 className={`text-sm font-black truncate ${isActive ? 'text-white' : 'text-slate-900 dark:text-white'}`}>{info.name}</h4>
+                                    <span className={`text-[10px] font-bold ${isActive ? 'text-white/70' : isUnread ? 'text-primary' : 'text-slate-400'}`}>
+                                        {getTimeLabel(chat.lastMessage?.timestamp)}
+                                    </span>
+                                </div>
+                                <p className={`text-[13px] line-clamp-1 font-medium ${isActive ? 'text-white/80' : isUnread ? 'text-slate-900 dark:text-white font-bold' : 'text-slate-500 dark:text-[#a19cba]'}`}>
+                                    {chat.lastMessage?.text || 'Start a new conversation'}
+                                </p>
+                            </div>
+                        </div>
+                    );
+                })
+            )}
+        </main>
       </div>
+
+      {/* Floating Action Button */}
+      <button 
+        onClick={() => setShowGroupModal(true)}
+        className="fixed bottom-28 right-6 w-16 h-16 bg-primary rounded-2xl shadow-xl shadow-primary/30 flex items-center justify-center transition-all hover:scale-110 active:scale-95 z-[100]"
+      >
+        <span className="material-symbols-outlined text-white text-3xl font-bold">add_comment</span>
+      </button>
 
       {showGroupModal && <CreateGroupModal currentUser={currentUser} onClose={() => setShowGroupModal(false)} onCreated={onChatSelect} />}
       {showGallery && <AppGallery currentUser={currentUser} onClose={() => setShowGallery(false)} />}
       {showAccountSwitch && <AccountSwitchModal currentUser={currentUser} onClose={() => setShowAccountSwitch(false)} />}
-      {showStore && <PremiumStore currentUser={currentUser} onClose={() => setShowStore(false)} />}
     </div>
   );
 };
