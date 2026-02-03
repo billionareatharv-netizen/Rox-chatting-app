@@ -81,6 +81,16 @@ export interface User {
   };
 }
 
+export interface Comment {
+  id: string;
+  userId: string;
+  userName: string;
+  userPhoto: string;
+  text: string;
+  timestamp: number;
+  likes: string[];
+}
+
 export interface Post {
   id: string;
   userId: string;

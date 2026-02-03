@@ -12,6 +12,7 @@ import { HomeFeed } from './HomeFeed';
 import { BottomNav } from './BottomNav';
 import { ExploreView } from './ExploreView';
 import { ActivityView } from './ActivityView';
+import { PostDetailView } from './PostDetailView';
 import { initiateCall, getIncomingCall, getUserById, updateCallStatus, cleanOldCalls, subscribeToNicknames } from '../../firebase';
 
 interface ChatDashboardProps {
@@ -29,6 +30,7 @@ export const ChatDashboard: React.FC<ChatDashboardProps> = ({ currentUser, toggl
   const [viewingStories, setViewingStories] = useState<Story[] | null>(null);
   const [viewingUser, setViewingUser] = useState<User | null>(null);
   const [activeCall, setActiveCall] = useState<CallSession | null>(null);
+  const [selectedPost, setSelectedPost] = useState<Post | null>(null);
   const [nicknames, setNicknames] = useState<Record<string, string>>({});
 
   useEffect(() => {
@@ -63,6 +65,11 @@ export const ChatDashboard: React.FC<ChatDashboardProps> = ({ currentUser, toggl
     });
   };
 
+  const handleOpenProfileByUid = async (uid: string) => {
+      const user = await getUserById(uid);
+      if(user) setViewingUser(user);
+  };
+
   const renderTabContent = () => {
     switch (activeTab) {
       case 'home':
@@ -72,6 +79,7 @@ export const ChatDashboard: React.FC<ChatDashboardProps> = ({ currentUser, toggl
             onOpenDMs={() => setActiveTab('chats')}
             onUploadPost={() => setShowStoryUpload(true)}
             onOpenStory={setViewingStories}
+            onOpenPost={setSelectedPost}
           />
         );
       case 'chats':
@@ -98,6 +106,7 @@ export const ChatDashboard: React.FC<ChatDashboardProps> = ({ currentUser, toggl
           <ExploreView 
             currentUser={currentUser}
             onOpenProfile={setViewingUser}
+            onOpenPost={setSelectedPost}
           />
         );
       case 'activity':
@@ -132,7 +141,7 @@ export const ChatDashboard: React.FC<ChatDashboardProps> = ({ currentUser, toggl
       </div>
 
       {/* Global Bottom Navigation */}
-      {!selectedChat && (
+      {!selectedChat && !selectedPost && (
         <BottomNav 
           activeTab={activeTab} 
           onTabChange={(tab) => {
@@ -148,6 +157,7 @@ export const ChatDashboard: React.FC<ChatDashboardProps> = ({ currentUser, toggl
       {viewingStories && <StoryViewer stories={viewingStories} currentUser={currentUser} onClose={() => setViewingStories(null)} />}
       {viewingUser && <PublicProfile user={viewingUser} onClose={() => setViewingUser(null)} onCallStart={startCall} nickname={nicknames[viewingUser.uid]} />}
       {activeCall && <CallModal session={activeCall} onHangUp={() => setActiveCall(null)} />}
+      {selectedPost && <PostDetailView post={selectedPost} currentUser={currentUser} onClose={() => setSelectedPost(null)} onOpenProfile={handleOpenProfileByUid} />}
     </div>
   );
 };

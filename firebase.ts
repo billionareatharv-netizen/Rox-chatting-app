@@ -30,6 +30,7 @@ import {
   orderBy,
   limit,
   onSnapshot,
+  increment,
   writeBatch
 } from "firebase/firestore";
 import { 
@@ -39,7 +40,6 @@ import {
   getDownloadURL, 
   deleteObject 
 } from "firebase/storage";
-// Fix: Added missing types (User, Chat, Message, Story, Note, SavedMedia) to the imports from types.ts
 import { 
   UserSubscription, 
   PremiumCustomization, 
@@ -53,7 +53,8 @@ import {
   Message,
   Story,
   Note,
-  SavedMedia
+  SavedMedia,
+  Comment
 } from './types';
 import { calculateExpiry, getPlanDetails } from './premiumUtils';
 
@@ -256,6 +257,12 @@ export const subscribeToPosts = (callback: (posts: Post[]) => void) => {
   });
 };
 
+export const subscribeToPost = (postId: string, callback: (post: Post) => void) => {
+  return onSnapshot(doc(db, "posts", postId), (snap) => {
+    if (snap.exists()) callback(snap.data() as Post);
+  });
+};
+
 export const toggleLikePost = async (postId: string, userId: string) => {
   const postRef = doc(db, "posts", postId);
   const snap = await getDoc(postRef);
@@ -274,6 +281,26 @@ export const toggleBookmarkPost = async (postId: string, userId: string) => {
     if (bookmarks.includes(userId)) await updateDoc(postRef, { bookmarks: arrayRemove(userId) });
     else await updateDoc(postRef, { bookmarks: arrayUnion(userId) });
   }
+};
+
+export const addComment = async (postId: string, comment: Omit<Comment, 'id' | 'likes' | 'timestamp'>) => {
+    const commentId = 'comm_' + generateUUID();
+    const fullComment: Comment = {
+        ...comment,
+        id: commentId,
+        timestamp: Date.now(),
+        likes: []
+    };
+    await setDoc(doc(db, "posts", postId, "comments", commentId), fullComment);
+    await updateDoc(doc(db, "posts", postId), { commentCount: increment(1) });
+    return fullComment;
+};
+
+export const subscribeToComments = (postId: string, callback: (comments: Comment[]) => void) => {
+    const q = query(collection(db, "posts", postId, "comments"), orderBy("timestamp", "desc"));
+    return onSnapshot(q, (snap) => {
+        callback(snap.docs.map(d => d.data() as Comment));
+    });
 };
 
 export const activateSubscription = async (userId: string, planId: PlanType) => {

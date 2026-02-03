@@ -6,6 +6,7 @@ import { getFeedPosts, getAllUsers } from '../../firebase';
 interface ExploreViewProps {
   currentUser: User;
   onOpenProfile: (user: User) => void;
+  onOpenPost: (post: Post) => void;
 }
 
 interface DiscoveryItem {
@@ -30,7 +31,7 @@ const DISCOVERY_MOCK: DiscoveryItem[] = [
 
 const CATEGORIES = ['All', 'Architecture', 'Travel', 'Art', 'Tech', 'Fashion', 'Cuisine'];
 
-export const ExploreView: React.FC<ExploreViewProps> = ({ currentUser, onOpenProfile }) => {
+export const ExploreView: React.FC<ExploreViewProps> = ({ currentUser, onOpenProfile, onOpenPost }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [activeCategory, setActiveCategory] = useState('All');
   const [realPosts, setRealPosts] = useState<Post[]>([]);
@@ -191,6 +192,7 @@ export const ExploreView: React.FC<ExploreViewProps> = ({ currentUser, onOpenPro
                 {searchedPosts.map(post => (
                     <div 
                         key={post.id}
+                        onClick={() => onOpenPost(post)}
                         className="relative overflow-hidden rounded-3xl bg-slate-800 group cursor-pointer transition-transform active:scale-95 animate-in fade-in zoom-in-95"
                     >
                         <div 

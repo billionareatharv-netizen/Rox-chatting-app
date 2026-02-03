@@ -8,9 +8,10 @@ interface HomeFeedProps {
   onOpenDMs: () => void;
   onUploadPost: () => void;
   onOpenStory: (stories: Story[]) => void;
+  onOpenPost: (post: Post) => void;
 }
 
-export const HomeFeed: React.FC<HomeFeedProps> = ({ currentUser, onOpenDMs, onUploadPost, onOpenStory }) => {
+export const HomeFeed: React.FC<HomeFeedProps> = ({ currentUser, onOpenDMs, onUploadPost, onOpenStory, onOpenPost }) => {
   const [posts, setPosts] = useState<Post[]>([]);
   const [stories, setStories] = useState<Story[]>([]);
   const [loading, setLoading] = useState(true);
@@ -148,7 +149,7 @@ export const HomeFeed: React.FC<HomeFeedProps> = ({ currentUser, onOpenDMs, onUp
                             </div>
 
                             {/* Main Media */}
-                            <div className="w-full aspect-[4/5] bg-slate-900 overflow-hidden">
+                            <div className="w-full aspect-[4/5] bg-slate-900 overflow-hidden cursor-pointer" onClick={() => onOpenPost(post)}>
                                 {post.mediaType === 'video' ? (
                                     <video src={post.mediaUrl} className="w-full h-full object-cover" autoPlay muted loop playsInline />
                                 ) : (
@@ -168,7 +169,10 @@ export const HomeFeed: React.FC<HomeFeedProps> = ({ currentUser, onOpenDMs, onUp
                                                 <span className="material-symbols-outlined" style={post.likes.includes(currentUser.uid) ? { fontVariationSettings: "'FILL' 1" } : {}}>favorite</span>
                                                 <span className="text-xs font-semibold">{post.likes.length}</span>
                                             </button>
-                                            <button className="flex items-center gap-1.5 text-white">
+                                            <button 
+                                                onClick={() => onOpenPost(post)}
+                                                className="flex items-center gap-1.5 text-white"
+                                            >
                                                 <span className="material-symbols-outlined">chat_bubble</span>
                                                 <span className="text-xs font-semibold">{post.commentCount}</span>
                                             </button>
@@ -185,7 +189,7 @@ export const HomeFeed: React.FC<HomeFeedProps> = ({ currentUser, onOpenDMs, onUp
                                     </div>
                                     <div className="text-white text-[13px] leading-relaxed">
                                         <span className="font-bold mr-1">{post.userName}</span> 
-                                        {post.caption} <button className="opacity-60 font-medium">more</button>
+                                        {post.caption} <button onClick={() => onOpenPost(post)} className="opacity-60 font-medium">more</button>
                                     </div>
                                 </div>
                             </div>
