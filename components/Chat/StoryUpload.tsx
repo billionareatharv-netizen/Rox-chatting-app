@@ -38,6 +38,8 @@ export const StoryUpload: React.FC<StoryUploadProps> = ({ currentUser, onClose }
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
+  const generateUID = () => Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
+
   // Start Camera
   const startCamera = async () => {
     try {
@@ -45,7 +47,7 @@ export const StoryUpload: React.FC<StoryUploadProps> = ({ currentUser, onClose }
         cameraStream.getTracks().forEach(track => track.stop());
       }
       const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: cameraFacing },
+        video: { facingMode: cameraFacing, width: { ideal: 1280 }, height: { ideal: 1920 } },
         audio: false
       });
       setCameraStream(stream);
@@ -53,14 +55,14 @@ export const StoryUpload: React.FC<StoryUploadProps> = ({ currentUser, onClose }
         videoRef.current.srcObject = stream;
       }
       setIsCameraActive(true);
-      setPreview(null); // Clear gallery preview if switching to camera
+      setPreview(null); 
     } catch (err) {
-      console.error("Camera error:", err);
-      alert("Could not access camera. Please check permissions.");
+      console.error("Camera access error:", err);
+      // Fallback: if camera fails, just rely on library
+      setIsCameraActive(false);
     }
   };
 
-  // Stop Camera
   const stopCamera = () => {
     if (cameraStream) {
       cameraStream.getTracks().forEach(track => track.stop());
@@ -76,9 +78,11 @@ export const StoryUpload: React.FC<StoryUploadProps> = ({ currentUser, onClose }
 
   // Capture Photo
   const handleCapture = () => {
-    if (!videoRef.current || !canvasRef.current) return;
+    if (!videoRef.current || !canvasRef.current || !isCameraActive) return;
     
     const video = videoRef.current;
+    if (video.readyState < 2) return; // Ensure video is ready
+
     const canvas = canvasRef.current;
     canvas.width = video.videoWidth;
     canvas.height = video.videoHeight;
@@ -86,18 +90,18 @@ export const StoryUpload: React.FC<StoryUploadProps> = ({ currentUser, onClose }
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
     
-    // Apply filter to canvas if needed, or we just rely on CSS filters during preview
-    // For simplicity, we capture raw and user sees filtered preview. 
-    // To keep it high quality, we grab current frame:
+    // Draw current frame to canvas
     ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
     
-    const dataUrl = canvas.toDataURL('image/jpeg', 0.9);
+    // Convert to dataURL with slightly reduced quality to avoid Firestore size limits
+    const dataUrl = canvas.toDataURL('image/jpeg', 0.8);
     setPreview(dataUrl);
     setMediaType('image');
     stopCamera();
   };
 
-  const handleSwitchCamera = () => {
+  const handleSwitchCamera = (e: React.MouseEvent) => {
+    e.stopPropagation();
     setCameraFacing(prev => prev === 'user' ? 'environment' : 'user');
   };
 
@@ -116,24 +120,24 @@ export const StoryUpload: React.FC<StoryUploadProps> = ({ currentUser, onClose }
   };
 
   const handleUpload = async () => {
-    if (!preview) return;
+    if (!preview || isUploading) return;
     setIsUploading(true);
     try {
-      // If preview is a dataURL (from camera), use it directly. 
-      // If it's a blob URL (from file input), we need to read the file.
       let mediaData = preview;
       
+      // If we have a File object (from gallery), read it as base64
       if (file) {
-          mediaData = await new Promise((resolve) => {
+          mediaData = await new Promise((resolve, reject) => {
               const reader = new FileReader();
               reader.readAsDataURL(file);
               reader.onload = () => resolve(reader.result as string);
+              reader.onerror = (err) => reject(err);
           });
       }
 
       if (mode === 'Story') {
         const newStory: Story = {
-          id: crypto.randomUUID(),
+          id: 'story_' + generateUID(),
           userId: currentUser.uid,
           userName: currentUser.name,
           userPhoto: currentUser.photoURL,
@@ -158,7 +162,8 @@ export const StoryUpload: React.FC<StoryUploadProps> = ({ currentUser, onClose }
       }
       onClose();
     } catch (e) {
-      alert("Failed to upload. Media might be too large.");
+      console.error("Upload error:", e);
+      alert("Failed to publish. The image might be too large or there was a network issue.");
     } finally {
       setIsUploading(false);
     }
@@ -181,13 +186,20 @@ export const StoryUpload: React.FC<StoryUploadProps> = ({ currentUser, onClose }
             </div>
         ) : (
             <div className={`w-full h-full relative ${selectedFilter.class}`}>
-                <video 
-                    ref={videoRef} 
-                    autoPlay 
-                    playsInline 
-                    muted 
-                    className={`w-full h-full object-cover ${cameraFacing === 'user' ? 'scale-x-[-1]' : ''}`}
-                />
+                {isCameraActive ? (
+                    <video 
+                        ref={videoRef} 
+                        autoPlay 
+                        playsInline 
+                        muted 
+                        className={`w-full h-full object-cover ${cameraFacing === 'user' ? 'scale-x-[-1]' : ''}`}
+                    />
+                ) : (
+                    <div className="w-full h-full flex flex-col items-center justify-center gap-4 bg-slate-900">
+                        <span className="material-symbols-outlined text-6xl opacity-20">videocam_off</span>
+                        <p className="text-xs font-black uppercase tracking-widest opacity-40">Camera not active</p>
+                    </div>
+                )}
             </div>
         )}
       </div>
@@ -201,7 +213,7 @@ export const StoryUpload: React.FC<StoryUploadProps> = ({ currentUser, onClose }
             <span className="material-symbols-outlined">close</span>
         </button>
         <div className="flex gap-2">
-            {!preview && (
+            {!preview && isCameraActive && (
                 <button 
                     onClick={handleSwitchCamera}
                     className="flex items-center justify-center size-12 rounded-full bg-black/40 backdrop-blur-xl border border-white/10 text-white active:bg-white/20"
@@ -231,6 +243,7 @@ export const StoryUpload: React.FC<StoryUploadProps> = ({ currentUser, onClose }
                     <div className="flex gap-3">
                         <button 
                             onClick={() => { setPreview(null); setFile(null); startCamera(); }}
+                            disabled={isUploading}
                             className="flex-1 py-4 bg-white/10 text-white rounded-3xl font-bold uppercase tracking-widest text-[10px]"
                         >
                             Retake
@@ -281,12 +294,16 @@ export const StoryUpload: React.FC<StoryUploadProps> = ({ currentUser, onClose }
                     <span className="material-symbols-outlined">photo_library</span>
                 </button>
 
-                <div className="relative flex items-center justify-center group" onClick={handleCapture}>
+                <button 
+                    onClick={handleCapture}
+                    disabled={!isCameraActive}
+                    className="relative flex items-center justify-center group disabled:opacity-30"
+                >
                     <div className="absolute size-24 bg-primary/20 rounded-full animate-pulse group-active:scale-125 transition-transform"></div>
-                    <button className="relative flex shrink-0 items-center justify-center rounded-full size-20 border-[6px] border-white/40 bg-white/5 p-1">
+                    <div className="relative flex shrink-0 items-center justify-center rounded-full size-20 border-[6px] border-white/40 bg-white/5 p-1">
                         <div className="size-full bg-white rounded-full transition-transform group-active:scale-90 shadow-[0_0_20px_2px_rgba(242,13,128,0.4)]"></div>
-                    </button>
-                </div>
+                    </div>
+                </button>
 
                 <button 
                     onClick={() => setShowMusicPicker(true)}
