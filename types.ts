@@ -65,6 +65,8 @@ export interface User {
   role: UserRole;
   isAdmin?: boolean; 
   isGloballyBlocked?: boolean;
+  followers?: string[]; // Array of UIDs
+  following?: string[]; // Array of UIDs
   privacySettings?: {
     lastSeen: 'everyone' | 'contacts' | 'nobody';
     readReceipts: boolean;

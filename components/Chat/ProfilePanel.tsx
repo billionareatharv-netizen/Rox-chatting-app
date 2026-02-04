@@ -1,8 +1,8 @@
 
 import React, { useState, useRef, useEffect } from 'react';
-import { User, PremiumCustomization, SavedMedia } from '../../types';
+import { User, PremiumCustomization, SavedMedia, Post } from '../../types';
 import { useAuth } from '../../hooks/useAuth';
-import { updateProfile, updatePremiumCustomization, saveWallpaper, updatePrivacySettings, getSavedGallery } from '../../firebase';
+import { updateProfile, updatePremiumCustomization, saveWallpaper, updatePrivacySettings, getSavedGallery, getPostsByUser } from '../../firebase';
 import { hasPremiumAccess, ROLE_STYLES } from '../../premiumUtils';
 import { SubscriptionModal } from '../Premium/SubscriptionModal';
 
@@ -12,11 +12,15 @@ interface ProfilePanelProps {
   toggleDarkMode: () => void;
   isDarkMode: boolean;
   isTabMode?: boolean;
+  onOpenPost?: (post: Post) => void;
+  onOpenConnections?: (type: 'followers' | 'following') => void;
 }
 
 type ProfileViewMode = 'main' | 'edit' | 'settings' | 'privacy' | 'chats_settings';
 
-export const ProfilePanel: React.FC<ProfilePanelProps> = ({ user, onClose, toggleDarkMode, isDarkMode, isTabMode }) => {
+export const ProfilePanel: React.FC<ProfilePanelProps> = ({ 
+    user, onClose, toggleDarkMode, isDarkMode, isTabMode, onOpenPost, onOpenConnections 
+}) => {
   const { logout } = useAuth();
   const [viewMode, setViewMode] = useState<ProfileViewMode>('main');
   const [activeTab, setActiveTab] = useState<'grid' | 'reels' | 'tagged'>('grid');
@@ -24,11 +28,13 @@ export const ProfilePanel: React.FC<ProfilePanelProps> = ({ user, onClose, toggl
   const [bio, setBio] = useState(user.bio || '');
   const [showSubModal, setShowSubModal] = useState(false);
   const [galleryItems, setGalleryItems] = useState<SavedMedia[]>([]);
+  const [userPosts, setUserPosts] = useState<Post[]>([]);
   const [isSaving, setIsSaving] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     getSavedGallery(user.uid).then(items => setGalleryItems(items as SavedMedia[]));
+    getPostsByUser(user.uid).then(posts => setUserPosts(posts));
   }, [user.uid]);
 
   const handlePhotoSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -192,58 +198,55 @@ export const ProfilePanel: React.FC<ProfilePanelProps> = ({ user, onClose, toggl
 
   // MAIN VIEW (SOCIAL MEDIA STYLE)
   return (
-    <div className="flex flex-col h-full bg-background-light dark:bg-background-dark text-slate-900 dark:text-white overflow-hidden animate-in fade-in">
+    <div className="flex-1 flex flex-col bg-background-light dark:bg-background-dark text-slate-900 dark:text-white overflow-hidden animate-in fade-in transition-colors duration-300">
         
         {/* Top Navigation Bar */}
-        <nav className="sticky top-0 z-50 bg-background-light/80 dark:bg-background-dark/80 backdrop-blur-md px-4 py-3 flex items-center justify-between border-b border-gray-200 dark:border-border-dark">
+        <nav className="sticky top-0 z-50 bg-background-light/80 dark:bg-background-dark/80 backdrop-blur-md px-4 py-4 flex items-center justify-between border-b border-gray-200 dark:border-border-dark">
             <div className="flex items-center gap-1 cursor-pointer" onClick={onClose}>
                 <span className="material-symbols-outlined text-2xl">arrow_back_ios</span>
             </div>
             <div className="flex flex-col items-center">
-                <h2 className="text-sm font-bold tracking-tight">@{user.email.split('@')[0]}</h2>
+                <h2 className="text-sm font-black tracking-tighter uppercase leading-none">@{user.username || user.email.split('@')[0]}</h2>
             </div>
             <div className="flex items-center gap-4">
-                <button className="flex items-center justify-center">
-                    <span className="material-symbols-outlined text-2xl">notifications</span>
-                </button>
                 <button className="flex items-center justify-center" onClick={() => setViewMode('settings')}>
                     <span className="material-symbols-outlined text-2xl">settings</span>
                 </button>
             </div>
         </nav>
 
-        <main className="flex-1 overflow-y-auto no-scrollbar pb-20">
+        <main className="flex-1 overflow-y-auto no-scrollbar pb-32">
             {/* Profile Header Section */}
             <section className="px-6 pt-6 pb-4">
                 <div className="flex flex-col items-start gap-6">
                     <div className="relative">
-                        <div className="absolute -inset-1 bg-gradient-to-tr from-primary to-purple-600 rounded-full blur-sm opacity-30 animate-pulse"></div>
+                        <div className="absolute -inset-1.5 bg-gradient-to-tr from-primary to-purple-600 rounded-full blur-sm opacity-40 animate-pulse"></div>
                         <div 
-                            className="relative bg-center bg-no-repeat aspect-square bg-cover rounded-full h-28 w-28 ring-2 ring-white dark:ring-primary/20 shadow-xl"
+                            className="relative bg-center bg-no-repeat aspect-square bg-cover rounded-full h-28 w-28 ring-4 ring-background-light dark:ring-background-dark shadow-2xl"
                             style={{ backgroundImage: `url("${user.photoURL}")` }}
                         ></div>
                     </div>
                     <div className="flex flex-col gap-1">
                         <div className="flex items-center gap-2">
-                            <h1 className="text-2xl font-bold tracking-tight">{user.name}</h1>
+                            <h1 className="text-[26px] font-black tracking-tighter">{user.name}</h1>
                             {(user.isAdmin || user.role === 'owner') && (
-                                <span className="material-symbols-outlined text-primary text-lg" style={{ fontVariationSettings: "'FILL' 1" }}>verified</span>
+                                <span className="material-symbols-outlined text-primary text-xl" style={{ fontVariationSettings: "'FILL' 1" }}>verified</span>
                             )}
                         </div>
-                        <p className="text-slate-500 dark:text-gray-400 text-sm leading-relaxed max-w-xs">
-                            {user.bio || "Digital Architect & Visual Designer"} <br/>
-                            <span className="inline-flex items-center gap-1 mt-1 text-[10px] font-bold uppercase tracking-widest">
-                                <span className="material-symbols-outlined text-xs">location_on</span> NYC
-                            </span>
+                        <p className="text-slate-500 dark:text-gray-400 text-sm font-medium leading-relaxed max-w-xs">
+                            {user.bio || "Digital Architect & Visual Designer"}
                         </p>
-                        <a className="text-primary text-sm font-medium mt-1" href="#">roxx.chat/{user.email.split('@')[0]}</a>
+                        <div className="flex items-center gap-1.5 mt-1 text-slate-400">
+                            <span className="material-symbols-outlined text-xs">location_on</span>
+                            <span className="text-[10px] font-black uppercase tracking-[0.2em]">New York City</span>
+                        </div>
                     </div>
                     {/* Action Buttons */}
                     <div className="flex w-full gap-3 mt-2">
-                        <button onClick={() => setViewMode('edit')} className="gradient-border-btn flex-1 h-11 flex items-center justify-center rounded-full text-sm font-semibold tracking-wide hover:opacity-80 transition-opacity">
+                        <button onClick={() => setViewMode('edit')} className="flex-1 h-12 bg-slate-200 dark:bg-white/10 text-slate-900 dark:text-white flex items-center justify-center rounded-full text-xs font-black uppercase tracking-widest border border-slate-300 dark:border-white/10 active:scale-95 transition-all">
                             Edit Profile
                         </button>
-                        <button className="flex-1 h-11 bg-primary text-white flex items-center justify-center rounded-full text-sm font-semibold tracking-wide shadow-lg shadow-primary/20 active:scale-95 transition-transform">
+                        <button className="flex-1 h-12 bg-primary text-white flex items-center justify-center rounded-full text-xs font-black uppercase tracking-widest shadow-lg shadow-primary/20 active:scale-95 transition-all">
                             Share Profile
                         </button>
                     </div>
@@ -253,65 +256,68 @@ export const ProfilePanel: React.FC<ProfilePanelProps> = ({ user, onClose, toggl
             {/* Stats Section */}
             <section className="px-4 py-4">
                 <div className="flex gap-3">
-                    <div className="flex-1 flex flex-col gap-1 rounded-2xl bg-slate-100 dark:bg-card-dark p-4 items-center border border-transparent dark:border-border-dark">
-                        <p className="text-xl font-bold">{galleryItems.length}</p>
-                        <p className="text-slate-500 dark:text-gray-500 text-[11px] uppercase tracking-widest font-bold">Posts</p>
+                    <div className="flex-1 flex flex-col gap-1 rounded-[1.5rem] bg-slate-100 dark:bg-white/5 py-4 items-center border border-transparent dark:border-white/5">
+                        <p className="text-xl font-black">{userPosts.length}</p>
+                        <p className="text-slate-500 dark:text-gray-500 text-[10px] uppercase tracking-[0.2em] font-black">Posts</p>
                     </div>
-                    <div className="flex-1 flex flex-col gap-1 rounded-2xl bg-slate-100 dark:bg-card-dark p-4 items-center border border-transparent dark:border-border-dark">
-                        <p className="text-xl font-bold">4.2K</p>
-                        <p className="text-slate-500 dark:text-gray-500 text-[11px] uppercase tracking-widest font-bold">Followers</p>
+                    <div 
+                        onClick={() => onOpenConnections?.('followers')}
+                        className="flex-1 flex flex-col gap-1 rounded-[1.5rem] bg-slate-100 dark:bg-white/5 py-4 items-center border border-transparent dark:border-white/5 cursor-pointer active:bg-slate-200 dark:active:bg-white/10 transition-colors"
+                    >
+                        <p className="text-xl font-black">{(user.followers || []).length}</p>
+                        <p className="text-slate-500 dark:text-gray-500 text-[10px] uppercase tracking-[0.2em] font-black">Followers</p>
                     </div>
-                    <div className="flex-1 flex flex-col gap-1 rounded-2xl bg-slate-100 dark:bg-card-dark p-4 items-center border border-transparent dark:border-border-dark">
-                        <p className="text-xl font-bold">298</p>
-                        <p className="text-slate-500 dark:text-gray-500 text-[11px] uppercase tracking-widest font-bold">Following</p>
+                    <div 
+                        onClick={() => onOpenConnections?.('following')}
+                        className="flex-1 flex flex-col gap-1 rounded-[1.5rem] bg-slate-100 dark:bg-white/5 py-4 items-center border border-transparent dark:border-white/5 cursor-pointer active:bg-slate-200 dark:active:bg-white/10 transition-colors"
+                    >
+                        <p className="text-xl font-black">{(user.following || []).length}</p>
+                        <p className="text-slate-500 dark:text-gray-500 text-[10px] uppercase tracking-[0.2em] font-black">Following</p>
                     </div>
                 </div>
             </section>
 
             {/* Tabs Section */}
             <section className="mt-4">
-                <div className="flex border-b border-gray-200 dark:border-border-dark px-4">
+                <div className="flex border-b border-gray-200 dark:border-border-dark">
                     <button 
                         onClick={() => setActiveTab('grid')}
-                        className={`flex-1 flex flex-col items-center justify-center py-3 border-b-2 transition-all ${activeTab === 'grid' ? 'border-primary text-primary' : 'border-transparent text-gray-400'}`}
+                        className={`flex-1 flex flex-col items-center justify-center py-4 border-b-2 transition-all ${activeTab === 'grid' ? 'border-primary text-primary' : 'border-transparent text-gray-400 opacity-50'}`}
                     >
                         <span className="material-symbols-outlined" style={activeTab === 'grid' ? { fontVariationSettings: "'FILL' 1" } : {}}>grid_view</span>
-                        <span className="text-[10px] uppercase font-bold tracking-tighter mt-1">Grid</span>
                     </button>
                     <button 
                         onClick={() => setActiveTab('reels')}
-                        className={`flex-1 flex flex-col items-center justify-center py-3 border-b-2 transition-all ${activeTab === 'reels' ? 'border-primary text-primary' : 'border-transparent text-gray-400'}`}
+                        className={`flex-1 flex flex-col items-center justify-center py-4 border-b-2 transition-all ${activeTab === 'reels' ? 'border-primary text-primary' : 'border-transparent text-gray-400 opacity-50'}`}
                     >
                         <span className="material-symbols-outlined">video_library</span>
-                        <span className="text-[10px] uppercase font-bold tracking-tighter mt-1">Reels</span>
                     </button>
                     <button 
                         onClick={() => setActiveTab('tagged')}
-                        className={`flex-1 flex flex-col items-center justify-center py-3 border-b-2 transition-all ${activeTab === 'tagged' ? 'border-primary text-primary' : 'border-transparent text-gray-400'}`}
+                        className={`flex-1 flex flex-col items-center justify-center py-4 border-b-2 transition-all ${activeTab === 'tagged' ? 'border-primary text-primary' : 'border-transparent text-gray-400 opacity-50'}`}
                     >
-                        <span className="material-symbols-outlined">account_box</span>
-                        <span className="text-[10px] uppercase font-bold tracking-tighter mt-1">Tagged</span>
+                        <span className="material-symbols-outlined">person_pin</span>
                     </button>
                 </div>
             </section>
 
             {/* Image Grid Section */}
-            <section className="grid grid-cols-3 gap-0.5 p-0.5 mt-0.5">
-                {galleryItems.length === 0 ? (
-                    <div className="col-span-3 py-20 text-center flex flex-col items-center gap-4 opacity-50">
+            <section className="grid grid-cols-3 gap-0.5 mt-0.5">
+                {activeTab === 'grid' && userPosts.length === 0 ? (
+                    <div className="col-span-3 py-20 text-center flex flex-col items-center gap-4 opacity-30">
                         <span className="material-symbols-outlined text-4xl">photo_library</span>
-                        <p className="text-xs font-bold uppercase tracking-widest">No posts yet</p>
+                        <p className="text-[10px] font-black uppercase tracking-widest">Post gallery empty</p>
                     </div>
                 ) : (
-                    galleryItems.map(item => (
-                        <div key={item.id} className="aspect-square bg-slate-200 dark:bg-card-dark overflow-hidden relative group">
-                            {item.mediaType === 'video' ? (
+                    userPosts.map(p => (
+                        <div key={p.id} onClick={() => onOpenPost?.(p)} className="aspect-square bg-slate-200 dark:bg-white/5 overflow-hidden relative group cursor-pointer active:opacity-70 transition-opacity">
+                            {p.mediaType === 'video' ? (
                                 <>
-                                    <video src={item.mediaUrl} className="w-full h-full object-cover" />
+                                    <video src={p.mediaUrl} className="w-full h-full object-cover" />
                                     <div className="absolute top-2 right-2"><span className="material-symbols-outlined text-white text-sm">play_circle</span></div>
                                 </>
                             ) : (
-                                <img src={item.mediaUrl} className="w-full h-full object-cover" alt="" />
+                                <img src={p.mediaUrl} className="w-full h-full object-cover" alt="" />
                             )}
                         </div>
                     ))

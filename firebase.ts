@@ -1,5 +1,5 @@
 
-import { initializeApp, getApp, getApps } from "firebase/app";
+import { initializeApp, getApps, getApp } from "firebase/app";
 import { 
   getAuth, 
   signInWithEmailAndPassword as firebaseSignIn, 
@@ -12,9 +12,6 @@ import {
 } from "firebase/auth";
 import { 
   getFirestore, 
-  initializeFirestore,
-  persistentLocalCache,
-  persistentMultipleTabManager,
   collection, 
   doc, 
   setDoc, 
@@ -68,54 +65,18 @@ const firebaseConfig = {
   measurementId: "G-T0M4876W9M"
 };
 
-const getSafeEnv = (key: string) => {
-    try {
-        return (typeof process !== 'undefined' && process.env) ? process.env[key] : undefined;
-    } catch {
-        return undefined;
-    }
-};
+// Defensive Initialization
+const app = getApps().length ? getApp() : initializeApp(firebaseConfig);
 
-const config = {
-  apiKey: getSafeEnv('VITE_FIREBASE_API_KEY') || firebaseConfig.apiKey,
-  authDomain: getSafeEnv('VITE_FIREBASE_AUTH_DOMAIN') || firebaseConfig.authDomain,
-  projectId: getSafeEnv('VITE_FIREBASE_PROJECT_ID') || firebaseConfig.projectId,
-  storageBucket: getSafeEnv('VITE_FIREBASE_STORAGE_BUCKET') || firebaseConfig.storageBucket,
-  messagingSenderId: getSafeEnv('VITE_FIREBASE_MESSAGING_SENDER_ID') || firebaseConfig.messagingSenderId,
-  appId: getSafeEnv('VITE_FIREBASE_APP_ID') || firebaseConfig.appId
-};
+// Lazy initializers to avoid "Component not registered" errors
+const getAuthService = () => getAuth(app);
+const getDbService = () => getFirestore(app);
+const getStorageService = () => getStorage(app);
 
-let app: any;
-let auth: any;
-let db: any;
-let storage: any;
-
-try {
-  app = !getApps().length ? initializeApp(config) : getApp();
-  auth = getAuth(app);
-  
-  try {
-    storage = getStorage(app);
-  } catch (e) {
-    console.warn("Storage not available");
-    storage = null;
-  }
-
-  // Use the most standard Firestore initialization to maximize compatibility
-  try {
-    db = getFirestore(app);
-  } catch (err) {
-    console.error("Firestore init failed completely:", err);
-    db = null;
-  }
-} catch (e) {
-  console.error("Firebase critical init crash:", e);
-  auth = null;
-  db = null; 
-  storage = null;
-}
-
-export { auth, db, storage };
+// Exporting direct instances for backward compatibility where safe
+export const auth = getAuthService();
+export const db = getDbService();
+export const storage = getStorageService();
 
 const generateUUID = () => {
   return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
@@ -156,20 +117,39 @@ export const updateUserStatus = async (uid: string, status: 'online' | 'offline'
   try { await updateDoc(doc(db, "users", uid), { status: status, lastSeen: Date.now() }); } catch (e) { }
 };
 
+export const toggleFollow = async (myUid: string, targetUid: string) => {
+  if (!db) return;
+  const myRef = doc(db, "users", myUid);
+  const targetRef = doc(db, "users", targetUid);
+  const mySnap = await getDoc(myRef);
+  if (!mySnap.exists()) return;
+
+  const following = mySnap.data().following || [];
+  const isFollowing = following.includes(targetUid);
+
+  const batch = writeBatch(db);
+  if (isFollowing) {
+    batch.update(myRef, { following: arrayRemove(targetUid) });
+    batch.update(targetRef, { followers: arrayRemove(myUid) });
+  } else {
+    batch.update(myRef, { following: arrayUnion(targetUid) });
+    batch.update(targetRef, { followers: arrayUnion(myUid) });
+  }
+  await batch.commit();
+};
+
 export const makeUserAdmin = async (uid: string, role: UserRole = 'admin') => {
   if (!db || !uid) return;
   try { await updateDoc(doc(db, "users", uid), { isAdmin: true, role: role }); } catch(e) { }
 };
 
 export const signInWithEmailAndPassword = async (authObj: any, email: string, pass: string) => {
-  if (!authObj) throw new Error("Auth service is unavailable.");
   const userCredential = await firebaseSignIn(authObj, email, pass);
   await updateUserStatus(userCredential.user.uid, 'online');
   return userCredential;
 };
 
 export const createUserWithEmailAndPassword = async (authObj: any, email: string, pass: string) => {
-  if (!authObj) throw new Error("Auth service is unavailable.");
   const userCredential = await firebaseCreateUser(authObj, email, pass);
   const user = userCredential.user;
   let role: UserRole = 'user';
@@ -187,6 +167,8 @@ export const createUserWithEmailAndPassword = async (authObj: any, email: string
     pinnedChats: [],
     isAdmin: role !== 'user',
     role: role,
+    followers: [],
+    following: [],
     isGloballyBlocked: false,
     privacySettings: { lastSeen: 'everyone', readReceipts: true },
     subscription: { plan: 'free', isActive: false, startDate: Date.now(), expiryDate: Date.now() },
@@ -219,6 +201,8 @@ export const signInWithPopup = async () => {
       bio: 'Hey there! I am using ROXX CHATS.',
       blockedUsers: [],
       pinnedChats: [],
+      followers: [],
+      following: [],
       isAdmin: role !== 'user',
       role: role,
       isGloballyBlocked: false,
@@ -275,9 +259,20 @@ export const addPost = async (post: Omit<Post, 'id' | 'likes' | 'bookmarks' | 'c
 
 export const getFeedPosts = async () => {
   if (!db) return [];
-  const q = query(collection(db, "posts"), orderBy("timestamp", "desc"), limit(20));
-  const snapshot = await getDocs(q);
-  return snapshot.docs.map(d => d.data() as Post);
+  try {
+    const q = query(collection(db, "posts"), orderBy("timestamp", "desc"), limit(20));
+    const snapshot = await getDocs(q);
+    return snapshot.docs.map(d => d.data() as Post);
+  } catch(e) { return []; }
+};
+
+export const getPostsByUser = async (userId: string) => {
+  if (!db) return [];
+  try {
+    const q = query(collection(db, "posts"), where("userId", "==", userId), orderBy("timestamp", "desc"));
+    const snapshot = await getDocs(q);
+    return snapshot.docs.map(d => d.data() as Post);
+  } catch(e) { return []; }
 };
 
 export const subscribeToPosts = (callback: (posts: Post[]) => void) => {
@@ -285,7 +280,7 @@ export const subscribeToPosts = (callback: (posts: Post[]) => void) => {
   const q = query(collection(db, "posts"), orderBy("timestamp", "desc"), limit(20));
   return onSnapshot(q, (snapshot) => {
     callback(snapshot.docs.map(d => d.data() as Post));
-  });
+  }, (err) => console.error("Posts Sub Error", err));
 };
 
 export const subscribeToPost = (postId: string, callback: (post: Post) => void) => {
@@ -355,8 +350,10 @@ export const updatePremiumCustomization = async (userId: string, customization: 
 
 export const admin_getStoreItems = async () => {
     if (!db) return [];
-    const snap = await getDocs(collection(db, "store_items"));
-    return snap.docs.map(d => d.data() as StoreItem);
+    try {
+      const snap = await getDocs(collection(db, "store_items"));
+      return snap.docs.map(d => d.data() as StoreItem);
+    } catch(e) { return []; }
 };
 
 export const admin_addStoreItem = async (item: Omit<StoreItem, 'id'>) => {
@@ -371,10 +368,7 @@ export const admin_deleteStoreItem = async (id: string) => {
 };
 
 export const admin_uploadSong = async (file: File, metadata: Omit<Song, 'id' | 'url'>) => {
-  if (!db || !storage) {
-    console.error("Firestore or Storage not initialized");
-    return null;
-  }
+  if (!db || !storage) return null;
   const songId = 'song_' + generateUUID();
   const storageRef = ref(storage, `songs/${songId}_${file.name.replace(/[^a-zA-Z0-9.]/g, '')}`);
   const meta = { contentType: file.type || 'audio/mpeg' };
@@ -387,8 +381,10 @@ export const admin_uploadSong = async (file: File, metadata: Omit<Song, 'id' | '
 
 export const getMusicLibrary = async () => {
   if (!db) return [];
-  const snapshot = await getDocs(query(collection(db, "songs"), where("isActive", "==", true)));
-  return snapshot.docs.map(d => d.data() as Song);
+  try {
+    const snapshot = await getDocs(query(collection(db, "songs"), where("isActive", "==", true)));
+    return snapshot.docs.map(d => d.data() as Song);
+  } catch(e) { return []; }
 };
 
 export const admin_deleteSong = async (songId: string) => {
@@ -398,14 +394,18 @@ export const admin_deleteSong = async (songId: string) => {
 
 export const getAllUsers = async () => {
   if (!db) return [];
-  const querySnapshot = await getDocs(collection(db, "users"));
-  return querySnapshot.docs.map(doc => doc.data() as User).filter((u: any) => !u.isGloballyBlocked);
+  try {
+    const querySnapshot = await getDocs(collection(db, "users"));
+    return querySnapshot.docs.map(doc => doc.data() as User).filter((u: any) => !u.isGloballyBlocked);
+  } catch(e) { return []; }
 };
 
 export const getUserById = async (uid: string) => {
   if (!db || !uid) return null;
-  const snap = await getDoc(doc(db, "users", uid));
-  return snap.exists() ? snap.data() as User : null;
+  try {
+    const snap = await getDoc(doc(db, "users", uid));
+    return snap.exists() ? snap.data() as User : null;
+  } catch(e) { return null; }
 };
 
 export const subscribeToUser = (uid: string, callback: (user: any) => void) => {
@@ -430,26 +430,30 @@ export const subscribeToNicknames = (myUid: string, callback: (nicknames: Record
 
 export const getMyChats = async (uid: string) => {
   if (!db) return [];
-  const querySnapshot = await getDocs(collection(db, "chats"));
-  return querySnapshot.docs.map(doc => doc.data() as Chat).filter((c: any) => c.participants && c.participants.includes(uid))
-                 .sort((a: any, b: any) => (b.updatedAt || 0) - (a.updatedAt || 0));
+  try {
+    const querySnapshot = await getDocs(collection(db, "chats"));
+    return querySnapshot.docs.map(doc => doc.data() as Chat).filter((c: any) => c.participants && c.participants.includes(uid))
+                   .sort((a: any, b: any) => (b.updatedAt || 0) - (a.updatedAt || 0));
+  } catch(e) { return []; }
 };
 
 export const getMessages = async (chatId: string, viewingAsAdmin: boolean = false) => {
   if (!db) return [];
-  const snapshot = await getDocs(collection(db, "messages"));
-  const allMsgs = snapshot.docs.map(doc => doc.data() as Message);
-  const currentUid = auth?.currentUser?.uid;
-  let filteredMsgs;
-  if (chatId.startsWith('group_')) filteredMsgs = allMsgs.filter((m: any) => m.recipientId === chatId);
-  else {
-    const parts = chatId.split('_');
-    if (parts.length < 2) return [];
-    const [u1, u2] = parts;
-    filteredMsgs = allMsgs.filter((m: any) => (m.senderId === u1 && m.recipientId === u2) || (m.senderId === u2 && m.recipientId === u1) || (m.recipientId === chatId));
-  }
-  if (currentUid && !viewingAsAdmin) filteredMsgs = filteredMsgs.filter((m: any) => !m.deletedFor?.includes(currentUid));
-  return filteredMsgs.sort((a: any, b: any) => a.timestamp - b.timestamp);
+  try {
+    const snapshot = await getDocs(collection(db, "messages"));
+    const allMsgs = snapshot.docs.map(doc => doc.data() as Message);
+    const currentUid = auth?.currentUser?.uid;
+    let filteredMsgs;
+    if (chatId.startsWith('group_')) filteredMsgs = allMsgs.filter((m: any) => m.recipientId === chatId);
+    else {
+      const parts = chatId.split('_');
+      if (parts.length < 2) return [];
+      const [u1, u2] = parts;
+      filteredMsgs = allMsgs.filter((m: any) => (m.senderId === u1 && m.recipientId === u2) || (m.senderId === u2 && m.recipientId === u1) || (m.recipientId === chatId));
+    }
+    if (currentUid && !viewingAsAdmin) filteredMsgs = filteredMsgs.filter((m: any) => !m.deletedFor?.includes(currentUid));
+    return filteredMsgs.sort((a: any, b: any) => a.timestamp - b.timestamp);
+  } catch(e) { return []; }
 };
 
 export const addMessage = async (msg: any) => {
@@ -580,9 +584,11 @@ export const initiateCall = async (callerId: string, receiverId: string, type: '
 
 export const getIncomingCall = async (userId: string) => {
   if (!db) return null;
-  const q = query(collection(db, "calls"), where("receiverId", "==", userId), where("status", "==", "ringing"));
-  const snapshot = await getDocs(q);
-  return snapshot.docs.map(doc => doc.data() as any).sort((a: any, b: any) => b.timestamp - a.timestamp)[0];
+  try {
+    const q = query(collection(db, "calls"), where("receiverId", "==", userId), where("status", "==", "ringing"));
+    const snapshot = await getDocs(q);
+    return snapshot.docs.map(doc => doc.data() as any).sort((a: any, b: any) => b.timestamp - a.timestamp)[0];
+  } catch(e) { return null; }
 };
 
 export const updateCallStatus = async (callId: string, status: string) => {
@@ -623,8 +629,10 @@ export const subscribeToCall = (callId: string, callback: (data: any) => void) =
 
 export const getCallById = async (callId: string) => {
   if (!db) return null;
-  const snap = await getDoc(doc(db, "calls", callId));
-  return snap.exists() ? snap.data() : null;
+  try {
+    const snap = await getDoc(doc(db, "calls", callId));
+    return snap.exists() ? snap.data() : null;
+  } catch(e) { return null; }
 };
 
 export const addStory = async (story: any) => {
@@ -633,9 +641,11 @@ export const addStory = async (story: any) => {
 };
 export const getStories = async () => {
   if (!db) return [];
-  const yesterday = Date.now() - 86400000;
-  const snapshot = await getDocs(query(collection(db, "stories"), where("timestamp", ">", yesterday)));
-  return snapshot.docs.map(doc => doc.data() as Story);
+  try {
+    const yesterday = Date.now() - 86400000;
+    const snapshot = await getDocs(query(collection(db, "stories"), where("timestamp", ">", yesterday)));
+    return snapshot.docs.map(doc => doc.data() as Story);
+  } catch(e) { return []; }
 };
 export const viewStory = async (storyId: string, userId: string, userName: string) => {
   if (!db) return;
@@ -668,9 +678,11 @@ export const addNote = async (userId: string, userName: string, userPhoto: strin
 
 export const getNotes = async () => {
   if (!db) return [];
-  const yesterday = Date.now() - 86400000;
-  const snapshot = await getDocs(query(collection(db, "notes"), where("timestamp", ">", yesterday)));
-  return snapshot.docs.map(doc => doc.data() as Note);
+  try {
+    const yesterday = Date.now() - 86400000;
+    const snapshot = await getDocs(query(collection(db, "notes"), where("timestamp", ">", yesterday)));
+    return snapshot.docs.map(doc => doc.data() as Note);
+  } catch(e) { return []; }
 };
 
 export const sendNoteReply = async (rid: string, sid: string, text: string, note: any) => {
@@ -687,8 +699,10 @@ export const saveMediaToGallery = async (userId: string, mediaUrl: string, media
 
 export const getSavedGallery = async (userId: string) => {
   if (!db) return [];
-  const snapshot = await getDocs(query(collection(db, "saved_media"), where("userId", "==", userId)));
-  return snapshot.docs.map(doc => doc.data() as SavedMedia).sort((a: any, b: any) => b.savedAt - a.savedAt);
+  try {
+    const snapshot = await getDocs(query(collection(db, "saved_media"), where("userId", "==", userId)));
+    return snapshot.docs.map(doc => doc.data() as SavedMedia).sort((a: any, b: any) => b.savedAt - a.savedAt);
+  } catch(e) { return []; }
 };
 
 export const deleteSavedMedia = async (id: string) => { if (db) await deleteDoc(doc(db, "saved_media", id)); };
@@ -712,8 +726,10 @@ export const admin_toggleGlobalBlock = async (uid: string) => {
 export const admin_deleteUser = async (uid: string) => { if (db) await deleteDoc(doc(db, "users", uid)); };
 export const admin_getStats = async () => {
   if (!db) return { users: 0, messages: 0, chats: 0, stories: 0 };
-  const [u, m, c, s] = await Promise.all([getDocs(collection(db, "users")), getDocs(collection(db, "messages")), getDocs(collection(db, "chats")), getDocs(collection(db, "stories"))]);
-  return { users: u.size, messages: m.size, chats: c.size, stories: s.size };
+  try {
+    const [u, m, c, s] = await Promise.all([getDocs(collection(db, "users")), getDocs(collection(db, "messages")), getDocs(collection(db, "chats")), getDocs(collection(db, "stories"))]);
+    return { users: u.size, messages: m.size, chats: c.size, stories: s.size };
+  } catch(e) { return { users: 0, messages: 0, chats: 0, stories: 0 }; }
 };
 export const blockUser = async (myUid: string, targetUid: string) => { if (db) await updateDoc(doc(db, "users", myUid), { blockedUsers: arrayUnion(targetUid) }); };
 export const unblockUser = async (myUid: string, targetUid: string) => { if (db) await updateDoc(doc(db, "users", myUid), { blockedUsers: arrayRemove(targetUid) }); };

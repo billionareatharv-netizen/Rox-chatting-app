@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import { User, Chat, Story, CallSession, Post } from '../../types';
 import { Sidebar } from './Sidebar';
@@ -13,6 +12,7 @@ import { BottomNav } from './BottomNav';
 import { ExploreView } from './ExploreView';
 import { ActivityView } from './ActivityView';
 import { PostDetailView } from './PostDetailView';
+import { ConnectionsView } from './ConnectionsView';
 import { initiateCall, getIncomingCall, getUserById, updateCallStatus, cleanOldCalls, subscribeToNicknames } from '../../firebase';
 
 interface ChatDashboardProps {
@@ -31,6 +31,7 @@ export const ChatDashboard: React.FC<ChatDashboardProps> = ({ currentUser, toggl
   const [viewingUser, setViewingUser] = useState<User | null>(null);
   const [activeCall, setActiveCall] = useState<CallSession | null>(null);
   const [selectedPost, setSelectedPost] = useState<Post | null>(null);
+  const [connectionsState, setConnectionsState] = useState<{ user: User, type: 'followers' | 'following' } | null>(null);
   const [nicknames, setNicknames] = useState<Record<string, string>>({});
 
   useEffect(() => {
@@ -68,6 +69,21 @@ export const ChatDashboard: React.FC<ChatDashboardProps> = ({ currentUser, toggl
   const handleOpenProfileByUid = async (uid: string) => {
       const user = await getUserById(uid);
       if(user) setViewingUser(user);
+      setConnectionsState(null); // Close connections if opening profile
+  };
+
+  const handleMessageUser = (user: User) => {
+    const chatId = [currentUser.uid, user.uid].sort().join('_');
+    const chat: Chat = {
+      id: chatId,
+      type: 'private',
+      participants: [currentUser.uid, user.uid],
+      updatedAt: Date.now()
+    };
+    setSelectedChat(chat);
+    setViewingUser(null);
+    setConnectionsState(null);
+    setSelectedPost(null);
   };
 
   const renderTabContent = () => {
@@ -100,6 +116,8 @@ export const ChatDashboard: React.FC<ChatDashboardProps> = ({ currentUser, toggl
             toggleDarkMode={toggleDarkMode}
             isDarkMode={isDarkMode}
             isTabMode={true}
+            onOpenPost={setSelectedPost}
+            onOpenConnections={(type) => setConnectionsState({ user: currentUser, type })}
           />
         );
       case 'search':
@@ -142,7 +160,7 @@ export const ChatDashboard: React.FC<ChatDashboardProps> = ({ currentUser, toggl
       </div>
 
       {/* Global Bottom Navigation */}
-      {!selectedChat && !selectedPost && (
+      {!selectedChat && !selectedPost && !connectionsState && (
         <BottomNav 
           activeTab={activeTab} 
           onTabChange={(tab) => {
@@ -156,9 +174,29 @@ export const ChatDashboard: React.FC<ChatDashboardProps> = ({ currentUser, toggl
       {/* Modals & Overlays */}
       {showStoryUpload && <StoryUpload currentUser={currentUser} onClose={() => setShowStoryUpload(false)} />}
       {viewingStories && <StoryViewer stories={viewingStories} currentUser={currentUser} onClose={() => setViewingStories(null)} />}
-      {viewingUser && <PublicProfile user={viewingUser} onClose={() => setViewingUser(null)} onCallStart={startCall} nickname={nicknames[viewingUser.uid]} />}
+      {viewingUser && (
+        <PublicProfile 
+          user={viewingUser} 
+          currentUser={currentUser}
+          onClose={() => setViewingUser(null)} 
+          onCallStart={startCall} 
+          onMessageClick={handleMessageUser}
+          nickname={nicknames[viewingUser.uid]} 
+          onOpenPost={setSelectedPost} 
+          onOpenConnections={(type) => setConnectionsState({ user: viewingUser, type })}
+        />
+      )}
       {activeCall && <CallModal session={activeCall} onHangUp={() => setActiveCall(null)} />}
       {selectedPost && <PostDetailView post={selectedPost} currentUser={currentUser} onClose={() => setSelectedPost(null)} onOpenProfile={handleOpenProfileByUid} />}
+      {connectionsState && (
+        <ConnectionsView 
+            targetUser={connectionsState.user} 
+            currentUser={currentUser} 
+            initialType={connectionsState.type} 
+            onClose={() => setConnectionsState(null)}
+            onOpenProfile={handleOpenProfileByUid}
+        />
+      )}
     </div>
   );
 };

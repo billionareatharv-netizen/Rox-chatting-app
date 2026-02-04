@@ -1,13 +1,16 @@
-
 import React, { useState, useEffect, useRef } from 'react';
-import { User, Message, Chat } from '../../types';
-import { blockUser, unblockUser, auth, getMessages, setNickname, toggleChatLock, updateProfile, saveWallpaper } from '../../firebase';
+import { User, Post } from '../../types';
+import { blockUser, unblockUser, setNickname, toggleChatLock, updateProfile, saveWallpaper, getPostsByUser, toggleFollow, subscribeToUser, auth } from '../../firebase';
 
 interface PublicProfileProps {
   user: User;
+  currentUser: User;
   onClose: () => void;
   onCallStart?: (user: User, type: 'voice' | 'video') => void;
+  onMessageClick: (user: User) => void;
   nickname?: string; 
+  onOpenPost?: (post: Post) => void;
+  onOpenConnections?: (type: 'followers' | 'following') => void;
 }
 
 const WALLPAPERS = [
@@ -18,216 +21,254 @@ const WALLPAPERS = [
     { id: 'ocean', color: 'bg-gradient-to-br from-cyan-400/20 to-blue-500/20', label: 'Ocean' },
 ];
 
-export const PublicProfile: React.FC<PublicProfileProps> = ({ user, onClose, onCallStart, nickname: initialNickname }) => {
-  const currentUser = auth.currentUser;
+export const PublicProfile: React.FC<PublicProfileProps> = ({ 
+    user: initialUser, currentUser, onClose, onCallStart, onMessageClick, nickname: initialNickname, onOpenPost, onOpenConnections 
+}) => {
+  const [user, setUser] = useState<User>(initialUser);
   const [isBlocked, setIsBlocked] = useState(currentUser?.blockedUsers?.includes(user.uid) || false);
   const [loading, setLoading] = useState(false);
+  const [userPosts, setUserPosts] = useState<Post[]>([]);
+  const [activeTab, setActiveTab] = useState<'grid' | 'reels' | 'tagged'>('grid');
   
-  // Nickname State
+  const [showOptionsMenu, setShowOptionsMenu] = useState(false);
   const [isEditingNickname, setIsEditingNickname] = useState(false);
   const [nicknameInput, setNicknameInput] = useState(initialNickname || '');
-
-  // Chat Lock State
-  const chatId = [currentUser.uid, user.uid].sort().join('_');
   const [showPinSetup, setShowPinSetup] = useState(false);
   const [newPin, setNewPin] = useState('');
-  const [showLockConfirm, setShowLockConfirm] = useState(false);
-
-  // Wallpaper State
   const [showWallpaperModal, setShowWallpaperModal] = useState(false);
   const [showWallpaperConfirm, setShowWallpaperConfirm] = useState(false);
   const [selectedWallpaper, setSelectedWallpaper] = useState('');
 
+  const chatId = currentUser ? [currentUser.uid, user.uid].sort().join('_') : '';
+  const amFollowing = currentUser.following?.includes(user.uid);
+
+  useEffect(() => {
+    const unsub = subscribeToUser(initialUser.uid, (updatedData) => {
+        if (updatedData) setUser(updatedData as User);
+    });
+    getPostsByUser(initialUser.uid).then(posts => setUserPosts(posts));
+    return () => unsub();
+  }, [initialUser.uid]);
+
+  const handleToggleFollow = async () => {
+      setLoading(true);
+      try {
+          await toggleFollow(currentUser.uid, user.uid);
+      } catch (e) {
+          console.error("Follow action failed", e);
+      } finally {
+          setLoading(false);
+      }
+  };
+
   const handleToggleBlock = async () => {
-    if (!currentUser) return;
     setLoading(true);
     try {
       if (isBlocked) {
         await unblockUser(currentUser.uid, user.uid);
         setIsBlocked(false);
       } else {
-        if (window.confirm(`Are you sure you want to block ${user.name}?`)) {
+        if (window.confirm(`Block ${user.name}?`)) {
           await blockUser(currentUser.uid, user.uid);
           setIsBlocked(true);
         }
       }
-    } catch (err) {
-      alert("Failed to update block status.");
     } finally {
       setLoading(false);
+      setShowOptionsMenu(false);
     }
   };
 
   const handleSaveNickname = async () => {
-    if(!currentUser) return;
     await setNickname(currentUser.uid, user.uid, nicknameInput);
     setIsEditingNickname(false);
-  };
-
-  const handleLockClick = async () => {
-    setShowPinSetup(true);
+    setShowOptionsMenu(false);
   };
 
   const confirmLock = async () => {
-      if(newPin.length < 4) {
-          alert("PIN must be at least 4 chars");
-          return;
-      }
+      if(newPin.length < 4) { alert("PIN must be at least 4 chars"); return; }
       await updateProfile(currentUser, { chatLockPassword: newPin });
-      await toggleChatLock(chatId, currentUser.uid);
+      await toggleChatLock(chatId, currentUser!.uid);
       setShowPinSetup(false);
-      setShowLockConfirm(true);
-  };
-
-  // Wallpaper Logic
-  const handleWallpaperSelect = (id: string) => {
-      setSelectedWallpaper(id);
-      setShowWallpaperModal(false);
-      setShowWallpaperConfirm(true);
+      setShowOptionsMenu(false);
+      alert("Chat Locked!");
   };
 
   const confirmWallpaper = async (scope: 'chat' | 'global') => {
-      if (!currentUser) return;
       const target = scope === 'chat' ? chatId : 'default';
       await saveWallpaper(currentUser.uid, target, selectedWallpaper);
       setShowWallpaperConfirm(false);
-      alert(scope === 'chat' ? "Wallpaper applied to this chat!" : "Wallpaper applied to all chats!");
+      alert("Wallpaper Applied!");
   };
 
   return (
-    <div className="fixed inset-0 z-[200] flex justify-end">
-      <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm lg:backdrop-blur-0 lg:bg-transparent" onClick={onClose}></div>
+    <div className="fixed inset-0 z-[500] bg-background-light dark:bg-background-dark text-slate-900 dark:text-white flex flex-col animate-in slide-in-from-right duration-300 overflow-hidden h-[100dvh]">
       
-      <div className="relative w-full lg:max-w-md h-full bg-slate-50 dark:bg-slate-950 shadow-2xl flex flex-col animate-in slide-in-from-right duration-300">
-        
-        <div className="h-16 flex items-center px-6 gap-6 bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 shrink-0">
-          <button onClick={onClose} className="p-2 -ml-2 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-full transition-all text-slate-600 dark:text-slate-400">
-            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M6 18L18 6M6 6l12 12" /></svg>
+      {/* Top Navigation Bar */}
+      <nav className="sticky top-0 z-50 flex items-center bg-background-light/80 dark:bg-background-dark/80 backdrop-blur-md p-4 justify-between border-b border-slate-200 dark:border-white/5">
+        <div onClick={onClose} className="flex size-10 shrink-0 items-center justify-start cursor-pointer hover:opacity-60 transition-opacity">
+          <span className="material-symbols-outlined text-2xl font-bold">arrow_back_ios_new</span>
+        </div>
+        <h2 className="text-sm font-bold leading-tight tracking-tight flex-1 text-center truncate">@{user.username || user.email.split('@')[0]}</h2>
+        <div className="flex w-10 items-center justify-end relative">
+          <button onClick={() => setShowOptionsMenu(!showOptionsMenu)} className="flex items-center justify-center rounded-full h-10 w-10 hover:bg-black/5 dark:hover:bg-white/10 transition-colors">
+            <span className="material-symbols-outlined text-2xl">more_horiz</span>
           </button>
-          <h2 className="text-lg font-bold">Contact Info</h2>
+
+          {showOptionsMenu && (
+            <div className="absolute right-0 top-12 w-56 bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-slate-100 dark:border-white/10 py-2 z-[510] animate-in zoom-in-95 origin-top-right">
+               <button onClick={() => setIsEditingNickname(true)} className="w-full px-4 py-3 text-left text-xs font-black uppercase tracking-widest flex items-center gap-3 hover:bg-slate-50 dark:hover:bg-white/5">
+                  <span className="material-symbols-outlined text-lg">badge</span> Edit Nickname
+               </button>
+               <button onClick={() => setShowPinSetup(true)} className="w-full px-4 py-3 text-left text-xs font-black uppercase tracking-widest flex items-center gap-3 hover:bg-slate-50 dark:hover:bg-white/5">
+                  <span className="material-symbols-outlined text-lg">lock</span> Lock Chat
+               </button>
+               <button onClick={() => setShowWallpaperModal(true)} className="w-full px-4 py-3 text-left text-xs font-black uppercase tracking-widest flex items-center gap-3 hover:bg-slate-50 dark:hover:bg-white/5">
+                  <span className="material-symbols-outlined text-lg">wallpaper</span> Set Wallpaper
+               </button>
+               <div className="h-px bg-slate-100 dark:bg-white/5 my-1"></div>
+               <button onClick={handleToggleBlock} className="w-full px-4 py-3 text-left text-xs font-black uppercase tracking-widest flex items-center gap-3 text-red-500 hover:bg-red-50 dark:hover:bg-red-500/10">
+                  <span className="material-symbols-outlined text-lg">block</span> {isBlocked ? 'Unblock' : 'Block User'}
+               </button>
+            </div>
+          )}
+        </div>
+      </nav>
+
+      <main className="flex-1 overflow-y-auto no-scrollbar pb-20">
+        <section className="flex p-6 flex-col items-center">
+          <div className="flex w-full flex-col gap-6 items-center">
+            <div className="flex gap-4 flex-col items-center">
+              <div className="relative p-1 rounded-full bg-gradient-to-tr from-primary to-purple-500 shadow-lg shadow-primary/20">
+                <div 
+                    className="bg-center bg-no-repeat aspect-square bg-cover rounded-full h-32 w-32 border-4 border-background-light dark:border-background-dark" 
+                    style={{ backgroundImage: `url("${user.photoURL}")` }}
+                ></div>
+              </div>
+              <div className="flex flex-col items-center justify-center">
+                <div className="flex items-center gap-2">
+                    <p className="text-[26px] font-black leading-tight tracking-tighter text-center">{user.name}</p>
+                    {user.isAdmin && <span className="material-symbols-outlined text-primary text-xl" style={{ fontVariationSettings: "'FILL' 1" }}>verified</span>}
+                </div>
+                <p className="text-slate-500 dark:text-slate-400 text-sm font-medium leading-relaxed text-center mt-2 max-w-[280px]">
+                    {user.bio || "Digital Architect & Visual Storyteller. 🌌"}
+                </p>
+                <div className="flex items-center gap-1 mt-1 text-slate-400">
+                  <span className="material-symbols-outlined text-xs">location_on</span>
+                  <p className="text-[10px] font-black uppercase tracking-widest">New York, NY</p>
+                </div>
+              </div>
+            </div>
+
+            <div className="flex w-full gap-3 px-4">
+              <button 
+                onClick={handleToggleFollow}
+                disabled={loading}
+                className={`flex-1 flex items-center justify-center overflow-hidden rounded-full h-12 text-xs font-black uppercase tracking-widest shadow-lg active:scale-95 transition-all ${amFollowing ? 'bg-slate-200 dark:bg-white/10 text-slate-900 dark:text-white border border-slate-300 dark:border-white/10' : 'bg-gradient-to-tr from-primary to-purple-600 text-white shadow-primary/30'}`}
+              >
+                {loading ? <div className="w-4 h-4 border-2 border-current border-t-transparent rounded-full animate-spin"></div> : amFollowing ? 'Following' : 'Follow'}
+              </button>
+              <button 
+                onClick={() => onMessageClick(user)}
+                className="flex-1 flex items-center justify-center overflow-hidden rounded-full h-12 bg-slate-200 dark:bg-white/10 text-slate-900 dark:text-white text-xs font-black uppercase tracking-widest border border-slate-300 dark:border-white/10 active:scale-95 transition-all"
+              >
+                <span className="truncate">Message</span>
+              </button>
+            </div>
+          </div>
+        </section>
+
+        <section className="px-6 mb-6">
+          <div className="flex gap-3">
+            <div className="flex flex-1 flex-col gap-1 rounded-[1.5rem] bg-slate-100 dark:bg-white/5 py-4 items-center text-center backdrop-blur-sm border border-transparent dark:border-white/5">
+              <p className="text-xl font-black leading-tight">{userPosts.length}</p>
+              <p className="text-slate-500 dark:text-slate-400 text-[10px] font-black uppercase tracking-widest">Posts</p>
+            </div>
+            <div 
+                onClick={() => onOpenConnections?.('followers')}
+                className="flex flex-1 flex-col gap-1 rounded-[1.5rem] bg-slate-100 dark:bg-white/5 py-4 items-center text-center backdrop-blur-sm border border-transparent dark:border-white/5 cursor-pointer active:bg-slate-200 dark:active:bg-white/10 transition-colors"
+            >
+              <p className="text-xl font-black leading-tight">{(user.followers || []).length}</p>
+              <p className="text-slate-500 dark:text-slate-400 text-[10px] font-black uppercase tracking-widest">Followers</p>
+            </div>
+            <div 
+                onClick={() => onOpenConnections?.('following')}
+                className="flex flex-1 flex-col gap-1 rounded-[1.5rem] bg-slate-100 dark:bg-white/5 py-4 items-center text-center backdrop-blur-sm border border-transparent dark:border-white/5 cursor-pointer active:bg-slate-200 dark:active:bg-white/10 transition-colors"
+            >
+              <p className="text-xl font-black leading-tight">{(user.following || []).length}</p>
+              <p className="text-slate-500 dark:text-slate-400 text-[10px] font-black uppercase tracking-widest">Following</p>
+            </div>
+          </div>
+        </section>
+
+        <section className="px-6 mb-8">
+          <div className="flex flex-col gap-3">
+            <h3 className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-500 dark:text-slate-400">Mutual Friends</h3>
+            <div className="flex items-center gap-3">
+              <div className="flex items-center">
+                <div className="bg-center bg-no-repeat aspect-square bg-cover border-2 border-background-light dark:border-background-dark bg-slate-800 rounded-full h-9 w-9 relative z-30" style={{ backgroundImage: `url("https://picsum.photos/seed/a1/100")` }}></div>
+                <div className="bg-center bg-no-repeat aspect-square bg-cover border-2 border-background-light dark:border-background-dark bg-slate-800 rounded-full h-9 w-9 -ml-3 relative z-20" style={{ backgroundImage: `url("https://picsum.photos/seed/a2/100")` }}></div>
+                <div className="bg-center bg-no-repeat aspect-square bg-cover border-2 border-background-light dark:border-background-dark bg-slate-800 rounded-full h-9 w-9 -ml-3 relative z-10" style={{ backgroundImage: `url("https://picsum.photos/seed/a3/100")` }}></div>
+              </div>
+              <p className="text-xs text-slate-500 dark:text-slate-400 font-medium leading-tight">
+                Followed by <span className="text-slate-900 dark:text-white font-bold">sarah_j</span> and others
+              </p>
+            </div>
+          </div>
+        </section>
+
+        <div className="flex border-b border-slate-200 dark:border-white/5 mb-0.5">
+          <button onClick={() => setActiveTab('grid')} className={`flex-1 py-4 flex items-center justify-center transition-all ${activeTab === 'grid' ? 'text-primary border-b-2 border-primary' : 'text-slate-400 opacity-50'}`}>
+            <span className="material-symbols-outlined" style={activeTab === 'grid' ? { fontVariationSettings: "'FILL' 1" } : {}}>grid_view</span>
+          </button>
+          <button onClick={() => setActiveTab('reels')} className={`flex-1 py-4 flex items-center justify-center transition-all ${activeTab === 'reels' ? 'text-primary border-b-2 border-primary' : 'text-slate-400 opacity-50'}`}>
+            <span className="material-symbols-outlined">video_library</span>
+          </button>
+          <button onClick={() => setActiveTab('tagged')} className={`flex-1 py-4 flex items-center justify-center transition-all ${activeTab === 'tagged' ? 'text-primary border-b-2 border-primary' : 'text-slate-400 opacity-50'}`}>
+            <span className="material-symbols-outlined">person_pin</span>
+          </button>
         </div>
 
-        <div className="flex-1 overflow-y-auto no-scrollbar">
-          <div className="bg-white dark:bg-slate-900 px-6 py-10 flex flex-col items-center border-b border-slate-200 dark:border-slate-800 shadow-sm">
-            <div className="relative group mb-6">
-              <img 
-                src={user.photoURL} 
-                className="w-48 h-48 rounded-full object-cover shadow-xl ring-4 ring-indigo-500/10 cursor-zoom-in transition-transform hover:scale-105" 
-                alt={user.name} 
-              />
-              <div className={`absolute bottom-3 right-3 w-6 h-6 rounded-full border-4 border-white dark:border-slate-900 ${user.status === 'online' ? 'bg-green-500' : 'bg-slate-400'}`}></div>
-            </div>
-            
-            {isEditingNickname ? (
-                <div className="flex flex-col items-center gap-2 mb-4 w-full px-8">
-                    <input 
-                        value={nicknameInput}
-                        onChange={(e) => setNicknameInput(e.target.value)}
-                        placeholder="Set Nickname"
-                        className="w-full text-center bg-slate-100 dark:bg-slate-800 p-2 rounded-xl font-bold"
-                        autoFocus
-                    />
-                    <div className="flex gap-2">
-                        <button onClick={() => setIsEditingNickname(false)} className="text-xs font-bold text-slate-400 uppercase">Cancel</button>
-                        <button onClick={handleSaveNickname} className="text-xs font-bold text-indigo-500 uppercase">Save</button>
-                    </div>
+        <section className="grid grid-cols-3 gap-0.5">
+            {userPosts.length === 0 ? (
+                <div className="col-span-3 py-20 text-center opacity-30">
+                    <span className="material-symbols-outlined text-5xl">photo_library</span>
+                    <p className="text-[10px] font-black uppercase tracking-widest mt-4">No posts found</p>
                 </div>
             ) : (
-                <div className="text-center mb-1">
-                    <h3 className="text-2xl font-black text-slate-900 dark:text-white flex items-center justify-center gap-2">
-                        {nicknameInput || user.name}
-                    </h3>
-                    {nicknameInput && <p className="text-xs text-slate-400 font-medium">Original: {user.name}</p>}
-                    {user.username && <p className="text-xs text-indigo-500 font-bold mt-1">@{user.username}</p>}
-                    
-                    <button 
-                        onClick={() => setIsEditingNickname(true)}
-                        className="mt-3 text-[10px] font-bold uppercase tracking-widest text-slate-400 hover:text-indigo-500 border border-slate-200 dark:border-slate-700 px-3 py-1 rounded-full transition-colors"
-                    >
-                        Set Nickname
-                    </button>
-                </div>
+                userPosts.map(p => (
+                    <div key={p.id} onClick={() => onOpenPost?.(p)} className="aspect-square bg-slate-200 dark:bg-white/5 overflow-hidden relative group cursor-pointer active:opacity-70 transition-opacity">
+                        {p.mediaType === 'video' ? (
+                            <>
+                                <video src={p.mediaUrl} className="w-full h-full object-cover" />
+                                <div className="absolute top-2 right-2"><span className="material-symbols-outlined text-white text-sm">play_circle</span></div>
+                            </>
+                        ) : (
+                            <img src={p.mediaUrl} className="w-full h-full object-cover" alt="" />
+                        )}
+                    </div>
+                ))
             )}
-            
-            <p className="text-slate-500 dark:text-slate-400 text-sm font-medium my-6 bg-slate-100 dark:bg-slate-800 px-3 py-1 rounded-full">
-                {user.bio || 'App User'}
-            </p>
-
-            <div className="flex items-center gap-6">
-               <button 
-                  onClick={() => onCallStart?.(user, 'voice')}
-                  className="flex flex-col items-center gap-2 group"
-                >
-                  <div className="w-12 h-12 rounded-2xl bg-indigo-50 dark:bg-indigo-900/20 flex items-center justify-center text-indigo-500 group-hover:bg-indigo-500 group-hover:text-white transition-all shadow-sm">
-                    <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z" /></svg>
-                  </div>
-                  <span className="text-[10px] font-black uppercase text-slate-400 dark:text-slate-500">Audio</span>
-               </button>
-               <button 
-                  onClick={() => onCallStart?.(user, 'video')}
-                  className="flex flex-col items-center gap-2 group"
-                >
-                  <div className="w-12 h-12 rounded-2xl bg-indigo-50 dark:bg-indigo-900/20 flex items-center justify-center text-indigo-500 group-hover:bg-indigo-500 group-hover:text-white transition-all shadow-sm">
-                    <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" /></svg>
-                  </div>
-                  <span className="text-[10px] font-black uppercase text-slate-400 dark:text-slate-500">Video</span>
-               </button>
-               <button 
-                  onClick={handleLockClick}
-                  className="flex flex-col items-center gap-2 group"
-                >
-                  <div className="w-12 h-12 rounded-2xl bg-indigo-50 dark:bg-indigo-900/20 flex items-center justify-center text-indigo-500 group-hover:bg-indigo-500 group-hover:text-white transition-all shadow-sm">
-                    <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" /></svg>
-                  </div>
-                  <span className="text-[10px] font-black uppercase text-slate-400 dark:text-slate-500">Lock Chat</span>
-               </button>
-               <button 
-                  onClick={() => setShowWallpaperModal(true)}
-                  className="flex flex-col items-center gap-2 group"
-                >
-                  <div className="w-12 h-12 rounded-2xl bg-indigo-50 dark:bg-indigo-900/20 flex items-center justify-center text-indigo-500 group-hover:bg-indigo-500 group-hover:text-white transition-all shadow-sm">
-                    <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
-                  </div>
-                  <span className="text-[10px] font-black uppercase text-slate-400 dark:text-slate-500">Wallpaper</span>
-               </button>
-            </div>
-          </div>
-
-          <div className="mt-3 bg-white dark:bg-slate-900 px-6 py-5 border-y border-slate-200 dark:border-slate-800 shadow-sm">
-             <h4 className="text-xs font-bold text-indigo-500 uppercase tracking-widest mb-2">About</h4>
-             <p className="text-slate-800 dark:text-slate-100 font-medium leading-relaxed">{user.bio || "No status available"}</p>
-             <p className="text-[10px] text-slate-400 font-bold mt-2 uppercase tracking-widest">{new Date(user.lastSeen).toLocaleDateString()}</p>
-          </div>
-          
-          <div className="mt-3 bg-white dark:bg-slate-900 border-y border-slate-200 dark:border-slate-800 shadow-sm mb-20">
-             <button 
-              onClick={handleToggleBlock}
-              disabled={loading}
-              className="w-full px-6 py-4 flex items-center gap-4 text-red-500 hover:bg-red-50 dark:hover:bg-red-900/10 transition-colors border-b border-slate-100 dark:border-slate-800"
-            >
-                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728L5.636 5.636" /></svg>
-                <span className="font-black text-sm uppercase tracking-widest">{isBlocked ? 'Unblock Contact' : 'Block Contact'}</span>
-             </button>
-          </div>
-        </div>
-      </div>
+        </section>
+      </main>
 
       {/* PIN Setup Modal */}
       {showPinSetup && (
-          <div className="fixed inset-0 z-[250] flex items-center justify-center p-4 bg-black/60 backdrop-blur-md animate-in fade-in">
-              <div className="bg-white dark:bg-slate-900 rounded-[2rem] p-8 w-full max-w-sm text-center">
-                  <h3 className="text-xl font-bold mb-4">Secure this Chat</h3>
-                  <p className="text-sm text-slate-500 mb-6">Set a PIN to lock/unlock this chat.</p>
+          <div className="fixed inset-0 z-[600] flex items-center justify-center p-4 bg-black/60 backdrop-blur-md animate-in fade-in">
+              <div className="bg-white dark:bg-slate-900 rounded-[2.5rem] p-8 w-full max-w-sm text-center shadow-2xl">
+                  <h3 className="text-xl font-black mb-4">Secure this Chat</h3>
+                  <p className="text-xs text-slate-500 mb-6 font-bold uppercase tracking-wider">Set a PIN to lock conversations</p>
                   <input 
                     type="password"
                     placeholder="Enter PIN"
                     value={newPin}
                     onChange={(e) => setNewPin(e.target.value)}
-                    className="w-full bg-slate-100 dark:bg-slate-800 p-4 rounded-xl text-center font-bold text-lg outline-none mb-6"
+                    className="w-full bg-slate-100 dark:bg-white/5 p-5 rounded-2xl text-center font-black text-2xl outline-none mb-6 border border-transparent focus:border-primary transition-all"
+                    autoFocus
                   />
-                  <div className="flex gap-3">
-                      <button onClick={() => setShowPinSetup(false)} className="flex-1 py-3 text-slate-500 font-bold">Cancel</button>
-                      <button onClick={confirmLock} className="flex-1 py-3 bg-indigo-500 text-white rounded-xl font-bold shadow-lg">Lock Chat</button>
+                  <div className="flex gap-4">
+                      <button onClick={() => setShowPinSetup(false)} className="flex-1 py-4 text-slate-500 font-black uppercase text-xs">Cancel</button>
+                      <button onClick={confirmLock} className="flex-1 py-4 bg-primary text-white rounded-2xl font-black uppercase text-xs shadow-lg shadow-primary/20">Lock Chat</button>
                   </div>
               </div>
           </div>
@@ -235,65 +276,63 @@ export const PublicProfile: React.FC<PublicProfileProps> = ({ user, onClose, onC
 
       {/* Wallpaper Picker Modal */}
       {showWallpaperModal && (
-          <div className="fixed inset-0 z-[250] flex items-end sm:items-center justify-center p-4">
-              <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-md" onClick={() => setShowWallpaperModal(false)}></div>
-              <div className="relative w-full max-w-sm bg-white dark:bg-slate-900 rounded-[2rem] p-6 shadow-2xl animate-in slide-in-from-bottom">
-                  <h3 className="text-lg font-bold mb-4">Select Wallpaper</h3>
-                  <div className="grid grid-cols-3 gap-3 mb-6">
+          <div className="fixed inset-0 z-[600] flex items-end sm:items-center justify-center p-4 bg-black/60 backdrop-blur-md">
+              <div className="relative w-full max-w-sm bg-white dark:bg-slate-900 rounded-t-[2.5rem] sm:rounded-[2.5rem] p-8 shadow-2xl animate-in slide-in-from-bottom">
+                  <div className="flex justify-between items-center mb-6">
+                    <h3 className="text-xl font-black">Chat Wallpaper</h3>
+                    <button onClick={() => setShowWallpaperModal(false)}><span className="material-symbols-outlined">close</span></button>
+                  </div>
+                  <div className="grid grid-cols-3 gap-4 mb-8">
                       {WALLPAPERS.map(wp => (
                           <button 
                             key={wp.id} 
-                            onClick={() => handleWallpaperSelect(wp.id)}
-                            className={`aspect-[9/16] rounded-xl ${wp.color} border-2 border-transparent hover:border-indigo-500 transition-all flex items-center justify-center`}
+                            onClick={() => { setSelectedWallpaper(wp.id); setShowWallpaperModal(false); setShowWallpaperConfirm(true); }}
+                            className={`aspect-[9/16] rounded-2xl ${wp.color} border-2 border-transparent hover:border-primary transition-all flex items-center justify-center relative overflow-hidden`}
                           >
-                              <span className="text-[10px] font-bold bg-black/20 text-white px-2 py-1 rounded">{wp.label}</span>
+                              <span className="text-[10px] font-black uppercase tracking-tighter bg-black/20 text-white px-2 py-1 rounded-md">{wp.label}</span>
                           </button>
                       ))}
                   </div>
-                  <button onClick={() => setShowWallpaperModal(false)} className="w-full py-3 bg-slate-100 dark:bg-slate-800 rounded-xl font-bold text-slate-500">Cancel</button>
+                  <button onClick={() => setShowWallpaperModal(false)} className="w-full py-4 bg-slate-100 dark:bg-white/5 rounded-2xl font-black text-xs uppercase tracking-widest text-slate-500">Cancel</button>
               </div>
           </div>
       )}
 
-      {/* Specific vs Global Wallpaper Confirm */}
+      {/* Nickname Editor Modal */}
+      {isEditingNickname && (
+        <div className="fixed inset-0 z-[600] flex items-center justify-center p-4 bg-black/60 backdrop-blur-md animate-in fade-in">
+            <div className="bg-white dark:bg-slate-900 rounded-[2.5rem] p-8 w-full max-w-sm text-center shadow-2xl">
+                <h3 className="text-xl font-black mb-2">Set Nickname</h3>
+                <input 
+                  value={nicknameInput}
+                  onChange={(e) => setNicknameInput(e.target.value)}
+                  placeholder="Nickname..."
+                  className="w-full bg-slate-100 dark:bg-white/5 p-5 rounded-2xl text-center font-bold text-lg outline-none mb-6 border border-transparent focus:border-primary transition-all"
+                  autoFocus
+                />
+                <div className="flex gap-4">
+                    <button onClick={() => setIsEditingNickname(false)} className="flex-1 py-4 text-slate-500 font-black uppercase text-xs">Cancel</button>
+                    <button onClick={handleSaveNickname} className="flex-1 py-4 bg-primary text-white rounded-2xl font-black uppercase text-xs shadow-lg shadow-primary/20">Save</button>
+                </div>
+            </div>
+        </div>
+      )}
+
       {showWallpaperConfirm && (
-          <div className="fixed inset-0 z-[260] flex items-center justify-center p-4 bg-black/60 backdrop-blur-md animate-in fade-in">
-              <div className="bg-white dark:bg-slate-900 rounded-[2rem] p-8 w-full max-w-sm text-center">
-                  <h3 className="text-xl font-bold mb-2">Apply Wallpaper</h3>
-                  <p className="text-sm text-slate-500 mb-6">Where do you want to use this background?</p>
-                  <div className="space-y-3">
-                      <button onClick={() => confirmWallpaper('chat')} className="w-full py-3 bg-indigo-500 text-white rounded-xl font-bold shadow-lg">
-                          For this chat only
+          <div className="fixed inset-0 z-[610] flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-in fade-in">
+              <div className="bg-white dark:bg-slate-900 rounded-[2.5rem] p-8 w-full max-w-sm text-center">
+                  <h3 className="text-xl font-black mb-2">Apply Background</h3>
+                  <div className="space-y-4">
+                      <button onClick={() => confirmWallpaper('chat')} className="w-full py-5 bg-primary text-white rounded-2xl font-black uppercase tracking-widest shadow-lg shadow-primary/30 active:scale-95 transition-all">
+                          This Chat Only
                       </button>
-                      <button onClick={() => confirmWallpaper('global')} className="w-full py-3 bg-slate-100 dark:bg-slate-800 text-slate-900 dark:text-white rounded-xl font-bold">
-                          For all chats
+                      <button onClick={() => confirmWallpaper('global')} className="w-full py-5 bg-slate-100 dark:bg-white/5 text-slate-900 dark:text-white rounded-2xl font-black uppercase tracking-widest active:scale-95 transition-all">
+                          All Chats
                       </button>
-                      <button onClick={() => setShowWallpaperConfirm(false)} className="w-full py-2 text-slate-400 font-bold text-xs uppercase tracking-widest mt-2">
+                      <button onClick={() => setShowWallpaperConfirm(false)} className="w-full py-2 text-slate-400 font-bold text-[10px] uppercase tracking-widest mt-2">
                           Cancel
                       </button>
                   </div>
-              </div>
-          </div>
-      )}
-
-      {/* Lock Confirmation */}
-      {showLockConfirm && (
-          <div className="fixed inset-0 z-[260] flex items-center justify-center p-4 bg-indigo-900/80 backdrop-blur-xl animate-in zoom-in-95">
-              <div className="bg-white dark:bg-slate-900 rounded-[2.5rem] p-8 w-full max-w-sm text-center shadow-2xl relative overflow-hidden">
-                  <div className="absolute top-0 left-0 w-full h-2 bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500"></div>
-                  <div className="w-20 h-20 bg-green-500/10 rounded-full flex items-center justify-center mx-auto mb-6">
-                      <svg className="w-10 h-10 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7" /></svg>
-                  </div>
-                  <h3 className="text-2xl font-black mb-2 text-slate-900 dark:text-white">Chat Hidden!</h3>
-                  <p className="text-sm text-slate-500 dark:text-slate-400 mb-8 leading-relaxed">
-                      This chat is now locked and hidden. To access it, enter your PIN in the main <b>Search Bar</b>.
-                  </p>
-                  <button 
-                    onClick={() => { setShowLockConfirm(false); onClose(); }}
-                    className="w-full py-4 bg-slate-900 dark:bg-white text-white dark:text-slate-900 rounded-2xl font-bold shadow-xl active:scale-95 transition-transform"
-                  >
-                      Got it
-                  </button>
               </div>
           </div>
       )}
