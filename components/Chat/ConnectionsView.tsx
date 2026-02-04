@@ -1,7 +1,6 @@
-
 import React, { useState, useEffect, useMemo } from 'react';
 import { User } from '../../types';
-import { toggleFollow, getUserById } from '../../firebase';
+import { toggleFollow, getUserById, subscribeToUser } from '../../firebase';
 
 interface ConnectionsViewProps {
   targetUser: User;
@@ -24,7 +23,17 @@ export const ConnectionsView: React.FC<ConnectionsViewProps> = ({
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
 
-  // Fetch target user fresh in case of updates
+  // Real-time listener for current user to keep "following" state updated
+  const [localFollowing, setLocalFollowing] = useState<string[]>(currentUser.following || []);
+
+  useEffect(() => {
+      const unsub = subscribeToUser(currentUser.uid, (data) => {
+          if (data && data.following) setLocalFollowing(data.following);
+      });
+      return () => unsub();
+  }, [currentUser.uid]);
+
+  // Fetch list users when type or target changes
   useEffect(() => {
     const loadList = async () => {
       setLoading(true);
@@ -51,39 +60,13 @@ export const ConnectionsView: React.FC<ConnectionsViewProps> = ({
 
   const handleToggleFollow = async (uid: string) => {
     await toggleFollow(currentUser.uid, uid);
-    // Locally update UI for better responsiveness
-    const isNowFollowing = currentUser.following?.includes(uid);
-    // Since this is a global state update, usually we rely on refreshes, 
-    // but for connections view we re-fetch effectively via effects above.
-    // To make it instant:
-    setList(prev => prev.map(u => {
-        if(u.uid === uid) {
-            const followers = u.followers || [];
-            return {
-                ...u,
-                followers: isNowFollowing ? followers.filter(id => id !== currentUser.uid) : [...followers, currentUser.uid]
-            };
-        }
-        return u;
-    }));
   };
 
   return (
     <div className="fixed inset-0 z-[700] bg-background-light dark:bg-background-dark text-slate-900 dark:text-white flex flex-col animate-in slide-in-from-right duration-300">
-      {/* iOS Status Bar Placeholder */}
-      <div className="h-12 w-full sticky top-0 z-50 bg-background-light/80 dark:bg-background-dark/80 backdrop-blur-xl shrink-0">
-        <div className="flex justify-between items-center px-6 h-full">
-          <span className="text-sm font-semibold">{new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
-          <div className="flex gap-1.5 items-center">
-            <span className="material-symbols-outlined text-[18px]">signal_cellular_4_bar</span>
-            <span className="material-symbols-outlined text-[18px]">wifi</span>
-            <span className="material-symbols-outlined text-[22px]">battery_full</span>
-          </div>
-        </div>
-      </div>
-
+      
       {/* Navigation Bar */}
-      <nav className="sticky top-12 z-40 bg-background-light/80 dark:bg-background-dark/80 backdrop-blur-xl border-b border-gray-200 dark:border-white/5 shrink-0">
+      <nav className="sticky top-0 z-40 bg-background-light/80 dark:bg-background-dark/80 backdrop-blur-xl border-b border-gray-200 dark:border-white/5 shrink-0 pt-4">
         <div className="flex items-center px-4 py-3 justify-between">
           <div onClick={onClose} className="flex items-center gap-1 cursor-pointer hover:opacity-70 transition-opacity">
             <span className="material-symbols-outlined">chevron_left</span>
@@ -126,7 +109,7 @@ export const ConnectionsView: React.FC<ConnectionsViewProps> = ({
             <input 
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              className="flex-1 border-none bg-transparent focus:ring-0 placeholder:text-gray-500 dark:placeholder:text-gray-400 px-3 text-sm font-normal" 
+              className="flex-1 border-none bg-transparent focus:ring-0 placeholder:text-gray-500 dark:placeholder-gray-400 px-3 text-sm font-normal" 
               placeholder={`Search ${type}...`}
             />
           </div>
@@ -145,7 +128,7 @@ export const ConnectionsView: React.FC<ConnectionsViewProps> = ({
             </div>
           ) : (
             filteredList.map((user) => {
-              const amFollowing = currentUser.following?.includes(user.uid);
+              const amFollowing = localFollowing.includes(user.uid);
               const isMe = user.uid === currentUser.uid;
 
               return (

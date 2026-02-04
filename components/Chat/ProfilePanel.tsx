@@ -1,8 +1,7 @@
-
 import React, { useState, useRef, useEffect } from 'react';
 import { User, PremiumCustomization, SavedMedia, Post } from '../../types';
 import { useAuth } from '../../hooks/useAuth';
-import { updateProfile, updatePremiumCustomization, saveWallpaper, updatePrivacySettings, getSavedGallery, getPostsByUser } from '../../firebase';
+import { updateProfile, updatePremiumCustomization, saveWallpaper, updatePrivacySettings, getSavedGallery, getPostsByUser, subscribeToUser } from '../../firebase';
 import { hasPremiumAccess, ROLE_STYLES } from '../../premiumUtils';
 import { SubscriptionModal } from '../Premium/SubscriptionModal';
 
@@ -19,23 +18,29 @@ interface ProfilePanelProps {
 type ProfileViewMode = 'main' | 'edit' | 'settings' | 'privacy' | 'chats_settings';
 
 export const ProfilePanel: React.FC<ProfilePanelProps> = ({ 
-    user, onClose, toggleDarkMode, isDarkMode, isTabMode, onOpenPost, onOpenConnections 
+    user: initialUser, onClose, toggleDarkMode, isDarkMode, isTabMode, onOpenPost, onOpenConnections 
 }) => {
   const { logout } = useAuth();
+  const [user, setUser] = useState<User>(initialUser);
   const [viewMode, setViewMode] = useState<ProfileViewMode>('main');
   const [activeTab, setActiveTab] = useState<'grid' | 'reels' | 'tagged'>('grid');
-  const [name, setName] = useState(user.name);
-  const [bio, setBio] = useState(user.bio || '');
+  const [name, setName] = useState(initialUser.name);
+  const [bio, setBio] = useState(initialUser.bio || '');
   const [showSubModal, setShowSubModal] = useState(false);
   const [galleryItems, setGalleryItems] = useState<SavedMedia[]>([]);
   const [userPosts, setUserPosts] = useState<Post[]>([]);
   const [isSaving, setIsSaving] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  // Sync user data in real-time within the panel
   useEffect(() => {
-    getSavedGallery(user.uid).then(items => setGalleryItems(items as SavedMedia[]));
-    getPostsByUser(user.uid).then(posts => setUserPosts(posts));
-  }, [user.uid]);
+    const unsub = subscribeToUser(initialUser.uid, (data) => {
+        if (data) setUser(data as User);
+    });
+    getSavedGallery(initialUser.uid).then(items => setGalleryItems(items as SavedMedia[]));
+    getPostsByUser(initialUser.uid).then(posts => setUserPosts(posts));
+    return () => unsub();
+  }, [initialUser.uid]);
 
   const handlePhotoSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -277,7 +282,7 @@ export const ProfilePanel: React.FC<ProfilePanelProps> = ({
                 </div>
             </section>
 
-            {/* Tabs Section */}
+            {/* Image Grid Section */}
             <section className="mt-4">
                 <div className="flex border-b border-gray-200 dark:border-border-dark">
                     <button 
@@ -301,7 +306,6 @@ export const ProfilePanel: React.FC<ProfilePanelProps> = ({
                 </div>
             </section>
 
-            {/* Image Grid Section */}
             <section className="grid grid-cols-3 gap-0.5 mt-0.5">
                 {activeTab === 'grid' && userPosts.length === 0 ? (
                     <div className="col-span-3 py-20 text-center flex flex-col items-center gap-4 opacity-30">

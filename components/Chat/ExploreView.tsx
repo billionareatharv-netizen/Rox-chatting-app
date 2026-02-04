@@ -29,7 +29,8 @@ const DISCOVERY_MOCK: DiscoveryItem[] = [
     { id: 'd6', type: 'image', category: 'Fashion', title: 'Minimalist Watch', likes: '1.2k', url: 'https://lh3.googleusercontent.com/aida-public/AB6AXuADnR8RVB9pUgs0hwQZSLhUjCONnE5MRO1gf-U07cbAWEoo6d7bPtnrDEHylv-OguHC20OnvZ6wjlmIXPtUQtVJJpazki-_n4wkdNvD8CHVfCJZpPVt20IOElY-dHOlLLB5VqhkItqpWrEg3kcLkJ_JftgwFQza2fHHPIznehyuWCcA_IaLQklpazQlTuKxgJ32Zl_JOPUDmp2m1xo09KDrfzTceXDn5i4zJ5pV7_jMvi9Y8Rto_s3J94DQG0Ef4b0g5G9najID' }
 ];
 
-const CATEGORIES = ['All', 'Architecture', 'Travel', 'Art', 'Tech', 'Fashion', 'Cuisine'];
+// Defined CATEGORIES for use in the filter chips
+const CATEGORIES = ['All', 'Architecture', 'Art', 'Tech', 'Travel', 'Fashion', 'Photography'];
 
 export const ExploreView: React.FC<ExploreViewProps> = ({ currentUser, onOpenProfile, onOpenPost }) => {
   const [searchTerm, setSearchTerm] = useState('');
@@ -70,6 +71,20 @@ export const ExploreView: React.FC<ExploreViewProps> = ({ currentUser, onOpenPro
         (p.location && p.location.toLowerCase().includes(term))
     );
   }, [searchTerm, realPosts]);
+
+  const convertMockToPost = (item: DiscoveryItem): Post => ({
+      id: item.id,
+      userId: 'mock_system',
+      userName: 'Discovery',
+      userPhoto: 'https://picsum.photos/seed/discovery/100',
+      mediaUrl: item.url,
+      mediaType: item.type,
+      caption: item.title,
+      timestamp: Date.now(),
+      likes: [],
+      bookmarks: [],
+      commentCount: 0
+  });
 
   return (
     <div className="flex-1 flex flex-col bg-background-light dark:bg-[#121212] overflow-hidden animate-in fade-in transition-colors duration-300">
@@ -158,6 +173,7 @@ export const ExploreView: React.FC<ExploreViewProps> = ({ currentUser, onOpenPro
                 {filteredDiscovery.map(item => (
                     <div 
                         key={item.id}
+                        onClick={() => onOpenPost(convertMockToPost(item))}
                         className={`relative overflow-hidden rounded-3xl bg-slate-800 group cursor-pointer transition-transform active:scale-95 ${item.isLarge ? 'row-span-2' : ''}`}
                     >
                         {/* Background Layer */}

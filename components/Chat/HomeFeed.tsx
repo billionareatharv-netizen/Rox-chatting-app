@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import { Post, User, Story } from '../../types';
 import { toggleLikePost, toggleBookmarkPost, getStories, subscribeToPosts } from '../../firebase';
@@ -34,32 +33,10 @@ export const HomeFeed: React.FC<HomeFeedProps> = ({ currentUser, onOpenDMs, onUp
 
   const handleLike = async (postId: string) => {
     await toggleLikePost(postId, currentUser.uid);
-    // Real-time listener will update the state naturally, 
-    // but optimistic update improves UX
-    setPosts(prev => prev.map(p => {
-        if(p.id === postId) {
-            const isLiked = p.likes.includes(currentUser.uid);
-            return {
-                ...p,
-                likes: isLiked ? p.likes.filter(id => id !== currentUser.uid) : [...p.likes, currentUser.uid]
-            };
-        }
-        return p;
-    }));
   };
 
   const handleBookmark = async (postId: string) => {
     await toggleBookmarkPost(postId, currentUser.uid);
-    setPosts(prev => prev.map(p => {
-        if(p.id === postId) {
-            const isBookmarked = p.bookmarks.includes(currentUser.uid);
-            return {
-                ...p,
-                bookmarks: isBookmarked ? p.bookmarks.filter(id => id !== currentUser.uid) : [...p.bookmarks, currentUser.uid]
-            };
-        }
-        return p;
-    }));
   };
 
   // Group stories by user
@@ -78,7 +55,7 @@ export const HomeFeed: React.FC<HomeFeedProps> = ({ currentUser, onOpenDMs, onUp
                 <div className="bg-primary size-8 rounded-lg flex items-center justify-center shadow-lg shadow-primary/20">
                     <span className="material-symbols-outlined text-white text-xl">blur_on</span>
                 </div>
-                <h1 className="text-xl font-black tracking-tighter">LUMINA</h1>
+                <h1 className="text-xl font-black tracking-tighter">ROXX SOCIAL</h1>
             </div>
             <div className="flex items-center gap-4">
                 <button 
@@ -134,7 +111,7 @@ export const HomeFeed: React.FC<HomeFeedProps> = ({ currentUser, onOpenDMs, onUp
                         <article key={post.id} className="relative w-full @container animate-in slide-in-from-bottom-5">
                             {/* Post Header Overlay */}
                             <div className="absolute top-0 left-0 right-0 z-10 p-4 flex items-center justify-between bg-gradient-to-b from-black/50 to-transparent">
-                                <div className="flex items-center gap-3">
+                                <div className="flex items-center gap-3" onClick={() => onOpenPost(post)}>
                                     <img src={post.userPhoto} className="w-10 h-10 rounded-full border border-white/20 object-cover shadow-lg" alt="" />
                                     <div className="flex flex-col">
                                         <span className="text-sm font-bold text-white leading-none shadow-sm">{post.userName}</span>
