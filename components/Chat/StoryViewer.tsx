@@ -9,7 +9,7 @@ interface StoryViewerProps {
   onClose: () => void;
 }
 
-const QUICK_REACTIONS = ['😂', '❤️', '🔥', '😮', '😢', '🙌'];
+const QUICK_REACTIONS = ['❤️', '😂', '😮', '😢', '🔥'];
 
 export const StoryViewer: React.FC<StoryViewerProps> = ({ stories: initialStories, currentUser, onClose }) => {
   const [stories, setStories] = useState(initialStories);
@@ -37,8 +37,6 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({ stories: initialStorie
           if (story && story.music) {
               audioRef.current.src = story.music.url;
               audioRef.current.currentTime = story.music.startAt;
-              // Browsers require interaction. If story is opened via click, this should work.
-              // If failed (e.g. rapid switching), catch error.
               if (!isPaused) {
                   audioRef.current.play().catch(e => console.warn("Audio autoplay blocked", e));
               }
@@ -80,17 +78,6 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({ stories: initialStorie
 
     return () => clearInterval(timer);
   }, [currentIndex, isPaused, story?.id, stories.length]);
-
-  useEffect(() => {
-    const handleClickOutside = (event: MouseEvent) => {
-      if (menuRef.current && !menuRef.current.contains(event.target as Node)) {
-        setShowMenu(false);
-        setIsPaused(false);
-      }
-    };
-    if (showMenu) document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, [showMenu]);
 
   const handleNext = () => {
     if (currentIndex < stories.length - 1) {
@@ -149,155 +136,186 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({ stories: initialStorie
     await sendStoryReply(story.userId, currentUser.uid, text, story);
     triggerSentAnim();
     
-    if (customText) setTimeout(handleNext, 800);
+    // Auto-advance if it was a quick reaction to keep it snappy
+    if (customText) {
+        setTimeout(handleNext, 800);
+    }
   };
 
   if (!story) return null;
 
   return (
-    <div className="fixed inset-0 z-[110] bg-black flex flex-col h-full transition-all overflow-hidden touch-none">
+    <div className="fixed inset-0 z-[600] bg-[#131022] flex flex-col h-full transition-all overflow-hidden touch-none font-display">
       
       {/* Hidden Audio Player */}
       <audio ref={audioRef} loop={false} />
 
-      {/* Header with Progress Bars */}
-      <div className="absolute top-0 inset-x-0 z-[130] pt-4 safe-area-top bg-gradient-to-b from-black/60 to-transparent pb-8">
-        <div className="flex gap-1.5 px-3 mb-3">
-          {stories.map((_, idx) => {
-            const barWidth = idx < currentIndex ? '100%' : idx === currentIndex ? progress + '%' : '0%';
-            return (
-              <div key={idx} className="h-0.5 flex-1 bg-white/30 rounded-full overflow-hidden">
-                <div className="h-full bg-white transition-all duration-100 ease-linear" style={{ width: barWidth }} />
-              </div>
-            );
-          })}
-        </div>
-        
-        <div className="px-4 flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <img src={story.userPhoto} className="w-10 h-10 rounded-full border border-white/20 object-cover shadow-sm" alt="" />
-            <div>
-              <h4 className="text-white font-bold text-sm leading-none mb-0.5 shadow-black drop-shadow-md">{story.userName}</h4>
-              <div className="flex items-center gap-2">
-                  <span className="text-white/80 text-[10px] font-medium drop-shadow-md">
-                    {new Date(story.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                  </span>
-                  {story.music && (
-                      <div className="flex items-center gap-1 bg-white/20 backdrop-blur-sm px-2 py-0.5 rounded-md">
-                          <span className="text-[10px]">🎵</span>
-                          <span className="text-[9px] text-white font-bold animate-pulse">{story.music.title}</span>
-                      </div>
-                  )}
-              </div>
-            </div>
-          </div>
-          <div className="flex items-center gap-4">
-            {isOwner && (
-              <div className="relative" ref={menuRef}>
-                <button onClick={() => { setShowMenu(!showMenu); setIsPaused(!showMenu); }} className="text-white drop-shadow-md">
-                  <svg className="w-6 h-6" fill="currentColor" viewBox="0 0 24 24"><path d="M12 8c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2zm0 2c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm0 6c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2z" /></svg>
-                </button>
-                {showMenu && (
-                  <div className="absolute right-0 top-full mt-2 w-32 bg-white rounded-xl shadow-xl overflow-hidden animate-in zoom-in-95">
-                    <button onClick={handleDelete} className="w-full px-4 py-3 flex items-center gap-2 text-red-500 font-bold text-xs hover:bg-red-50">
-                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
-                      Delete
-                    </button>
-                  </div>
-                )}
-              </div>
+      {/* Main Background Media */}
+      <div className="absolute inset-0 z-0">
+        <div className="w-full h-full bg-center bg-no-repeat bg-cover flex items-center justify-center">
+            {story.mediaType === 'video' ? (
+                <video key={story.id} src={story.mediaUrl} className="w-full h-full object-cover" autoPlay playsInline muted={false} onPlay={() => !isPaused && setIsPaused(false)} />
+            ) : (
+                <img key={story.id} src={story.mediaUrl} className="w-full h-full object-cover" alt="" onDoubleClick={handleLike} />
             )}
-            <button onClick={onClose} className="text-white drop-shadow-md">
-              <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M6 18L18 6M6 6l12 12" /></svg>
-            </button>
-          </div>
         </div>
       </div>
 
-      {/* Main Media Content */}
-      <div className="flex-1 flex items-center justify-center relative bg-black">
-        <div className="absolute inset-y-0 left-0 w-1/3 z-30 cursor-pointer" onClick={handlePrev} />
-        <div className="absolute inset-y-0 right-0 w-1/3 z-30 cursor-pointer" onClick={handleNext} />
+      {/* Top Header Overlay */}
+      <div className="relative z-10 pt-6 px-4 pb-20 bg-gradient-to-b from-black/60 to-transparent">
+        {/* Progress Bars */}
+        <div className="flex w-full flex-row items-center justify-center gap-1.5 py-2">
+            {stories.map((_, idx) => {
+                const barWidth = idx < currentIndex ? '100%' : idx === currentIndex ? progress + '%' : '0%';
+                return (
+                    <div key={idx} className="h-1 flex-1 rounded-full bg-white/40 overflow-hidden">
+                        <div className="h-full bg-white transition-all duration-100 ease-linear" style={{ width: barWidth }}></div>
+                    </div>
+                );
+            })}
+        </div>
+
+        {/* User Info Bar */}
+        <div className="flex items-center mt-3 justify-between">
+            <div className="flex items-center gap-3">
+                <div className="border-2 border-primary p-0.5 rounded-full shadow-lg">
+                    <img src={story.userPhoto} className="bg-center bg-no-repeat aspect-square bg-cover rounded-full size-10 object-cover" alt="" />
+                </div>
+                <div className="flex flex-col">
+                    <div className="flex items-center gap-2">
+                        <h2 className="text-white text-sm font-bold leading-tight tracking-tight shadow-sm">{story.userName}</h2>
+                        <span className="text-white/60 text-xs font-medium drop-shadow-md">
+                            {new Date(story.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                        </span>
+                    </div>
+                </div>
+            </div>
+            
+            <div className="flex items-center gap-2">
+                {isOwner && (
+                    <button onClick={() => { setShowMenu(!showMenu); setIsPaused(!showMenu); }} className="flex items-center justify-center rounded-full h-10 w-10 text-white">
+                        <span className="material-symbols-outlined">more_horiz</span>
+                    </button>
+                )}
+                <button onClick={onClose} className="flex items-center justify-center rounded-full h-10 w-10 text-white active:scale-90 transition-transform">
+                    <span className="material-symbols-outlined">close</span>
+                </button>
+            </div>
+        </div>
+      </div>
+
+      {/* Menu Modal (Owner Only) */}
+      {showMenu && (
+          <div className="absolute inset-0 z-[140] flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
+              <div className="bg-white dark:bg-[#1a1826] rounded-3xl p-6 w-full max-w-xs shadow-2xl animate-in zoom-in-95">
+                  <h3 className="text-slate-900 dark:text-white font-black text-lg mb-4 text-center">Story Options</h3>
+                  <button onClick={handleDelete} className="w-full py-4 text-red-500 font-bold uppercase tracking-widest text-xs flex items-center justify-center gap-2 hover:bg-red-50 dark:hover:bg-red-500/10 rounded-2xl transition-all">
+                      <span className="material-symbols-outlined">delete</span> Delete Story
+                  </button>
+                  <button onClick={() => { setShowMenu(false); setIsPaused(false); }} className="w-full py-4 text-slate-400 font-bold uppercase tracking-widest text-xs mt-2">Cancel</button>
+              </div>
+          </div>
+      )}
+
+      {/* Tap Zones for Navigation */}
+      <div className="absolute inset-y-0 left-0 w-1/4 z-20 cursor-pointer" onClick={handlePrev}></div>
+      <div className="absolute inset-y-0 right-0 w-1/4 z-20 cursor-pointer" onClick={handleNext}></div>
+
+      {/* Animations Overlays */}
+      {showHeartAnim && (
+          <div className="absolute inset-0 flex items-center justify-center z-[150] pointer-events-none">
+              <span className="material-symbols-outlined text-red-500 text-[120px] animate-ping opacity-80" style={{ fontVariationSettings: "'FILL' 1" }}>favorite</span>
+          </div>
+      )}
+
+      {showSentAnim && (
+          <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-[160] bg-white/10 backdrop-blur-xl border border-white/20 px-8 py-4 rounded-full text-white font-black uppercase tracking-[0.2em] animate-in zoom-in">
+              Sent! ✨
+          </div>
+      )}
+
+      {/* Bottom Interface Area */}
+      <div className="mt-auto relative z-30 px-4 pb-10 pt-20 bg-gradient-to-t from-black/80 to-transparent flex flex-col">
         
-        {showHeartAnim && (
-          <div className="absolute z-[140] animate-ping pointer-events-none">
-            <svg className="w-32 h-32 text-red-500 drop-shadow-[0_0_20px_rgba(239,68,68,0.5)]" fill="currentColor" viewBox="0 0 24 24">
-              <path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z" />
-            </svg>
-          </div>
+        {/* Emoji Reactions Tray (Functional) */}
+        {!isOwner && (
+            <div className="flex items-center justify-between mb-6 px-1 animate-in slide-in-from-bottom-4">
+                {QUICK_REACTIONS.map(emoji => (
+                    <button 
+                        key={emoji}
+                        onClick={() => handleReply(undefined, emoji)}
+                        className="flex items-center justify-center w-12 h-12 rounded-2xl text-2xl bg-white/10 backdrop-blur-md border border-white/10 shadow-[0_0_15px_rgba(255,255,255,0.05)] hover:bg-white/20 active:scale-[1.3] transition-all duration-300"
+                    >
+                        {emoji}
+                    </button>
+                ))}
+            </div>
         )}
 
-        {showSentAnim && (
-          <div className="absolute z-[150] bg-black/60 backdrop-blur-md px-6 py-3 rounded-full text-white font-bold border border-white/20 animate-in zoom-in">
-            Sent! ✨
-          </div>
+        {/* Caption Bar (Visual) */}
+        {story.caption && (
+            <div className="mb-4 text-center px-4 animate-in slide-in-from-bottom-2">
+                <p className="text-white text-sm font-medium leading-relaxed drop-shadow-lg bg-black/20 backdrop-blur-sm py-2 px-4 rounded-xl inline-block max-w-full truncate">{story.caption}</p>
+            </div>
         )}
 
-        {story.mediaType === 'video' ? (
-            story.mediaUrl ? (
-                <video key={story.id} src={story.mediaUrl} className="max-h-full w-full object-contain" autoPlay playsInline muted={false} onPlay={() => !isPaused && setIsPaused(false)} />
-            ) : <div className="text-white text-sm font-bold opacity-70">Unavailable</div>
-        ) : (
-            <img key={story.id} src={story.mediaUrl} className="max-h-full w-full object-contain select-none" alt="" onDoubleClick={handleLike} />
-        )}
-
-        {/* Music Sticker Visual (if playing) */}
+        {/* Music Indicator */}
         {story.music && (
-            <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 bg-black/40 backdrop-blur-md p-3 rounded-xl flex items-center gap-3 border border-white/20 pointer-events-none z-30 animate-float">
-                <div className="w-10 h-10 bg-white/20 rounded-lg flex items-center justify-center text-white text-xl animate-spin-slow">💿</div>
-                <div className="text-left">
-                    <p className="text-white text-sm font-bold">{story.music.title}</p>
-                    <p className="text-white/70 text-xs">{story.music.artist}</p>
+            <div className="mb-4 flex items-center justify-center gap-2">
+                <div className="bg-white/10 backdrop-blur-md px-4 py-1.5 rounded-full border border-white/10 flex items-center gap-2 animate-pulse">
+                    <span className="text-sm">🎵</span>
+                    <span className="text-[10px] font-black text-white uppercase tracking-widest">{story.music.title}</span>
                 </div>
             </div>
         )}
 
-        {/* Caption Area */}
-        {story.caption && (
-          <div className="absolute bottom-28 inset-x-0 flex justify-center z-40 pointer-events-none">
-            <div className="bg-black/50 backdrop-blur-sm px-4 py-2 rounded-xl max-w-[80%] text-center">
-                <p className="text-white text-sm font-medium drop-shadow-md">{story.caption}</p>
-            </div>
-          </div>
-        )}
+        {/* Input & Action Bar */}
+        <div className="flex items-center gap-3">
+            {!isOwner ? (
+                <>
+                    <div className="flex-1 h-12 bg-white/10 backdrop-blur-xl border border-white/10 rounded-full px-4 flex items-center focus-within:bg-white/20 transition-all">
+                        <form onSubmit={handleReply} className="w-full">
+                            <input 
+                                value={replyText}
+                                onChange={(e) => setReplyText(e.target.value)}
+                                onFocus={() => setIsPaused(true)}
+                                onBlur={() => !replyText && setIsPaused(false)}
+                                className="bg-transparent border-none focus:ring-0 text-sm font-bold text-white placeholder:text-white/60 w-full" 
+                                placeholder="Send message..." 
+                                type="text"
+                            />
+                        </form>
+                    </div>
+                    <div className="flex items-center gap-4">
+                        <button 
+                            onClick={handleLike}
+                            className={`flex items-center justify-center transition-all active:scale-[1.5] ${isLiked ? 'text-red-500' : 'text-white'}`}
+                        >
+                            <span className="material-symbols-outlined text-[32px]" style={isLiked ? { fontVariationSettings: "'FILL' 1" } : {}}>favorite</span>
+                        </button>
+                        <button 
+                            onClick={() => handleReply()}
+                            className="flex items-center justify-center transition-transform active:scale-90 text-white"
+                        >
+                            <span className="material-symbols-outlined text-[32px]">send</span>
+                        </button>
+                    </div>
+                </>
+            ) : (
+                <div className="flex-1 py-4 flex items-center justify-center gap-2 text-white/70">
+                    <span className="material-symbols-outlined text-sm">visibility</span>
+                    <span className="text-[10px] font-black uppercase tracking-[0.2em]">{story.views?.length || 0} Story Views</span>
+                </div>
+            )}
+        </div>
       </div>
 
-      {/* Footer Area - Reply & Like */}
-      <div className="absolute bottom-0 inset-x-0 z-[120] pb-6 pt-4 px-4 bg-gradient-to-t from-black/90 via-black/50 to-transparent safe-area-bottom">
-        {!isOwner ? (
-            <div className="flex items-end gap-3 max-w-lg mx-auto">
-                <form onSubmit={handleReply} className="flex-1 relative">
-                    <input 
-                      type="text"
-                      placeholder="Send a reply..."
-                      value={replyText}
-                      onFocus={() => setIsPaused(true)}
-                      onBlur={() => !replyText && setIsPaused(false)}
-                      onChange={(e) => setReplyText(e.target.value)}
-                      className="w-full bg-white/10 backdrop-blur-md border border-white/20 rounded-full pl-5 pr-12 py-3 text-white placeholder-white/60 focus:outline-none focus:ring-1 focus:ring-white/50 text-sm font-medium"
-                    />
-                    {replyText && (
-                        <button type="submit" className="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 bg-indigo-500 rounded-full text-white">
-                            <svg className="w-4 h-4 rotate-90 translate-x-0.5" fill="currentColor" viewBox="0 0 24 24"><path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z" /></svg>
-                        </button>
-                    )}
-                </form>
-                <button 
-                  onClick={handleLike}
-                  className={`p-3 rounded-full bg-white/10 backdrop-blur-md border border-white/20 active:scale-90 transition-transform ${isLiked ? 'text-red-500' : 'text-white'}`}
-                >
-                    <svg className={`w-6 h-6 ${isLiked ? 'fill-current' : 'fill-none stroke-current'}`} strokeWidth="2" viewBox="0 0 24 24">
-                      <path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z" />
-                    </svg>
-                </button>
-            </div>
-        ) : (
-            <div className="flex items-center justify-center gap-2 text-white/70 py-2">
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" /></svg>
-                <span className="text-xs font-bold uppercase tracking-widest">{story.views?.length || 0} Views</span>
-            </div>
-        )}
-      </div>
+      {/* Music Sticker Center Visual */}
+      {story.music && !isPaused && (
+          <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-20 pointer-events-none flex flex-col items-center gap-4 animate-float opacity-40">
+              <div className="size-24 rounded-3xl bg-white/5 backdrop-blur-xl border border-white/10 flex items-center justify-center text-4xl animate-spin-slow">💿</div>
+          </div>
+      )}
     </div>
   );
 };
