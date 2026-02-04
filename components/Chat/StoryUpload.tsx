@@ -32,43 +32,81 @@ export const StoryUpload: React.FC<StoryUploadProps> = ({ currentUser, onClose }
   // Camera State
   const [isCameraActive, setIsCameraActive] = useState(false);
   const [cameraFacing, setCameraFacing] = useState<'user' | 'environment'>('user');
-  const [cameraStream, setCameraStream] = useState<MediaStream | null>(null);
+  const [isStartingCamera, setIsStartingCamera] = useState(false);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const streamRef = useRef<MediaStream | null>(null);
 
   const generateUID = () => Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
 
-  // Start Camera
-  const startCamera = async () => {
-    try {
-      if (cameraStream) {
-        cameraStream.getTracks().forEach(track => track.stop());
-      }
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: cameraFacing, width: { ideal: 1280 }, height: { ideal: 1920 } },
-        audio: false
-      });
-      setCameraStream(stream);
-      if (videoRef.current) {
-        videoRef.current.srcObject = stream;
-      }
-      setIsCameraActive(true);
-      setPreview(null); 
-    } catch (err) {
-      console.error("Camera access error:", err);
-      // Fallback: if camera fails, just rely on library
-      setIsCameraActive(false);
-    }
-  };
-
   const stopCamera = () => {
-    if (cameraStream) {
-      cameraStream.getTracks().forEach(track => track.stop());
-      setCameraStream(null);
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach(track => {
+          track.stop();
+          track.enabled = false;
+      });
+      streamRef.current = null;
+    }
+    if (videoRef.current) {
+        videoRef.current.srcObject = null;
     }
     setIsCameraActive(false);
+  };
+
+  const startCamera = async () => {
+    if (preview) return; 
+    setIsStartingCamera(true);
+    stopCamera();
+
+    try {
+      // Standard constraints that work on 99% of modern mobiles
+      const constraints = {
+        video: {
+          facingMode: cameraFacing,
+          width: { ideal: 1280 },
+          height: { ideal: 720 }
+        },
+        audio: false
+      };
+
+      const stream = await navigator.mediaDevices.getUserMedia(constraints);
+      streamRef.current = stream;
+
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream;
+        
+        // Critical: Handle the play promise for mobile browsers
+        videoRef.current.onloadedmetadata = async () => {
+            try {
+                if (videoRef.current) {
+                    await videoRef.current.play();
+                    setIsCameraActive(true);
+                }
+            } catch (playErr) {
+                console.error("Autoplay failed:", playErr);
+            }
+        };
+      }
+    } catch (err) {
+      console.error("Camera Access Error:", err);
+      // Absolute fallback
+      try {
+          const fallbackStream = await navigator.mediaDevices.getUserMedia({ video: true });
+          streamRef.current = fallbackStream;
+          if (videoRef.current) {
+              videoRef.current.srcObject = fallbackStream;
+              await videoRef.current.play();
+              setIsCameraActive(true);
+          }
+      } catch (fallbackErr) {
+          alert("Could not access camera. Please ensure permissions are granted and you are on HTTPS.");
+          setIsCameraActive(false);
+      }
+    } finally {
+      setIsStartingCamera(false);
+    }
   };
 
   useEffect(() => {
@@ -76,12 +114,11 @@ export const StoryUpload: React.FC<StoryUploadProps> = ({ currentUser, onClose }
     return () => stopCamera();
   }, [cameraFacing]);
 
-  // Capture Photo
   const handleCapture = () => {
     if (!videoRef.current || !canvasRef.current || !isCameraActive) return;
     
     const video = videoRef.current;
-    if (video.readyState < 2) return; // Ensure video is ready
+    if (video.readyState < 2) return; 
 
     const canvas = canvasRef.current;
     canvas.width = video.videoWidth;
@@ -90,11 +127,19 @@ export const StoryUpload: React.FC<StoryUploadProps> = ({ currentUser, onClose }
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
     
-    // Draw current frame to canvas
+    // Fix: Flip the capture if using the front (mirrored) camera
+    if (cameraFacing === 'user') {
+        ctx.translate(canvas.width, 0);
+        ctx.scale(-1, 1);
+    }
+
     ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
     
-    // Convert to dataURL with slightly reduced quality to avoid Firestore size limits
-    const dataUrl = canvas.toDataURL('image/jpeg', 0.8);
+    // Reset transform for future draws
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+
+    // Optimized quality for Firestore (1MB limit)
+    const dataUrl = canvas.toDataURL('image/jpeg', 0.7);
     setPreview(dataUrl);
     setMediaType('image');
     stopCamera();
@@ -122,10 +167,11 @@ export const StoryUpload: React.FC<StoryUploadProps> = ({ currentUser, onClose }
   const handleUpload = async () => {
     if (!preview || isUploading) return;
     setIsUploading(true);
+    
     try {
       let mediaData = preview;
       
-      // If we have a File object (from gallery), read it as base64
+      // If selected from gallery, convert file to Base64
       if (file) {
           mediaData = await new Promise((resolve, reject) => {
               const reader = new FileReader();
@@ -135,9 +181,11 @@ export const StoryUpload: React.FC<StoryUploadProps> = ({ currentUser, onClose }
           });
       }
 
+      const uploadId = generateUID();
+
       if (mode === 'Story') {
-        const newStory: Story = {
-          id: 'story_' + generateUID(),
+        await addStory({
+          id: 'story_' + uploadId,
           userId: currentUser.uid,
           userName: currentUser.name,
           userPhoto: currentUser.photoURL,
@@ -146,8 +194,7 @@ export const StoryUpload: React.FC<StoryUploadProps> = ({ currentUser, onClose }
           caption,
           timestamp: Date.now(),
           music: selectedMusic || undefined
-        };
-        await addStory(newStory);
+        });
       } else if (mode === 'Post') {
         await addPost({
           userId: currentUser.uid,
@@ -163,7 +210,7 @@ export const StoryUpload: React.FC<StoryUploadProps> = ({ currentUser, onClose }
       onClose();
     } catch (e) {
       console.error("Upload error:", e);
-      alert("Failed to publish. The image might be too large or there was a network issue.");
+      alert("Capture/Upload failed. The image might be too large for the database.");
     } finally {
       setIsUploading(false);
     }
@@ -175,7 +222,7 @@ export const StoryUpload: React.FC<StoryUploadProps> = ({ currentUser, onClose }
       <canvas ref={canvasRef} className="hidden" />
 
       {/* Viewfinder / Preview Background */}
-      <div className="absolute inset-0 z-0 overflow-hidden bg-black">
+      <div className="absolute inset-0 z-0 overflow-hidden bg-black flex items-center justify-center">
         {preview ? (
             <div className={`w-full h-full relative transition-all duration-500 ${selectedFilter.class}`}>
                 {mediaType === 'video' ? (
@@ -195,9 +242,15 @@ export const StoryUpload: React.FC<StoryUploadProps> = ({ currentUser, onClose }
                         className={`w-full h-full object-cover ${cameraFacing === 'user' ? 'scale-x-[-1]' : ''}`}
                     />
                 ) : (
-                    <div className="w-full h-full flex flex-col items-center justify-center gap-4 bg-slate-900">
-                        <span className="material-symbols-outlined text-6xl opacity-20">videocam_off</span>
-                        <p className="text-xs font-black uppercase tracking-widest opacity-40">Camera not active</p>
+                    <div className="w-full h-full flex flex-col items-center justify-center gap-4 bg-slate-900/50">
+                        {isStartingCamera ? (
+                             <div className="w-12 h-12 border-4 border-primary border-t-transparent rounded-full animate-spin"></div>
+                        ) : (
+                            <span className="material-symbols-outlined text-6xl opacity-20">videocam_off</span>
+                        )}
+                        <p className="text-[10px] font-black uppercase tracking-[0.2em] opacity-40">
+                            {isStartingCamera ? 'Waking up camera...' : 'Initializing Lens'}
+                        </p>
                     </div>
                 )}
             </div>
@@ -205,7 +258,7 @@ export const StoryUpload: React.FC<StoryUploadProps> = ({ currentUser, onClose }
       </div>
 
       {/* Top Controls Overlay */}
-      <div className="relative z-10 flex items-center justify-between p-6 pt-10 bg-gradient-to-b from-black/40 to-transparent">
+      <div className="relative z-10 flex items-center justify-between p-6 pt-12 bg-gradient-to-b from-black/60 to-transparent">
         <button 
             onClick={onClose} 
             className="flex items-center justify-center size-12 rounded-full bg-black/40 backdrop-blur-xl border border-white/10 text-white transition-all active:scale-90"
@@ -216,14 +269,11 @@ export const StoryUpload: React.FC<StoryUploadProps> = ({ currentUser, onClose }
             {!preview && isCameraActive && (
                 <button 
                     onClick={handleSwitchCamera}
-                    className="flex items-center justify-center size-12 rounded-full bg-black/40 backdrop-blur-xl border border-white/10 text-white active:bg-white/20"
+                    className="flex items-center justify-center size-12 rounded-full bg-black/40 backdrop-blur-xl border border-white/10 text-white active:bg-white/20 active:rotate-180 transition-all duration-500"
                 >
                     <span className="material-symbols-outlined">sync</span>
                 </button>
             )}
-            <button className="flex items-center justify-center size-12 rounded-full bg-black/40 backdrop-blur-xl border border-white/10 text-white active:bg-white/20">
-                <span className="material-symbols-outlined">settings</span>
-            </button>
         </div>
       </div>
 
@@ -232,12 +282,12 @@ export const StoryUpload: React.FC<StoryUploadProps> = ({ currentUser, onClose }
         
         {/* Caption Panel (Visible only when media is captured/selected) */}
         {preview && (
-            <div className="w-full px-6 mb-4 animate-in slide-in-from-bottom-10">
+            <div className="w-full px-6 mb-8 animate-in slide-in-from-bottom-10">
                 <div className="bg-black/60 backdrop-blur-3xl p-6 rounded-[2.5rem] border border-white/10 flex flex-col gap-5 shadow-2xl">
                     <textarea 
                         value={caption}
                         onChange={(e) => setCaption(e.target.value)}
-                        placeholder="Write a creative caption..."
+                        placeholder="Add a creative caption..."
                         className="bg-transparent border-none focus:ring-0 text-white placeholder-white/30 text-sm font-bold resize-none h-20 w-full text-center"
                     />
                     <div className="flex gap-3">
@@ -256,7 +306,7 @@ export const StoryUpload: React.FC<StoryUploadProps> = ({ currentUser, onClose }
                             {isUploading ? (
                                 <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
                             ) : (
-                                `Publish ${mode}`
+                                `Post ${mode}`
                             )}
                         </button>
                     </div>
@@ -289,7 +339,7 @@ export const StoryUpload: React.FC<StoryUploadProps> = ({ currentUser, onClose }
             <div className="flex items-center justify-center gap-10 p-4 pb-8 w-full max-w-sm">
                 <button 
                     onClick={() => fileInputRef.current?.click()}
-                    className="flex shrink-0 items-center justify-center rounded-full size-12 bg-white/10 backdrop-blur-xl border border-white/10 text-white transition-transform active:scale-90 overflow-hidden"
+                    className="flex shrink-0 items-center justify-center rounded-full size-12 bg-white/10 backdrop-blur-xl border border-white/10 text-white transition-transform active:scale-90"
                 >
                     <span className="material-symbols-outlined">photo_library</span>
                 </button>
@@ -297,11 +347,11 @@ export const StoryUpload: React.FC<StoryUploadProps> = ({ currentUser, onClose }
                 <button 
                     onClick={handleCapture}
                     disabled={!isCameraActive}
-                    className="relative flex items-center justify-center group disabled:opacity-30"
+                    className="relative flex items-center justify-center group disabled:opacity-30 active:scale-110 transition-transform"
                 >
                     <div className="absolute size-24 bg-primary/20 rounded-full animate-pulse group-active:scale-125 transition-transform"></div>
-                    <div className="relative flex shrink-0 items-center justify-center rounded-full size-20 border-[6px] border-white/40 bg-white/5 p-1">
-                        <div className="size-full bg-white rounded-full transition-transform group-active:scale-90 shadow-[0_0_20px_2px_rgba(242,13,128,0.4)]"></div>
+                    <div className="relative flex shrink-0 items-center justify-center rounded-full size-20 border-[6px] border-white/40 bg-white/5 p-1 shadow-[0_0_30px_rgba(51,13,242,0.3)]">
+                        <div className="size-full bg-white rounded-full transition-transform group-active:scale-90"></div>
                     </div>
                 </button>
 
@@ -319,7 +369,7 @@ export const StoryUpload: React.FC<StoryUploadProps> = ({ currentUser, onClose }
             <div className="flex px-8 pb-10 w-full max-w-sm">
                 <div className="flex h-12 flex-1 items-center justify-center rounded-full bg-black/40 backdrop-blur-xl p-1.5 border border-white/10">
                     {(['Post', 'Story', 'Live'] as CameraMode[]).map((m) => (
-                        <label key={m} className={`flex cursor-pointer h-full grow items-center justify-center overflow-hidden rounded-full px-4 text-[10px] font-black uppercase tracking-[0.2em] transition-all ${mode === m ? 'bg-white text-black' : 'text-white/40 hover:text-white'}`}>
+                        <label key={m} className={`flex cursor-pointer h-full grow items-center justify-center overflow-hidden rounded-full px-4 text-[10px] font-black uppercase tracking-[0.2em] transition-all ${mode === m ? 'bg-white text-black shadow-lg shadow-white/20' : 'text-white/40 hover:text-white'}`}>
                             <span>{m}</span>
                             <input 
                                 type="radio" 
