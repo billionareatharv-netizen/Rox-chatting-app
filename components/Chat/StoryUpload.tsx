@@ -30,38 +30,37 @@ export const StoryUpload: React.FC<StoryUploadProps> = ({ currentUser, onClose }
   const [selectedMusic, setSelectedMusic] = useState<MusicMetadata | null>(null);
 
   // Camera State
-  const [isCameraActive, setIsCameraActive] = useState(false);
   const [cameraFacing, setCameraFacing] = useState<'user' | 'environment'>('user');
-  const [isStartingCamera, setIsStartingCamera] = useState(false);
+  const [isCameraReady, setIsCameraReady] = useState(false);
+  const [hasError, setHasError] = useState<string | null>(null);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
 
-  const generateUID = () => Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
+  const generateUID = () => Math.random().toString(36).substring(2, 15);
 
   const stopCamera = () => {
     if (streamRef.current) {
       streamRef.current.getTracks().forEach(track => {
-          track.stop();
-          track.enabled = false;
+        track.stop();
+        track.enabled = false;
       });
       streamRef.current = null;
     }
     if (videoRef.current) {
-        videoRef.current.srcObject = null;
+      videoRef.current.srcObject = null;
     }
-    setIsCameraActive(false);
+    setIsCameraReady(false);
   };
 
   const startCamera = async () => {
-    if (preview) return; 
-    setIsStartingCamera(true);
+    if (preview) return;
+    setHasError(null);
     stopCamera();
 
     try {
-      // Standard constraints that work on 99% of modern mobiles
       const constraints = {
         video: {
           facingMode: cameraFacing,
@@ -75,59 +74,57 @@ export const StoryUpload: React.FC<StoryUploadProps> = ({ currentUser, onClose }
       streamRef.current = stream;
 
       if (videoRef.current) {
-        videoRef.current.srcObject = stream;
+        const video = videoRef.current;
+        video.srcObject = stream;
         
-        // Critical: Handle the play promise for mobile browsers
-        videoRef.current.onloadedmetadata = async () => {
-            try {
-                if (videoRef.current) {
-                    await videoRef.current.play();
-                    setIsCameraActive(true);
-                }
-            } catch (playErr) {
-                console.error("Autoplay failed:", playErr);
-            }
+        // Critical for mobile: wait for metadata then play
+        video.onloadedmetadata = async () => {
+          try {
+            await video.play();
+            setIsCameraReady(true);
+          } catch (playErr) {
+            console.error("Autoplay failed:", playErr);
+            setHasError("Tap screen to start camera");
+          }
         };
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error("Camera Access Error:", err);
-      // Absolute fallback
+      // Fallback for older devices
       try {
-          const fallbackStream = await navigator.mediaDevices.getUserMedia({ video: true });
-          streamRef.current = fallbackStream;
-          if (videoRef.current) {
-              videoRef.current.srcObject = fallbackStream;
-              await videoRef.current.play();
-              setIsCameraActive(true);
-          }
+        const fallbackStream = await navigator.mediaDevices.getUserMedia({ video: true });
+        streamRef.current = fallbackStream;
+        if (videoRef.current) {
+          videoRef.current.srcObject = fallbackStream;
+          await videoRef.current.play();
+          setIsCameraReady(true);
+        }
       } catch (fallbackErr) {
-          alert("Could not access camera. Please ensure permissions are granted and you are on HTTPS.");
-          setIsCameraActive(false);
+        setHasError("Permission denied or camera unavailable");
       }
-    } finally {
-      setIsStartingCamera(false);
     }
   };
 
+  // Start camera on mount or switch
   useEffect(() => {
     startCamera();
     return () => stopCamera();
-  }, [cameraFacing]);
+  }, [cameraFacing, preview === null]);
 
   const handleCapture = () => {
-    if (!videoRef.current || !canvasRef.current || !isCameraActive) return;
+    if (!videoRef.current || !canvasRef.current || !isCameraReady) return;
     
     const video = videoRef.current;
-    if (video.readyState < 2) return; 
-
     const canvas = canvasRef.current;
+    
+    // Set canvas size to video's actual resolution
     canvas.width = video.videoWidth;
     canvas.height = video.videoHeight;
     
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
     
-    // Fix: Flip the capture if using the front (mirrored) camera
+    // Mirror capture if using front camera
     if (cameraFacing === 'user') {
         ctx.translate(canvas.width, 0);
         ctx.scale(-1, 1);
@@ -135,11 +132,10 @@ export const StoryUpload: React.FC<StoryUploadProps> = ({ currentUser, onClose }
 
     ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
     
-    // Reset transform for future draws
+    // Reset transform
     ctx.setTransform(1, 0, 0, 1, 0, 0);
 
-    // Optimized quality for Firestore (1MB limit)
-    const dataUrl = canvas.toDataURL('image/jpeg', 0.7);
+    const dataUrl = canvas.toDataURL('image/jpeg', 0.8);
     setPreview(dataUrl);
     setMediaType('image');
     stopCamera();
@@ -157,9 +153,6 @@ export const StoryUpload: React.FC<StoryUploadProps> = ({ currentUser, onClose }
     stopCamera();
     const isVideo = selected.type.startsWith('video/');
     setMediaType(isVideo ? 'video' : 'image');
-    setFile(selected);
-    
-    if (preview?.startsWith('blob:')) URL.revokeObjectURL(preview);
     setPreview(URL.createObjectURL(selected));
     e.target.value = '';
   };
@@ -169,18 +162,6 @@ export const StoryUpload: React.FC<StoryUploadProps> = ({ currentUser, onClose }
     setIsUploading(true);
     
     try {
-      let mediaData = preview;
-      
-      // If selected from gallery, convert file to Base64
-      if (file) {
-          mediaData = await new Promise((resolve, reject) => {
-              const reader = new FileReader();
-              reader.readAsDataURL(file);
-              reader.onload = () => resolve(reader.result as string);
-              reader.onerror = (err) => reject(err);
-          });
-      }
-
       const uploadId = generateUID();
 
       if (mode === 'Story') {
@@ -189,7 +170,7 @@ export const StoryUpload: React.FC<StoryUploadProps> = ({ currentUser, onClose }
           userId: currentUser.uid,
           userName: currentUser.name,
           userPhoto: currentUser.photoURL,
-          mediaUrl: mediaData,
+          mediaUrl: preview,
           mediaType: mediaType!,
           caption,
           timestamp: Date.now(),
@@ -200,7 +181,7 @@ export const StoryUpload: React.FC<StoryUploadProps> = ({ currentUser, onClose }
           userId: currentUser.uid,
           userName: currentUser.name,
           userPhoto: currentUser.photoURL,
-          mediaUrl: mediaData,
+          mediaUrl: preview,
           mediaType: mediaType!,
           caption,
           location: 'ROXX Universe',
@@ -210,7 +191,7 @@ export const StoryUpload: React.FC<StoryUploadProps> = ({ currentUser, onClose }
       onClose();
     } catch (e) {
       console.error("Upload error:", e);
-      alert("Capture/Upload failed. The image might be too large for the database.");
+      alert("Failed to post. Check your connection.");
     } finally {
       setIsUploading(false);
     }
@@ -221,8 +202,8 @@ export const StoryUpload: React.FC<StoryUploadProps> = ({ currentUser, onClose }
       <input type="file" ref={fileInputRef} onChange={handleFileChange} accept="image/*,video/*" className="hidden" />
       <canvas ref={canvasRef} className="hidden" />
 
-      {/* Viewfinder / Preview Background */}
-      <div className="absolute inset-0 z-0 overflow-hidden bg-black flex items-center justify-center">
+      {/* Main Viewfinder */}
+      <div className="absolute inset-0 z-0 bg-black flex items-center justify-center" onClick={() => !isCameraReady && startCamera()}>
         {preview ? (
             <div className={`w-full h-full relative transition-all duration-500 ${selectedFilter.class}`}>
                 {mediaType === 'video' ? (
@@ -233,31 +214,39 @@ export const StoryUpload: React.FC<StoryUploadProps> = ({ currentUser, onClose }
             </div>
         ) : (
             <div className={`w-full h-full relative ${selectedFilter.class}`}>
-                {isCameraActive ? (
-                    <video 
-                        ref={videoRef} 
-                        autoPlay 
-                        playsInline 
-                        muted 
-                        className={`w-full h-full object-cover ${cameraFacing === 'user' ? 'scale-x-[-1]' : ''}`}
-                    />
-                ) : (
-                    <div className="w-full h-full flex flex-col items-center justify-center gap-4 bg-slate-900/50">
-                        {isStartingCamera ? (
-                             <div className="w-12 h-12 border-4 border-primary border-t-transparent rounded-full animate-spin"></div>
+                {/* 
+                  CRITICAL: The video tag must always be rendered for the ref to work. 
+                  We control visibility with opacity.
+                */}
+                <video 
+                    ref={videoRef} 
+                    autoPlay 
+                    playsInline 
+                    muted 
+                    className={`w-full h-full object-cover transition-opacity duration-300 ${isCameraReady ? 'opacity-100' : 'opacity-0'} ${cameraFacing === 'user' ? 'scale-x-[-1]' : ''}`}
+                />
+                
+                {!isCameraReady && (
+                    <div className="absolute inset-0 flex flex-col items-center justify-center gap-4 bg-slate-900/40 backdrop-blur-sm">
+                        {hasError ? (
+                             <div className="text-center p-6">
+                                <span className="material-symbols-outlined text-4xl text-rose-500 mb-2">videocam_off</span>
+                                <p className="text-xs font-bold uppercase tracking-widest">{hasError}</p>
+                                <button onClick={startCamera} className="mt-4 px-6 py-2 bg-white/10 rounded-full text-[10px] font-black uppercase">Retry</button>
+                             </div>
                         ) : (
-                            <span className="material-symbols-outlined text-6xl opacity-20">videocam_off</span>
+                            <>
+                                <div className="w-10 h-10 border-4 border-primary border-t-transparent rounded-full animate-spin"></div>
+                                <p className="text-[10px] font-black uppercase tracking-[0.2em] opacity-40">Lens warming up...</p>
+                            </>
                         )}
-                        <p className="text-[10px] font-black uppercase tracking-[0.2em] opacity-40">
-                            {isStartingCamera ? 'Waking up camera...' : 'Initializing Lens'}
-                        </p>
                     </div>
                 )}
             </div>
         )}
       </div>
 
-      {/* Top Controls Overlay */}
+      {/* UI Overlays */}
       <div className="relative z-10 flex items-center justify-between p-6 pt-12 bg-gradient-to-b from-black/60 to-transparent">
         <button 
             onClick={onClose} 
@@ -265,34 +254,29 @@ export const StoryUpload: React.FC<StoryUploadProps> = ({ currentUser, onClose }
         >
             <span className="material-symbols-outlined">close</span>
         </button>
-        <div className="flex gap-2">
-            {!preview && isCameraActive && (
-                <button 
-                    onClick={handleSwitchCamera}
-                    className="flex items-center justify-center size-12 rounded-full bg-black/40 backdrop-blur-xl border border-white/10 text-white active:bg-white/20 active:rotate-180 transition-all duration-500"
-                >
-                    <span className="material-symbols-outlined">sync</span>
-                </button>
-            )}
-        </div>
+        {!preview && (
+            <button 
+                onClick={handleSwitchCamera}
+                className="flex items-center justify-center size-12 rounded-full bg-black/40 backdrop-blur-xl border border-white/10 text-white active:bg-white/20 transition-all duration-300"
+            >
+                <span className="material-symbols-outlined">sync</span>
+            </button>
+        )}
       </div>
 
-      {/* Bottom Controls Area */}
       <div className="mt-auto relative z-20 w-full flex flex-col items-center">
-        
-        {/* Caption Panel (Visible only when media is captured/selected) */}
         {preview && (
             <div className="w-full px-6 mb-8 animate-in slide-in-from-bottom-10">
                 <div className="bg-black/60 backdrop-blur-3xl p-6 rounded-[2.5rem] border border-white/10 flex flex-col gap-5 shadow-2xl">
                     <textarea 
                         value={caption}
                         onChange={(e) => setCaption(e.target.value)}
-                        placeholder="Add a creative caption..."
+                        placeholder="Say something about this..."
                         className="bg-transparent border-none focus:ring-0 text-white placeholder-white/30 text-sm font-bold resize-none h-20 w-full text-center"
                     />
                     <div className="flex gap-3">
                         <button 
-                            onClick={() => { setPreview(null); setFile(null); startCamera(); }}
+                            onClick={() => { setPreview(null); startCamera(); }}
                             disabled={isUploading}
                             className="flex-1 py-4 bg-white/10 text-white rounded-3xl font-bold uppercase tracking-widest text-[10px]"
                         >
@@ -314,83 +298,57 @@ export const StoryUpload: React.FC<StoryUploadProps> = ({ currentUser, onClose }
             </div>
         )}
 
-        {/* Filter Carousel */}
         {!preview && (
-            <div className="flex w-full overflow-x-auto no-scrollbar px-4 py-6 scroll-smooth bg-gradient-to-t from-black/60 to-transparent">
-                <div className="flex flex-row items-end justify-center gap-6 mx-auto">
-                    {FILTERS.map((f) => (
-                        <button 
-                            key={f.name}
-                            onClick={() => setSelectedFilter(f)}
-                            className="flex flex-col items-center gap-3 min-w-[70px] transition-all"
-                        >
-                            <div className={`size-14 rounded-full border-2 transition-all overflow-hidden ${selectedFilter.name === f.name ? 'size-20 border-primary ring-4 ring-black/50 scale-110 shadow-lg' : 'border-white/20'}`}>
-                                <img src={f.preview} className="w-full h-full object-cover" alt={f.name} />
-                            </div>
-                            <p className={`text-[10px] font-black tracking-widest uppercase ${selectedFilter.name === f.name ? 'text-primary' : 'text-white/60'}`}>{f.name}</p>
-                        </button>
-                    ))}
-                </div>
-            </div>
-        )}
-
-        {/* Main Capture Control */}
-        {!preview && (
-            <div className="flex items-center justify-center gap-10 p-4 pb-8 w-full max-w-sm">
-                <button 
-                    onClick={() => fileInputRef.current?.click()}
-                    className="flex shrink-0 items-center justify-center rounded-full size-12 bg-white/10 backdrop-blur-xl border border-white/10 text-white transition-transform active:scale-90"
-                >
-                    <span className="material-symbols-outlined">photo_library</span>
-                </button>
-
-                <button 
-                    onClick={handleCapture}
-                    disabled={!isCameraActive}
-                    className="relative flex items-center justify-center group disabled:opacity-30 active:scale-110 transition-transform"
-                >
-                    <div className="absolute size-24 bg-primary/20 rounded-full animate-pulse group-active:scale-125 transition-transform"></div>
-                    <div className="relative flex shrink-0 items-center justify-center rounded-full size-20 border-[6px] border-white/40 bg-white/5 p-1 shadow-[0_0_30px_rgba(51,13,242,0.3)]">
-                        <div className="size-full bg-white rounded-full transition-transform group-active:scale-90"></div>
+            <>
+                <div className="flex w-full overflow-x-auto no-scrollbar px-4 py-6 bg-gradient-to-t from-black/60 to-transparent">
+                    <div className="flex flex-row items-end justify-center gap-6 mx-auto">
+                        {FILTERS.map((f) => (
+                            <button key={f.name} onClick={() => setSelectedFilter(f)} className="flex flex-col items-center gap-3 min-w-[70px]">
+                                <div className={`size-14 rounded-full border-2 transition-all overflow-hidden ${selectedFilter.name === f.name ? 'size-20 border-primary ring-4 ring-black/50 scale-110' : 'border-white/20'}`}>
+                                    <img src={f.preview} className="w-full h-full object-cover" alt={f.name} />
+                                </div>
+                                <p className={`text-[10px] font-black tracking-widest uppercase ${selectedFilter.name === f.name ? 'text-primary' : 'text-white/60'}`}>{f.name}</p>
+                            </button>
+                        ))}
                     </div>
-                </button>
-
-                <button 
-                    onClick={() => setShowMusicPicker(true)}
-                    className="flex shrink-0 items-center justify-center rounded-full size-12 bg-white/10 backdrop-blur-xl border border-white/10 text-white transition-transform active:scale-90"
-                >
-                    <span className={`material-symbols-outlined ${selectedMusic ? 'text-primary' : ''}`}>music_note</span>
-                </button>
-            </div>
-        )}
-
-        {/* Mode Selector */}
-        {!preview && (
-            <div className="flex px-8 pb-10 w-full max-w-sm">
-                <div className="flex h-12 flex-1 items-center justify-center rounded-full bg-black/40 backdrop-blur-xl p-1.5 border border-white/10">
-                    {(['Post', 'Story', 'Live'] as CameraMode[]).map((m) => (
-                        <label key={m} className={`flex cursor-pointer h-full grow items-center justify-center overflow-hidden rounded-full px-4 text-[10px] font-black uppercase tracking-[0.2em] transition-all ${mode === m ? 'bg-white text-black shadow-lg shadow-white/20' : 'text-white/40 hover:text-white'}`}>
-                            <span>{m}</span>
-                            <input 
-                                type="radio" 
-                                className="invisible w-0" 
-                                name="camera-mode" 
-                                checked={mode === m} 
-                                onChange={() => setMode(m)} 
-                            />
-                        </label>
-                    ))}
                 </div>
-            </div>
+
+                <div className="flex items-center justify-center gap-10 p-4 pb-8 w-full max-w-sm">
+                    <button onClick={() => fileInputRef.current?.click()} className="flex shrink-0 items-center justify-center rounded-full size-12 bg-white/10 backdrop-blur-xl border border-white/10">
+                        <span className="material-symbols-outlined">photo_library</span>
+                    </button>
+
+                    <button 
+                        onClick={handleCapture}
+                        disabled={!isCameraReady}
+                        className="relative flex items-center justify-center group active:scale-110 transition-transform"
+                    >
+                        <div className="absolute size-24 bg-primary/20 rounded-full animate-pulse"></div>
+                        <div className="relative flex shrink-0 items-center justify-center rounded-full size-20 border-[6px] border-white/40 bg-white/5 p-1">
+                            <div className="size-full bg-white rounded-full transition-transform group-active:scale-90"></div>
+                        </div>
+                    </button>
+
+                    <button onClick={() => setShowMusicPicker(true)} className="flex shrink-0 items-center justify-center rounded-full size-12 bg-white/10 backdrop-blur-xl border border-white/10">
+                        <span className={`material-symbols-outlined ${selectedMusic ? 'text-primary' : ''}`}>music_note</span>
+                    </button>
+                </div>
+
+                <div className="flex px-8 pb-10 w-full max-w-sm">
+                    <div className="flex h-12 flex-1 items-center justify-center rounded-full bg-black/40 backdrop-blur-xl p-1.5 border border-white/10">
+                        {(['Post', 'Story', 'Live'] as CameraMode[]).map((m) => (
+                            <label key={m} className={`flex cursor-pointer h-full grow items-center justify-center rounded-full px-4 text-[10px] font-black uppercase tracking-[0.2em] transition-all ${mode === m ? 'bg-white text-black' : 'text-white/40'}`}>
+                                <span>{m}</span>
+                                <input type="radio" className="invisible w-0" name="camera-mode" checked={mode === m} onChange={() => setMode(m)} />
+                            </label>
+                        ))}
+                    </div>
+                </div>
+            </>
         )}
       </div>
 
-      {showMusicPicker && (
-          <MusicPicker 
-            onClose={() => setShowMusicPicker(false)}
-            onSelect={setSelectedMusic}
-          />
-      )}
+      {showMusicPicker && <MusicPicker onClose={() => setShowMusicPicker(false)} onSelect={setSelectedMusic} />}
     </div>
   );
 };
