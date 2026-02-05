@@ -1,11 +1,10 @@
-
 import React, { useState, useMemo, useEffect } from 'react';
-import { User, Chat } from '../../types';
-import { getAllUsers, getMyChats, subscribeToUser } from '../../firebase';
+import { User, Chat, Note } from '../../types';
+import { getAllUsers, getMyChats, subscribeToNotes } from '../../firebase';
 import { CreateGroupModal } from './CreateGroupModal';
 import { AppGallery } from './AppGallery';
 import { AccountSwitchModal } from './AccountSwitchModal';
-import { PremiumStore } from '../Premium/PremiumStore';
+import { CreateNoteModal } from './CreateNoteModal';
 
 interface SidebarProps {
   currentUser: User;
@@ -21,11 +20,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const [search, setSearch] = useState('');
   const [allUsers, setAllUsers] = useState<User[]>([]);
   const [chats, setChats] = useState<Chat[]>([]);
+  const [notes, setNotes] = useState<Note[]>([]);
   const [loading, setLoading] = useState(true);
   const [showGroupModal, setShowGroupModal] = useState(false);
   const [showMenu, setShowMenu] = useState(false);
   const [showGallery, setShowGallery] = useState(false);
   const [showAccountSwitch, setShowAccountSwitch] = useState(false);
+  const [showNoteModal, setShowNoteModal] = useState(false);
 
   useEffect(() => {
     const fetchData = async () => {
@@ -42,8 +43,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
     };
 
     fetchData();
-    const itv = setInterval(fetchData, 5000);
-    return () => clearInterval(itv);
+    const itv = setInterval(fetchData, 10000);
+    const unsubNotes = subscribeToNotes(setNotes);
+    
+    return () => {
+        clearInterval(itv);
+        unsubNotes();
+    };
   }, [currentUser.uid]);
 
   const activeUsers = useMemo(() => {
@@ -85,6 +91,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
       }
       return date.toLocaleDateString([], { month: 'short', day: 'numeric' });
   };
+
+  const myNote = notes.find(n => n.userId === currentUser.uid);
 
   return (
     <div className="w-full h-full flex flex-col bg-background-light dark:bg-background-dark animate-in fade-in duration-300 overflow-hidden">
@@ -138,25 +146,64 @@ export const Sidebar: React.FC<SidebarProps> = ({
       )}
 
       <div className="flex-1 overflow-y-auto no-scrollbar pb-32">
-        {/* Active Now Section */}
-        {!search && activeUsers.length > 0 && (
+        {/* Notes & Active Now Section */}
+        {!search && (
             <section className="mb-6">
                 <div className="flex items-center justify-between px-4 pb-3">
-                    <h3 className="text-slate-500 dark:text-white/60 text-[10px] font-black uppercase tracking-[0.2em]">Active Now</h3>
+                    <h3 className="text-slate-500 dark:text-white/60 text-[10px] font-black uppercase tracking-[0.2em]">Notes & Activity</h3>
                     <span className="text-primary text-[10px] font-black uppercase tracking-widest cursor-pointer">See All</span>
                 </div>
-                <div className="flex w-full overflow-x-auto px-4 gap-5 no-scrollbar scroll-smooth">
-                    {activeUsers.map(user => (
-                        <div key={user.uid} className="flex flex-col items-center gap-2 min-w-[64px] group cursor-pointer" onClick={() => onChatSelect({ id: [currentUser.uid, user.uid].sort().join('_'), type: 'private', participants: [currentUser.uid, user.uid], updatedAt: Date.now() })}>
-                            <div className="relative">
-                                <div className="w-16 h-16 rounded-full border-2 border-primary p-0.5 transition-transform group-hover:scale-105">
-                                    <img src={user.photoURL} className="w-full h-full rounded-full object-cover" alt="" />
+                
+                <div className="flex w-full overflow-x-auto px-4 gap-6 no-scrollbar scroll-smooth py-4">
+                    {/* My Note / Profile First */}
+                    <div className="flex flex-col items-center gap-3 shrink-0 relative">
+                        <div className="relative group cursor-pointer" onClick={() => setShowNoteModal(true)}>
+                            {/* Thought Bubble for Me */}
+                            {myNote && (
+                                <div className="absolute -top-10 left-1/2 -translate-x-1/2 bg-white dark:bg-[#1d1b27] px-3 py-1.5 rounded-xl shadow-xl border border-white/10 z-20 min-w-[50px] max-w-[100px]">
+                                    <p className="text-[10px] font-bold text-center leading-tight line-clamp-2 text-slate-800 dark:text-white">
+                                        {myNote.text}
+                                    </p>
+                                    <div className="absolute -bottom-1 left-1/2 -translate-x-1/2 w-2 h-2 bg-white dark:bg-[#1d1b27] rotate-45 border-r border-b border-white/10"></div>
                                 </div>
-                                <div className="absolute bottom-0 right-0 w-4.5 h-4.5 bg-green-500 border-[3px] border-background-light dark:border-background-dark rounded-full"></div>
-                            </div>
-                            <p className="text-slate-900 dark:text-white text-[10px] font-black uppercase tracking-tight truncate w-16 text-center">{user.name.split(' ')[0]}</p>
+                            )}
+                            
+                            <img src={currentUser.photoURL} className={`w-16 h-16 rounded-full object-cover border-2 transition-transform group-hover:scale-105 ${myNote ? 'border-primary shadow-lg' : 'border-slate-200 dark:border-slate-800'}`} alt="" />
+                            
+                            {!myNote && (
+                                <div className="absolute -bottom-1 -right-1 bg-primary text-white size-6 rounded-full flex items-center justify-center border-4 border-background-light dark:border-background-dark shadow-md scale-90">
+                                    <span className="material-symbols-outlined text-[14px] font-black">add</span>
+                                </div>
+                            )}
                         </div>
-                    ))}
+                        <p className="text-slate-500 dark:text-white/60 text-[10px] font-black uppercase tracking-tight">Your Note</p>
+                    </div>
+
+                    {/* Active Friends & Their Notes */}
+                    {activeUsers.map(user => {
+                        const friendNote = notes.find(n => n.userId === user.uid);
+                        return (
+                            <div key={user.uid} className="flex flex-col items-center gap-3 relative shrink-0 group cursor-pointer" onClick={() => onChatSelect({ id: [currentUser.uid, user.uid].sort().join('_'), type: 'private', participants: [currentUser.uid, user.uid], updatedAt: Date.now() })}>
+                                <div className="relative">
+                                    {/* Friend's Thought Bubble */}
+                                    {friendNote && (
+                                        <div className="absolute -top-10 left-1/2 -translate-x-1/2 bg-white dark:bg-[#1d1b27] px-3 py-1.5 rounded-xl shadow-xl border border-white/10 z-20 min-w-[50px] max-w-[100px] animate-in slide-in-from-bottom-2">
+                                            <p className="text-[10px] font-bold text-center leading-tight line-clamp-2 text-slate-800 dark:text-white">
+                                                {friendNote.text}
+                                            </p>
+                                            <div className="absolute -bottom-1 left-1/2 -translate-x-1/2 w-2 h-2 bg-white dark:bg-[#1d1b27] rotate-45 border-r border-b border-white/10"></div>
+                                        </div>
+                                    )}
+
+                                    <div className="w-16 h-16 rounded-full border-2 border-primary p-0.5 transition-transform group-hover:scale-105">
+                                        <img src={user.photoURL} className="w-full h-full rounded-full object-cover" alt="" />
+                                    </div>
+                                    <div className="absolute bottom-0 right-0 w-4.5 h-4.5 bg-green-500 border-[3px] border-background-light dark:border-background-dark rounded-full"></div>
+                                </div>
+                                <p className="text-slate-900 dark:text-white text-[10px] font-black uppercase tracking-tight truncate w-16 text-center">{user.name.split(' ')[0]}</p>
+                            </div>
+                        );
+                    })}
                 </div>
             </section>
         )}
@@ -220,6 +267,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
       {showGroupModal && <CreateGroupModal currentUser={currentUser} onClose={() => setShowGroupModal(false)} onCreated={onChatSelect} />}
       {showGallery && <AppGallery currentUser={currentUser} onClose={() => setShowGallery(false)} />}
       {showAccountSwitch && <AccountSwitchModal currentUser={currentUser} onClose={() => setShowAccountSwitch(false)} />}
+      {showNoteModal && <CreateNoteModal currentUser={currentUser} onClose={() => setShowNoteModal(false)} />}
     </div>
   );
 };

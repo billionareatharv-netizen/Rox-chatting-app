@@ -697,6 +697,15 @@ export const getNotes = async () => {
   } catch(e) { return []; }
 };
 
+export const subscribeToNotes = (callback: (notes: Note[]) => void) => {
+    if (!db) return () => {};
+    const yesterday = Date.now() - 86400000;
+    const q = query(collection(db, "notes"), where("timestamp", ">", yesterday));
+    return onSnapshot(q, (snapshot) => {
+        callback(snapshot.docs.map(d => d.data() as Note));
+    });
+};
+
 export const sendNoteReply = async (rid: string, sid: string, text: string, note: any) => {
   const msg = { id: 'm_' + generateUUID(), senderId: sid, recipientId: rid, text, type: 'note_reply', timestamp: Date.now(), status: 'sent', noteContext: { noteId: note.id, text: note.text, userPhoto: note.userPhoto } };
   await addMessage(msg);
