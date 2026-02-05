@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useRef } from 'react';
 import { Story, User } from '../../types';
 import { likeStory, sendStoryReply, viewStory, deleteStory } from '../../firebase';
@@ -7,11 +6,12 @@ interface StoryViewerProps {
   stories: Story[];
   currentUser: User;
   onClose: () => void;
+  onSwitchToReels?: () => void;
 }
 
 const QUICK_REACTIONS = ['❤️', '😂', '😮', '😢', '🔥'];
 
-export const StoryViewer: React.FC<StoryViewerProps> = ({ stories: initialStories, currentUser, onClose }) => {
+export const StoryViewer: React.FC<StoryViewerProps> = ({ stories: initialStories, currentUser, onClose, onSwitchToReels }) => {
   const [stories, setStories] = useState(initialStories);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [progress, setProgress] = useState(0);
@@ -192,6 +192,15 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({ stories: initialStorie
             </div>
             
             <div className="flex items-center gap-2">
+                {onSwitchToReels && (
+                    <button 
+                        onClick={onSwitchToReels}
+                        className="flex items-center justify-center rounded-full h-10 w-10 text-white bg-white/10 backdrop-blur-md border border-white/10 active:scale-95 transition-transform"
+                        title="Switch to Reels"
+                    >
+                        <span className="material-symbols-outlined text-[20px]">video_library</span>
+                    </button>
+                )}
                 {isOwner && (
                     <button onClick={() => { setShowMenu(!showMenu); setIsPaused(!showMenu); }} className="flex items-center justify-center rounded-full h-10 w-10 text-white">
                         <span className="material-symbols-outlined">more_horiz</span>

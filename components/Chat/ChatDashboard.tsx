@@ -13,6 +13,7 @@ import { ExploreView } from './ExploreView';
 import { ActivityView } from './ActivityView';
 import { PostDetailView } from './PostDetailView';
 import { ConnectionsView } from './ConnectionsView';
+import { ReelsView } from './ReelsView';
 import { initiateCall, getIncomingCall, getUserById, updateCallStatus, cleanOldCalls, subscribeToNicknames } from '../../firebase';
 
 interface ChatDashboardProps {
@@ -21,7 +22,7 @@ interface ChatDashboardProps {
   isDarkMode: boolean;
 }
 
-export type NavTab = 'home' | 'search' | 'add' | 'activity' | 'profile' | 'chats';
+export type NavTab = 'home' | 'search' | 'reels' | 'add' | 'activity' | 'profile' | 'chats';
 
 export const ChatDashboard: React.FC<ChatDashboardProps> = ({ currentUser, toggleDarkMode, isDarkMode }) => {
   const [activeTab, setActiveTab] = useState<NavTab>('home');
@@ -108,6 +109,14 @@ export const ChatDashboard: React.FC<ChatDashboardProps> = ({ currentUser, toggl
             onBack={() => setActiveTab('home')}
           />
         );
+      case 'reels':
+        return (
+          <ReelsView 
+            currentUser={currentUser}
+            onOpenProfile={setViewingUser}
+            onOpenComments={setSelectedPost}
+          />
+        );
       case 'profile':
         return (
           <ProfilePanel 
@@ -173,7 +182,17 @@ export const ChatDashboard: React.FC<ChatDashboardProps> = ({ currentUser, toggl
 
       {/* Modals & Overlays */}
       {showStoryUpload && <StoryUpload currentUser={currentUser} onClose={() => setShowStoryUpload(false)} />}
-      {viewingStories && <StoryViewer stories={viewingStories} currentUser={currentUser} onClose={() => setViewingStories(null)} />}
+      {viewingStories && (
+        <StoryViewer 
+          stories={viewingStories} 
+          currentUser={currentUser} 
+          onClose={() => setViewingStories(null)} 
+          onSwitchToReels={() => {
+            setViewingStories(null);
+            setActiveTab('reels');
+          }}
+        />
+      )}
       {viewingUser && (
         <PublicProfile 
           user={viewingUser} 

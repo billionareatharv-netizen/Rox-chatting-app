@@ -1,4 +1,3 @@
-
 import { initializeApp, getApps, getApp } from "firebase/app";
 import { 
   getAuth, 
@@ -65,15 +64,11 @@ const firebaseConfig = {
   measurementId: "G-T0M4876W9M"
 };
 
-// Defensive Initialization
 const app = getApps().length ? getApp() : initializeApp(firebaseConfig);
-
-// Lazy initializers to avoid "Component not registered" errors
 const getAuthService = () => getAuth(app);
 const getDbService = () => getFirestore(app);
 const getStorageService = () => getStorage(app);
 
-// Exporting direct instances for backward compatibility where safe
 export const auth = getAuthService();
 export const db = getDbService();
 export const storage = getStorageService();
@@ -260,26 +255,43 @@ export const addPost = async (post: Omit<Post, 'id' | 'likes' | 'bookmarks' | 'c
 export const getFeedPosts = async () => {
   if (!db) return [];
   try {
-    const q = query(collection(db, "posts"), orderBy("timestamp", "desc"), limit(20));
+    // Simple query to avoid index requirement
+    const q = query(collection(db, "posts"), limit(50));
     const snapshot = await getDocs(q);
-    return snapshot.docs.map(d => d.data() as Post);
+    return snapshot.docs
+      .map(d => d.data() as Post)
+      .sort((a, b) => b.timestamp - a.timestamp);
   } catch(e) { return []; }
 };
 
 export const getPostsByUser = async (userId: string) => {
   if (!db) return [];
   try {
-    const q = query(collection(db, "posts"), where("userId", "==", userId), orderBy("timestamp", "desc"));
+    // Modified to remove orderBy which requires a manual index
+    const q = query(collection(db, "posts"), where("userId", "==", userId));
     const snapshot = await getDocs(q);
-    return snapshot.docs.map(d => d.data() as Post);
+    return snapshot.docs
+      .map(d => d.data() as Post)
+      .sort((a, b) => b.timestamp - a.timestamp);
   } catch(e) { return []; }
+};
+
+export const subscribeToUserPosts = (userId: string, callback: (posts: Post[]) => void) => {
+    if (!db) return () => {};
+    const q = query(collection(db, "posts"), where("userId", "==", userId));
+    return onSnapshot(q, (snapshot) => {
+        const posts = snapshot.docs.map(d => d.data() as Post);
+        callback(posts.sort((a, b) => b.timestamp - a.timestamp));
+    });
 };
 
 export const subscribeToPosts = (callback: (posts: Post[]) => void) => {
   if (!db) return () => {};
-  const q = query(collection(db, "posts"), orderBy("timestamp", "desc"), limit(20));
+  // Simplified query for index-free operation
+  const q = query(collection(db, "posts"), limit(30));
   return onSnapshot(q, (snapshot) => {
-    callback(snapshot.docs.map(d => d.data() as Post));
+    const posts = snapshot.docs.map(d => d.data() as Post);
+    callback(posts.sort((a, b) => b.timestamp - a.timestamp));
   }, (err) => console.error("Posts Sub Error", err));
 };
 

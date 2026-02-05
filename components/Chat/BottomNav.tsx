@@ -1,4 +1,3 @@
-
 import React from 'react';
 import { NavTab } from './ChatDashboard';
 
@@ -25,6 +24,14 @@ export const BottomNav: React.FC<BottomNavProps> = ({ activeTab, onTabChange, cu
                 className={`flex flex-col items-center gap-1 transition-all ${activeTab === 'search' ? 'text-primary' : 'opacity-40 text-slate-500 dark:text-white'}`}
             >
                 <span className="material-symbols-outlined text-3xl" style={activeTab === 'search' ? { fontVariationSettings: "'FILL' 1" } : {}}>search</span>
+            </button>
+
+            <button 
+                onClick={() => onTabChange('reels')}
+                className={`flex flex-col items-center gap-1 transition-all ${activeTab === 'reels' ? 'text-primary' : 'opacity-40 text-slate-500 dark:text-white'}`}
+            >
+                <span className="material-symbols-outlined text-3xl" style={activeTab === 'reels' ? { fontVariationSettings: "'FILL' 1" } : {}}>video_library</span>
+                {activeTab === 'reels' && <div className="h-1 w-1 bg-primary rounded-full"></div>}
             </button>
 
             <button 

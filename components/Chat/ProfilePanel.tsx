@@ -1,8 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { User, PremiumCustomization, SavedMedia, Post } from '../../types';
 import { useAuth } from '../../hooks/useAuth';
-import { updateProfile, updatePremiumCustomization, saveWallpaper, updatePrivacySettings, getSavedGallery, getPostsByUser, subscribeToUser } from '../../firebase';
-import { hasPremiumAccess, ROLE_STYLES } from '../../premiumUtils';
+import { updateProfile, saveWallpaper, updatePrivacySettings, getSavedGallery, subscribeToUserPosts, subscribeToUser } from '../../firebase';
 import { SubscriptionModal } from '../Premium/SubscriptionModal';
 
 interface ProfilePanelProps {
@@ -32,14 +31,23 @@ export const ProfilePanel: React.FC<ProfilePanelProps> = ({
   const [isSaving, setIsSaving] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Sync user data in real-time within the panel
   useEffect(() => {
-    const unsub = subscribeToUser(initialUser.uid, (data) => {
+    // 1. Sync User Profile in Real-time
+    const unsubUser = subscribeToUser(initialUser.uid, (data) => {
         if (data) setUser(data as User);
     });
+    
+    // 2. Sync Posts in Real-time (Fixes the "0 posts" issue)
+    const unsubPosts = subscribeToUserPosts(initialUser.uid, (posts) => {
+        setUserPosts(posts);
+    });
+
     getSavedGallery(initialUser.uid).then(items => setGalleryItems(items as SavedMedia[]));
-    getPostsByUser(initialUser.uid).then(posts => setUserPosts(posts));
-    return () => unsub();
+    
+    return () => {
+        unsubUser();
+        unsubPosts();
+    };
   }, [initialUser.uid]);
 
   const handlePhotoSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -74,7 +82,6 @@ export const ProfilePanel: React.FC<ProfilePanelProps> = ({
     alert("Wallpaper Updated!");
   };
 
-  // SUB-VIEW: HEADER (for settings/edit)
   const renderSubHeader = (title: string, onBack: () => void) => (
     <nav className="sticky top-0 z-50 bg-background-light/80 dark:bg-background-dark/80 backdrop-blur-md px-4 py-3 flex items-center gap-4 border-b border-gray-200 dark:border-border-dark">
       <button onClick={onBack} className="p-1 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-full">
@@ -84,7 +91,6 @@ export const ProfilePanel: React.FC<ProfilePanelProps> = ({
     </nav>
   );
 
-  // VIEW: EDIT PROFILE
   if (viewMode === 'edit') {
       return (
           <div className="flex flex-col h-full bg-background-light dark:bg-background-dark animate-in slide-in-from-right">
@@ -117,7 +123,6 @@ export const ProfilePanel: React.FC<ProfilePanelProps> = ({
       );
   }
 
-  // VIEW: SETTINGS
   if (viewMode === 'settings') {
       return (
           <div className="flex flex-col h-full bg-background-light dark:bg-background-dark animate-in slide-in-from-right">
@@ -153,7 +158,6 @@ export const ProfilePanel: React.FC<ProfilePanelProps> = ({
       );
   }
 
-  // VIEW: PRIVACY
   if (viewMode === 'privacy') {
     return (
         <div className="flex flex-col h-full bg-background-light dark:bg-background-dark animate-in slide-in-from-right">
@@ -182,7 +186,6 @@ export const ProfilePanel: React.FC<ProfilePanelProps> = ({
     );
   }
 
-  // VIEW: CHAT SETTINGS
   if (viewMode === 'chats_settings') {
     return (
         <div className="flex flex-col h-full bg-background-light dark:bg-background-dark animate-in slide-in-from-right">
@@ -201,11 +204,9 @@ export const ProfilePanel: React.FC<ProfilePanelProps> = ({
     );
   }
 
-  // MAIN VIEW (SOCIAL MEDIA STYLE)
   return (
     <div className="flex-1 flex flex-col bg-background-light dark:bg-background-dark text-slate-900 dark:text-white overflow-hidden animate-in fade-in transition-colors duration-300">
         
-        {/* Top Navigation Bar */}
         <nav className="sticky top-0 z-50 bg-background-light/80 dark:bg-background-dark/80 backdrop-blur-md px-4 py-4 flex items-center justify-between border-b border-gray-200 dark:border-border-dark">
             <div className="flex items-center gap-1 cursor-pointer" onClick={onClose}>
                 <span className="material-symbols-outlined text-2xl">arrow_back_ios</span>
@@ -221,7 +222,6 @@ export const ProfilePanel: React.FC<ProfilePanelProps> = ({
         </nav>
 
         <main className="flex-1 overflow-y-auto no-scrollbar pb-32">
-            {/* Profile Header Section */}
             <section className="px-6 pt-6 pb-4">
                 <div className="flex flex-col items-start gap-6">
                     <div className="relative">
@@ -246,19 +246,17 @@ export const ProfilePanel: React.FC<ProfilePanelProps> = ({
                             <span className="text-[10px] font-black uppercase tracking-[0.2em]">New York City</span>
                         </div>
                     </div>
-                    {/* Action Buttons */}
                     <div className="flex w-full gap-3 mt-2">
                         <button onClick={() => setViewMode('edit')} className="flex-1 h-12 bg-slate-200 dark:bg-white/10 text-slate-900 dark:text-white flex items-center justify-center rounded-full text-xs font-black uppercase tracking-widest border border-slate-300 dark:border-white/10 active:scale-95 transition-all">
                             Edit Profile
                         </button>
-                        <button className="flex-1 h-12 bg-primary text-white flex items-center justify-center rounded-full text-xs font-black uppercase tracking-widest shadow-lg shadow-primary/20 active:scale-95 transition-all">
+                        <button className="flex-1 h-12 bg-primary text-white flex items-center justify-center rounded-full text-xs font-black uppercase tracking-widest shadow-lg active:scale-95 transition-all">
                             Share Profile
                         </button>
                     </div>
                 </div>
             </section>
 
-            {/* Stats Section */}
             <section className="px-4 py-4">
                 <div className="flex gap-3">
                     <div className="flex-1 flex flex-col gap-1 rounded-[1.5rem] bg-slate-100 dark:bg-white/5 py-4 items-center border border-transparent dark:border-white/5">
@@ -282,32 +280,16 @@ export const ProfilePanel: React.FC<ProfilePanelProps> = ({
                 </div>
             </section>
 
-            {/* Image Grid Section */}
             <section className="mt-4">
                 <div className="flex border-b border-gray-200 dark:border-border-dark">
-                    <button 
-                        onClick={() => setActiveTab('grid')}
-                        className={`flex-1 flex flex-col items-center justify-center py-4 border-b-2 transition-all ${activeTab === 'grid' ? 'border-primary text-primary' : 'border-transparent text-gray-400 opacity-50'}`}
-                    >
-                        <span className="material-symbols-outlined" style={activeTab === 'grid' ? { fontVariationSettings: "'FILL' 1" } : {}}>grid_view</span>
-                    </button>
-                    <button 
-                        onClick={() => setActiveTab('reels')}
-                        className={`flex-1 flex flex-col items-center justify-center py-4 border-b-2 transition-all ${activeTab === 'reels' ? 'border-primary text-primary' : 'border-transparent text-gray-400 opacity-50'}`}
-                    >
-                        <span className="material-symbols-outlined">video_library</span>
-                    </button>
-                    <button 
-                        onClick={() => setActiveTab('tagged')}
-                        className={`flex-1 flex flex-col items-center justify-center py-4 border-b-2 transition-all ${activeTab === 'tagged' ? 'border-primary text-primary' : 'border-transparent text-gray-400 opacity-50'}`}
-                    >
-                        <span className="material-symbols-outlined">person_pin</span>
-                    </button>
+                    <button onClick={() => setActiveTab('grid')} className={`flex-1 flex flex-col items-center justify-center py-4 border-b-2 transition-all ${activeTab === 'grid' ? 'border-primary text-primary' : 'border-transparent text-gray-400 opacity-50'}`}><span className="material-symbols-outlined" style={activeTab === 'grid' ? { fontVariationSettings: "'FILL' 1" } : {}}>grid_view</span></button>
+                    <button onClick={() => setActiveTab('reels')} className={`flex-1 flex flex-col items-center justify-center py-4 border-b-2 transition-all ${activeTab === 'reels' ? 'border-primary text-primary' : 'border-transparent text-gray-400 opacity-50'}`}><span className="material-symbols-outlined">video_library</span></button>
+                    <button onClick={() => setActiveTab('tagged')} className={`flex-1 flex flex-col items-center justify-center py-4 border-b-2 transition-all ${activeTab === 'tagged' ? 'border-primary text-primary' : 'border-transparent text-gray-400 opacity-50'}`}><span className="material-symbols-outlined">person_pin</span></button>
                 </div>
             </section>
 
             <section className="grid grid-cols-3 gap-0.5 mt-0.5">
-                {activeTab === 'grid' && userPosts.length === 0 ? (
+                {userPosts.length === 0 ? (
                     <div className="col-span-3 py-20 text-center flex flex-col items-center gap-4 opacity-30">
                         <span className="material-symbols-outlined text-4xl">photo_library</span>
                         <p className="text-[10px] font-black uppercase tracking-widest">Post gallery empty</p>
@@ -328,7 +310,6 @@ export const ProfilePanel: React.FC<ProfilePanelProps> = ({
                 )}
             </section>
         </main>
-        
         {showSubModal && <SubscriptionModal currentUser={user} onClose={() => setShowSubModal(false)} />}
     </div>
   );
