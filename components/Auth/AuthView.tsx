@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../../hooks/useAuth';
 import { safeJsonStringify } from '../../firebase';
@@ -13,39 +12,36 @@ export const AuthView: React.FC = () => {
   
   const { login, signup, googleSignIn } = useAuth();
 
-  // Clear error when user starts typing again or switches modes
   useEffect(() => {
     if (error) setError(null);
   }, [email, password, name, isLogin]);
 
-  const getFriendlyErrorMessage = (errCode: string) => {
-    if (!errCode) return "An unexpected error occurred.";
-    const code = errCode.toLowerCase();
-    if (code.includes('wrong-password') || code.includes('incorrect-password')) return "Incorrect password. Please double-check your credentials.";
-    if (code.includes('user-not-found')) return "No account found with this email. Please sign up or check for typos.";
-    if (code.includes('email-already-in-use')) return "This email is already registered. Try signing in instead.";
-    if (code.includes('invalid-email')) return "Please enter a valid email address.";
-    if (code.includes('weak-password')) return "Password should be at least 6 characters.";
-    if (code.includes('suspended') || code.includes('blocked')) return "This account has been suspended by an administrator.";
-    return errCode.replace('Firebase: ', '').replace('auth/', '').split('-').join(' ');
+  const getFriendlyErrorMessage = (err: any) => {
+    const code = err?.code || err?.message || "";
+    const msg = code.toLowerCase();
+    
+    if (msg.includes('wrong-password') || msg.includes('invalid-credential')) return "Incorrect password or credentials. Please check and try again.";
+    if (msg.includes('user-not-found')) return "No account found with this email.";
+    if (msg.includes('email-already-in-use')) return "This email is already in use. Try signing in.";
+    if (msg.includes('invalid-email')) return "Please enter a valid email address.";
+    if (msg.includes('weak-password')) return "Password should be at least 6 characters.";
+    if (msg.includes('network-request-failed')) return "Connection error. Please check your internet.";
+    
+    return msg || "Authentication failed. Please try again.";
   };
 
   const updateAccountsList = (user: any, pass: string) => {
     try {
         const stored = localStorage.getItem('roxx_accounts');
         let accounts = stored ? JSON.parse(stored) : [];
-        
-        // Remove existing entry for this UID to update it (e.g. name/photo change)
         accounts = accounts.filter((a: any) => a.uid !== user.uid);
-        
         accounts.push({
             uid: user.uid,
             email: user.email,
             name: user.displayName || name || user.email?.split('@')[0] || 'User',
             photoURL: user.photoURL,
-            pass: pass // Storing password locally as requested for fast switching simulation
+            pass: pass
         });
-        
         localStorage.setItem('roxx_accounts', safeJsonStringify(accounts));
     } catch(e) { console.error("Failed to save account", e); }
   };
@@ -54,6 +50,7 @@ export const AuthView: React.FC = () => {
     e.preventDefault();
     setError(null);
     setIsLoading(true);
+    console.log(`Attempting ${isLogin ? 'login' : 'signup'} for ${email}`);
 
     try {
       let userRes;
@@ -61,37 +58,25 @@ export const AuthView: React.FC = () => {
         userRes = await login(email, password);
       } else {
         if (name.trim().length < 2) throw new Error("Please enter your full name.");
-        // Try signup
         try {
             const res = await signup(email, password, name);
             userRes = res.user;
         } catch (err: any) {
-            if (err.message.includes('email-already-in-use')) {
+            if (err.message?.includes('email-already-in-use') || err.code === 'auth/email-already-in-use') {
+                console.log("Account exists, switching to login...");
                 setIsLogin(true);
-                const res = await login(email, password);
-                userRes = res;
+                userRes = await login(email, password);
             } else throw err;
         }
       }
 
       if (userRes) {
-          // Check if saved
-          const stored = localStorage.getItem('roxx_accounts');
-          const accounts = stored ? JSON.parse(stored) : [];
-          
-          if (!accounts.find((a: any) => a.uid === userRes.uid)) {
-              if (window.confirm("Save this account for fast switching?")) {
-                  updateAccountsList({ ...userRes, displayName: name || userRes.displayName }, password);
-              }
-          } else {
-              // Update existing entry automatically to keep it fresh
-              updateAccountsList({ ...userRes, displayName: name || userRes.displayName }, password);
-          }
+          console.log("Auth success!", userRes.uid);
+          updateAccountsList(userRes, password);
       }
-
     } catch (err: any) {
-      const message = getFriendlyErrorMessage(err.message);
-      setError(message.charAt(0).toUpperCase() + message.slice(1));
+      console.error("Auth Error:", err);
+      setError(getFriendlyErrorMessage(err));
     } finally {
       setIsLoading(false);
     }
@@ -103,7 +88,8 @@ export const AuthView: React.FC = () => {
     try {
       await googleSignIn();
     } catch (err: any) {
-      setError(getFriendlyErrorMessage(err.message));
+      console.error("Google Auth Error:", err);
+      setError(getFriendlyErrorMessage(err));
     } finally {
       setIsLoading(false);
     }
@@ -118,12 +104,12 @@ export const AuthView: React.FC = () => {
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z" />
             </svg>
           </div>
-          <h1 className="text-3xl font-bold text-white mb-2 tracking-tight">ROXX CHATS</h1>
-          <p className="text-white/70">Secure, Real-time messaging</p>
+          <h1 className="text-3xl font-bold text-white mb-2 tracking-tight uppercase">ROXX SOCIAL</h1>
+          <p className="text-white/70">Connect. Create. Share.</p>
         </div>
 
         {error && (
-          <div className="mb-6 p-4 bg-red-500/10 border border-red-500/30 rounded-2xl text-red-100 text-[13px] leading-relaxed flex items-start gap-3 animate-in slide-in-from-top-2">
+          <div className="mb-6 p-4 bg-red-500/20 border border-red-500/30 rounded-2xl text-red-100 text-[13px] leading-relaxed flex items-start gap-3 animate-in slide-in-from-top-2">
             <svg className="w-5 h-5 shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
             </svg>

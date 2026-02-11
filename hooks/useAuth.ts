@@ -1,4 +1,3 @@
-
 import { useState, useEffect } from 'react';
 import { 
   auth, 
@@ -8,7 +7,6 @@ import {
   signOut, 
   updateProfile,
   updateUserStatus,
-  getUserById,
   makeUserAdmin,
   observeAuthState,
   db
@@ -25,6 +23,14 @@ export const useAuth = () => {
     let mounted = true;
     let userUnsub: (() => void) | null = null;
 
+    // Safety timeout to ensure loading eventually finishes
+    const safetyTimer = setTimeout(() => {
+        if (mounted && loading) {
+            console.warn("Auth synchronization taking too long, forcing load completion.");
+            setLoading(false);
+        }
+    }, 8000);
+
     const unsubscribe = observeAuthState(async (firebaseUser: any) => {
         if (!mounted) return;
 
@@ -32,25 +38,22 @@ export const useAuth = () => {
             // Subscribe to real-time updates of the user document
             try {
               userUnsub = onSnapshot(doc(db, "users", firebaseUser.uid), (docSnap) => {
+                  if (!mounted) return;
+                  
                   if (docSnap.exists()) {
                       const dbUser = docSnap.data();
                       
-                      // --- FOUNDER LOGIC ---
                       const email = firebaseUser.email?.toLowerCase();
                       const isFounderEmail = email === 'betterrroxx@gmail.com';
-                      let finalRole: UserRole = 'user';
-                      let isAdmin = false;
+                      let finalRole: UserRole = dbUser.role || 'user';
+                      let isAdmin = dbUser.isAdmin || false;
 
                       if (isFounderEmail) {
                           finalRole = 'owner';
                           isAdmin = true;
-                          // Ensure DB stays in sync for Founder (Background check)
                           if (dbUser.role !== 'owner' || !dbUser.isAdmin) {
-                              makeUserAdmin(firebaseUser.uid, 'owner');
+                              makeUserAdmin(firebaseUser.uid, 'owner').catch(console.error);
                           }
-                      } else {
-                          finalRole = dbUser.role || (dbUser.isAdmin ? 'admin' : 'user');
-                          isAdmin = dbUser.isAdmin || false;
                       }
 
                       const finalUser: User = {
@@ -76,31 +79,36 @@ export const useAuth = () => {
                       };
                       setUser(finalUser);
                   } else {
-                      // Fallback if doc doesn't exist yet
+                      // Initial fallback for newly created users
                       setUser({
                           uid: firebaseUser.uid,
                           name: firebaseUser.displayName || 'User',
                           email: firebaseUser.email || '',
-                          photoURL: firebaseUser.photoURL || '',
+                          photoURL: firebaseUser.photoURL || `https://picsum.photos/seed/${firebaseUser.uid}/200`,
                           status: 'online',
                           lastSeen: Date.now(),
-                          isAdmin: false,
-                          role: 'user'
+                          isAdmin: firebaseUser.email?.toLowerCase() === 'betterrroxx@gmail.com',
+                          role: firebaseUser.email?.toLowerCase() === 'betterrroxx@gmail.com' ? 'owner' : 'user'
                       } as User);
                   }
                   setLoading(false);
+                  clearTimeout(safetyTimer);
               }, (error) => {
-                  console.error("User snapshot error:", error);
+                  console.error("Firestore snapshot error:", error);
+                  // Auth exists but profile fetch failed, allow access anyway
                   setLoading(false);
+                  clearTimeout(safetyTimer);
               });
             } catch (e) {
-               console.error("Failed to setup user snapshot", e);
+               console.error("Auth initialization failed:", e);
                setLoading(false);
+               clearTimeout(safetyTimer);
             }
         } else {
             if (userUnsub) userUnsub();
             setUser(null);
             setLoading(false);
+            clearTimeout(safetyTimer);
         }
     });
 
@@ -108,58 +116,41 @@ export const useAuth = () => {
       mounted = false;
       if (userUnsub) userUnsub();
       unsubscribe();
+      clearTimeout(safetyTimer);
     };
   }, []);
 
   // Presence System
   useEffect(() => {
     if (!user?.uid || !db) return;
-
     const uid = user.uid;
+    updateUserStatus(uid, 'online').catch(() => {});
 
-    // Set online immediately on mount
-    updateUserStatus(uid, 'online');
-
-    // Heartbeat to keep status online/update lastSeen
     const heartbeat = setInterval(() => {
         if (document.visibilityState === 'visible') {
-            updateUserStatus(uid, 'online');
+            updateUserStatus(uid, 'online').catch(() => {});
         }
     }, 60000);
 
-    const handleVisibilityChange = () => {
-        if (document.visibilityState === 'hidden') {
-            updateUserStatus(uid, 'offline');
-        } else {
-            updateUserStatus(uid, 'online');
-        }
+    const handleVisibility = () => {
+        updateUserStatus(uid, document.visibilityState === 'hidden' ? 'offline' : 'online').catch(() => {});
     };
 
-    // Before unload is the last chance to set offline on close
-    const handleBeforeUnload = () => {
-        updateUserStatus(uid, 'offline');
-    };
-
-    document.addEventListener('visibilitychange', handleVisibilityChange);
-    window.addEventListener('beforeunload', handleBeforeUnload);
-
+    document.addEventListener('visibilitychange', handleVisibility);
     return () => {
         clearInterval(heartbeat);
-        document.removeEventListener('visibilitychange', handleVisibilityChange);
-        window.removeEventListener('beforeunload', handleBeforeUnload);
-        // Attempt to set offline on component unmount (logout)
-        updateUserStatus(uid, 'offline');
+        document.removeEventListener('visibilitychange', handleVisibility);
+        updateUserStatus(uid, 'offline').catch(() => {});
     };
   }, [user?.uid]);
 
   const signup = async (email: string, pass: string, name: string) => {
     const res = await createUserWithEmailAndPassword(auth, email, pass);
-    const updated = await updateProfile(res.user, { 
+    await updateProfile(res.user, { 
       displayName: name,
-      name: name,
       photoURL: `https://picsum.photos/seed/${res.user.uid}/200`
     });
-    return updated;
+    return res;
   };
 
   const login = async (email: string, pass: string) => {

@@ -65,13 +65,11 @@ const firebaseConfig = {
 };
 
 const app = getApps().length ? getApp() : initializeApp(firebaseConfig);
-const getAuthService = () => getAuth(app);
-const getDbService = () => getFirestore(app);
-const getStorageService = () => getStorage(app);
 
-export const auth = getAuthService();
-export const db = getDbService();
-export const storage = getStorageService();
+// Initialize services once
+export const auth = getAuth(app);
+export const db = getFirestore(app);
+export const storage = getStorage(app);
 
 const generateUUID = () => {
   return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
@@ -103,17 +101,15 @@ export const safeJsonStringify = (value: any) => {
 };
 
 export const observeAuthState = (callback: (user: any) => void) => {
-  if (!auth) return () => {};
   return onAuthStateChanged(auth, callback);
 };
 
 export const updateUserStatus = async (uid: string, status: 'online' | 'offline') => {
-  if (!db || !uid) return;
+  if (!uid) return;
   try { await updateDoc(doc(db, "users", uid), { status: status, lastSeen: Date.now() }); } catch (e) { }
 };
 
 export const toggleFollow = async (myUid: string, targetUid: string) => {
-  if (!db) return;
   const myRef = doc(db, "users", myUid);
   const targetRef = doc(db, "users", targetUid);
   const mySnap = await getDoc(myRef);
@@ -134,7 +130,7 @@ export const toggleFollow = async (myUid: string, targetUid: string) => {
 };
 
 export const makeUserAdmin = async (uid: string, role: UserRole = 'admin') => {
-  if (!db || !uid) return;
+  if (!uid) return;
   try { await updateDoc(doc(db, "users", uid), { isAdmin: true, role: role }); } catch(e) { }
 };
 
@@ -170,16 +166,14 @@ export const createUserWithEmailAndPassword = async (authObj: any, email: string
     premiumCustomization: {},
     wallpapers: { default: 'default' }
   };
-  if (db) await setDoc(doc(db, "users", user.uid), newUserProfile);
+  await setDoc(doc(db, "users", user.uid), newUserProfile);
   return userCredential;
 };
 
 export const signInWithPopup = async () => {
-  if (!auth) return;
   const provider = new GoogleAuthProvider();
   const res = await firebaseSignInWithPopup(auth, provider);
   const user = res.user;
-  if (!db) return res;
   const userRef = doc(db, "users", user.uid);
   const userSnap = await getDoc(userRef);
   let role: UserRole = 'user';
@@ -217,29 +211,25 @@ export const signInWithPopup = async () => {
 
 export const signOut = async () => {
   if (auth?.currentUser) await updateUserStatus(auth.currentUser.uid, 'offline');
-  if (auth) await firebaseSignOut(auth);
+  await firebaseSignOut(auth);
 };
 
 export const updateProfile = async (user: any, updates: any) => {
-  if (!db) return user;
   const uid = user.uid || user.id;
   await updateDoc(doc(db, "users", uid), updates);
   return { ...user, ...updates };
 };
 
 export const saveWallpaper = async (userId: string, target: string, wallpaper: string) => {
-    if (!db) return;
     const userRef = doc(db, "users", userId);
     await setDoc(userRef, { wallpapers: { [target]: wallpaper } }, { merge: true });
 };
 
 export const updatePrivacySettings = async (userId: string, settings: any) => {
-    if (!db) return;
     await updateDoc(doc(db, "users", userId), { privacySettings: settings });
 };
 
 export const addPost = async (post: Omit<Post, 'id' | 'likes' | 'bookmarks' | 'commentCount'>) => {
-  if (!db) return null;
   const postId = 'post_' + generateUUID();
   const fullPost: Post = {
     ...post,
@@ -253,9 +243,7 @@ export const addPost = async (post: Omit<Post, 'id' | 'likes' | 'bookmarks' | 'c
 };
 
 export const getFeedPosts = async () => {
-  if (!db) return [];
   try {
-    // Simple query to avoid index requirement
     const q = query(collection(db, "posts"), limit(50));
     const snapshot = await getDocs(q);
     return snapshot.docs
@@ -265,9 +253,7 @@ export const getFeedPosts = async () => {
 };
 
 export const getPostsByUser = async (userId: string) => {
-  if (!db) return [];
   try {
-    // Modified to remove orderBy which requires a manual index
     const q = query(collection(db, "posts"), where("userId", "==", userId));
     const snapshot = await getDocs(q);
     return snapshot.docs
@@ -277,7 +263,6 @@ export const getPostsByUser = async (userId: string) => {
 };
 
 export const subscribeToUserPosts = (userId: string, callback: (posts: Post[]) => void) => {
-    if (!db) return () => {};
     const q = query(collection(db, "posts"), where("userId", "==", userId));
     return onSnapshot(q, (snapshot) => {
         const posts = snapshot.docs.map(d => d.data() as Post);
@@ -286,8 +271,6 @@ export const subscribeToUserPosts = (userId: string, callback: (posts: Post[]) =
 };
 
 export const subscribeToPosts = (callback: (posts: Post[]) => void) => {
-  if (!db) return () => {};
-  // Simplified query for index-free operation
   const q = query(collection(db, "posts"), limit(30));
   return onSnapshot(q, (snapshot) => {
     const posts = snapshot.docs.map(d => d.data() as Post);
@@ -296,14 +279,12 @@ export const subscribeToPosts = (callback: (posts: Post[]) => void) => {
 };
 
 export const subscribeToPost = (postId: string, callback: (post: Post) => void) => {
-  if (!db) return () => {};
   return onSnapshot(doc(db, "posts", postId), (snap) => {
     if (snap.exists()) callback(snap.data() as Post);
   });
 };
 
 export const toggleLikePost = async (postId: string, userId: string) => {
-  if (!db) return;
   const postRef = doc(db, "posts", postId);
   const snap = await getDoc(postRef);
   if (snap.exists()) {
@@ -314,7 +295,6 @@ export const toggleLikePost = async (postId: string, userId: string) => {
 };
 
 export const toggleBookmarkPost = async (postId: string, userId: string) => {
-  if (!db) return;
   const postRef = doc(db, "posts", postId);
   const snap = await getDoc(postRef);
   if (snap.exists()) {
@@ -325,7 +305,6 @@ export const toggleBookmarkPost = async (postId: string, userId: string) => {
 };
 
 export const addComment = async (postId: string, comment: Omit<Comment, 'id' | 'likes' | 'timestamp'>) => {
-    if (!db) return null;
     const commentId = 'comm_' + generateUUID();
     const fullComment: Comment = {
         ...comment,
@@ -339,7 +318,6 @@ export const addComment = async (postId: string, comment: Omit<Comment, 'id' | '
 };
 
 export const subscribeToComments = (postId: string, callback: (comments: Comment[]) => void) => {
-    if (!db) return () => {};
     const q = query(collection(db, "posts", postId, "comments"), orderBy("timestamp", "desc"));
     return onSnapshot(q, (snap) => {
         callback(snap.docs.map(d => d.data() as Comment));
@@ -347,7 +325,6 @@ export const subscribeToComments = (postId: string, callback: (comments: Comment
 };
 
 export const activateSubscription = async (userId: string, planId: PlanType) => {
-    if (!db) return;
     const plan = getPlanDetails(planId);
     if (!plan) return;
     const subData: any = { plan: planId, startDate: Date.now(), expiryDate: calculateExpiry(plan.durationDays), isActive: true };
@@ -356,12 +333,10 @@ export const activateSubscription = async (userId: string, planId: PlanType) => 
 };
 
 export const updatePremiumCustomization = async (userId: string, customization: PremiumCustomization) => {
-    if (!db) return;
     await updateDoc(doc(db, "users", userId), { premiumCustomization: customization });
 };
 
 export const admin_getStoreItems = async () => {
-    if (!db) return [];
     try {
       const snap = await getDocs(collection(db, "store_items"));
       return snap.docs.map(d => d.data() as StoreItem);
@@ -369,18 +344,15 @@ export const admin_getStoreItems = async () => {
 };
 
 export const admin_addStoreItem = async (item: Omit<StoreItem, 'id'>) => {
-    if (!db) return;
     const id = 'item_' + generateUUID();
     await setDoc(doc(db, "store_items", id), { ...item, id });
 };
 
 export const admin_deleteStoreItem = async (id: string) => {
-    if (!db) return;
     await deleteDoc(doc(db, "store_items", id));
 };
 
 export const admin_uploadSong = async (file: File, metadata: Omit<Song, 'id' | 'url'>) => {
-  if (!db || !storage) return null;
   const songId = 'song_' + generateUUID();
   const storageRef = ref(storage, `songs/${songId}_${file.name.replace(/[^a-zA-Z0-9.]/g, '')}`);
   const meta = { contentType: file.type || 'audio/mpeg' };
@@ -392,7 +364,6 @@ export const admin_uploadSong = async (file: File, metadata: Omit<Song, 'id' | '
 };
 
 export const getMusicLibrary = async () => {
-  if (!db) return [];
   try {
     const snapshot = await getDocs(query(collection(db, "songs"), where("isActive", "==", true)));
     return snapshot.docs.map(d => d.data() as Song);
@@ -400,12 +371,10 @@ export const getMusicLibrary = async () => {
 };
 
 export const admin_deleteSong = async (songId: string) => {
-  if (!db) return;
   await deleteDoc(doc(db, "songs", songId));
 };
 
 export const getAllUsers = async () => {
-  if (!db) return [];
   try {
     const querySnapshot = await getDocs(collection(db, "users"));
     return querySnapshot.docs.map(doc => doc.data() as User).filter((u: any) => !u.isGloballyBlocked);
@@ -413,7 +382,7 @@ export const getAllUsers = async () => {
 };
 
 export const getUserById = async (uid: string) => {
-  if (!db || !uid) return null;
+  if (!uid) return null;
   try {
     const snap = await getDoc(doc(db, "users", uid));
     return snap.exists() ? snap.data() as User : null;
@@ -421,18 +390,17 @@ export const getUserById = async (uid: string) => {
 };
 
 export const subscribeToUser = (uid: string, callback: (user: any) => void) => {
-  if (!db || !uid) return () => {};
+  if (!uid) return () => {};
   return onSnapshot(doc(db, "users", uid), (doc) => { if (doc.exists()) callback(doc.data()); });
 };
 
 export const setNickname = async (myUid: string, targetUid: string, nickname: string) => {
-  if (!db) return;
   if (!nickname.trim()) await deleteDoc(doc(db, "users", myUid, "nicknames", targetUid));
   else await setDoc(doc(db, "users", myUid, "nicknames", targetUid), { name: nickname });
 };
 
 export const subscribeToNicknames = (myUid: string, callback: (nicknames: Record<string, string>) => void) => {
-  if (!db || !myUid) return () => {};
+  if (!myUid) return () => {};
   return onSnapshot(collection(db, "users", myUid, "nicknames"), (snapshot) => {
     const mapping: Record<string, string> = {};
     snapshot.forEach(doc => mapping[doc.id] = doc.data().name);
@@ -441,7 +409,6 @@ export const subscribeToNicknames = (myUid: string, callback: (nicknames: Record
 };
 
 export const getMyChats = async (uid: string) => {
-  if (!db) return [];
   try {
     const querySnapshot = await getDocs(collection(db, "chats"));
     return querySnapshot.docs.map(doc => doc.data() as Chat).filter((c: any) => c.participants && c.participants.includes(uid))
@@ -450,7 +417,6 @@ export const getMyChats = async (uid: string) => {
 };
 
 export const getMessages = async (chatId: string, viewingAsAdmin: boolean = false) => {
-  if (!db) return [];
   try {
     const snapshot = await getDocs(collection(db, "messages"));
     const allMsgs = snapshot.docs.map(doc => doc.data() as Message);
@@ -469,7 +435,6 @@ export const getMessages = async (chatId: string, viewingAsAdmin: boolean = fals
 };
 
 export const addMessage = async (msg: any) => {
-  if (!db) return;
   const safeMsg = sanitizeData(msg);
   await setDoc(doc(db, "messages", safeMsg.id), safeMsg);
   if (safeMsg.type !== 'system') {
@@ -484,7 +449,6 @@ export const addMessage = async (msg: any) => {
 };
 
 export const toggleMessageReaction = async (messageId: string, emoji: string, userId: string) => {
-  if (!db) return;
   const msgRef = doc(db, "messages", messageId);
   const snap = await getDoc(msgRef);
   if (!snap.exists()) return;
@@ -498,22 +462,18 @@ export const toggleMessageReaction = async (messageId: string, emoji: string, us
 };
 
 export const deleteMessageForEveryone = async (messageId: string) => {
-    if (!db) return;
     await updateDoc(doc(db, "messages", messageId), { type: 'deleted', text: '🚫 Deleted' });
 };
 
 export const deleteMessageForMe = async (messageId: string, userId: string) => {
-    if (!db) return;
     await updateDoc(doc(db, "messages", messageId), { deletedFor: arrayUnion(userId) });
 };
 
 export const setTypingStatus = async (chatId: string, userId: string, isTyping: boolean) => {
-  if (!db) return;
   await setDoc(doc(db, "chats", chatId), { typing: { [userId]: isTyping } }, { merge: true });
 };
 
 export const togglePinChat = async (userId: string, chatId: string) => {
-    if (!db) return;
     const userRef = doc(db, "users", userId);
     const userSnap = await getDoc(userRef);
     if (userSnap.exists()) {
@@ -524,7 +484,6 @@ export const togglePinChat = async (userId: string, chatId: string) => {
 };
 
 export const togglePinMessage = async (chatId: string, messageId: string) => {
-    if (!db) return;
     const chatRef = doc(db, "chats", chatId);
     const chatSnap = await getDoc(chatRef);
     if(chatSnap.exists()) {
@@ -535,12 +494,10 @@ export const togglePinMessage = async (chatId: string, messageId: string) => {
 };
 
 export const subscribeToChat = (chatId: string, callback: (data: any) => void) => {
-  if (!db) return () => {};
   return onSnapshot(doc(db, "chats", chatId), (doc) => { if (doc.exists()) callback(doc.data()); });
 };
 
 export const createGroup = async (name: string, participants: string[], adminId: string) => {
-  if (!db) return null;
   const groupId = 'group_' + generateUUID();
   const newGroup = { id: groupId, type: 'group', name, participants: [...participants, adminId], adminIds: [adminId], updatedAt: Date.now() };
   await setDoc(doc(db, "chats", groupId), newGroup);
@@ -548,27 +505,22 @@ export const createGroup = async (name: string, participants: string[], adminId:
 };
 
 export const addMembersToGroup = async (chatId: string, newMemberIds: string[], adminName: string) => {
-  if (!db) return;
   await updateDoc(doc(db, "chats", chatId), { participants: arrayUnion(...newMemberIds) });
 };
 
 export const leaveGroup = async (chatId: string, userId: string) => {
-  if (!db) return;
   await updateDoc(doc(db, "chats", chatId), { participants: arrayRemove(userId), adminIds: arrayRemove(userId) });
 };
 
 export const removeGroupMember = async (chatId: string, userId: string) => {
-  if (!db) return;
   await updateDoc(doc(db, "chats", chatId), { participants: arrayRemove(userId), adminIds: arrayRemove(userId) });
 };
 
 export const makeGroupAdmin = async (chatId: string, userId: string) => {
-  if (!db) return;
   await updateDoc(doc(db, "chats", chatId), { adminIds: arrayUnion(userId) });
 };
 
 export const updateGroupInfo = async (chatId: string, name: string, iconUrl?: string, description?: string) => {
-  if (!db) return;
   const data: any = { name };
   if (iconUrl) data.groupIcon = iconUrl;
   if (description !== undefined) data.description = description;
@@ -576,7 +528,6 @@ export const updateGroupInfo = async (chatId: string, name: string, iconUrl?: st
 };
 
 export const toggleChatLock = async (chatId: string, userId: string) => {
-  if (!db) return;
   const chatRef = doc(db, "chats", chatId);
   const snap = await getDoc(chatRef);
   if (snap.exists()) {
@@ -587,7 +538,6 @@ export const toggleChatLock = async (chatId: string, userId: string) => {
 };
 
 export const initiateCall = async (callerId: string, receiverId: string, type: 'voice' | 'video') => {
-  if (!db) return null;
   const callId = 'call_' + generateUUID();
   const newCall = { id: callId, callerId, receiverId, type, status: 'ringing', timestamp: Date.now() };
   await setDoc(doc(db, "calls", callId), newCall);
@@ -595,7 +545,6 @@ export const initiateCall = async (callerId: string, receiverId: string, type: '
 };
 
 export const getIncomingCall = async (userId: string) => {
-  if (!db) return null;
   try {
     const q = query(collection(db, "calls"), where("receiverId", "==", userId), where("status", "==", "ringing"));
     const snapshot = await getDocs(q);
@@ -604,12 +553,10 @@ export const getIncomingCall = async (userId: string) => {
 };
 
 export const updateCallStatus = async (callId: string, status: string) => {
-  if (!db) return;
   await updateDoc(doc(db, "calls", callId), { status });
 };
 
 export const cleanOldCalls = async () => {
-  if (!db) return;
   const cutOff = Date.now() - 1000 * 60 * 60; // 1 hour
   try {
     const q = query(collection(db, "calls"), where("timestamp", "<", cutOff));
@@ -624,23 +571,19 @@ export const cleanOldCalls = async () => {
 };
 
 export const updateCallSignal = async (callId: string, data: any) => {
-  if (!db) return;
   await setDoc(doc(db, "calls", callId), data, { merge: true });
 };
 
 export const addIceCandidate = async (callId: string, candidate: any, type: 'caller' | 'callee') => {
-  if (!db) return;
   const field = type === 'caller' ? 'callerCandidates' : 'calleeCandidates';
   await updateDoc(doc(db, "calls", callId), { [field]: arrayUnion(sanitizeData(candidate)) });
 };
 
 export const subscribeToCall = (callId: string, callback: (data: any) => void) => {
-  if (!db) return () => {};
   return onSnapshot(doc(db, "calls", callId), (doc) => { if (doc.exists()) callback(doc.data()); });
 };
 
 export const getCallById = async (callId: string) => {
-  if (!db) return null;
   try {
     const snap = await getDoc(doc(db, "calls", callId));
     return snap.exists() ? snap.data() : null;
@@ -648,11 +591,9 @@ export const getCallById = async (callId: string) => {
 };
 
 export const addStory = async (story: any) => {
-  if (!db) return;
   await setDoc(doc(db, "stories", story.id), { ...story, likes: [], views: [] });
 };
 export const getStories = async () => {
-  if (!db) return [];
   try {
     const yesterday = Date.now() - 86400000;
     const snapshot = await getDocs(query(collection(db, "stories"), where("timestamp", ">", yesterday)));
@@ -660,11 +601,9 @@ export const getStories = async () => {
   } catch(e) { return []; }
 };
 export const viewStory = async (storyId: string, userId: string, userName: string) => {
-  if (!db) return;
   await updateDoc(doc(db, "stories", storyId), { views: arrayUnion({ userId, userName, timestamp: Date.now() }) });
 };
 export const likeStory = async (storyId: string, userId: string) => {
-  if (!db) return;
   const snap = await getDoc(doc(db, "stories", storyId));
   if(snap.exists()) {
     const likes = snap.data().likes || [];
@@ -672,7 +611,7 @@ export const likeStory = async (storyId: string, userId: string) => {
     else await updateDoc(doc(db, "stories", storyId), { likes: arrayUnion(userId) });
   }
 };
-export const deleteStory = async (storyId: string) => { if (db) await deleteDoc(doc(db, "stories", storyId)); };
+export const deleteStory = async (storyId: string) => { await deleteDoc(doc(db, "stories", storyId)); };
 
 export const sendStoryReply = async (rid: string, sid: string, text: string, story: any) => {
   const msg = { id: 'm_' + generateUUID(), senderId: sid, recipientId: rid, text, type: 'story_reply', timestamp: Date.now(), status: 'sent', storyContext: { storyId: story.id, mediaUrl: story.mediaUrl, mediaType: story.mediaType } };
@@ -681,7 +620,6 @@ export const sendStoryReply = async (rid: string, sid: string, text: string, sto
 };
 
 export const addNote = async (userId: string, userName: string, userPhoto: string, text: string, music?: any) => {
-  if (!db) return null;
   const noteId = `note_${userId}`;
   const note = { id: noteId, userId, userName, userPhoto, text, timestamp: Date.now(), music };
   await setDoc(doc(db, "notes", noteId), note);
@@ -689,7 +627,6 @@ export const addNote = async (userId: string, userName: string, userPhoto: strin
 };
 
 export const getNotes = async () => {
-  if (!db) return [];
   try {
     const yesterday = Date.now() - 86400000;
     const snapshot = await getDocs(query(collection(db, "notes"), where("timestamp", ">", yesterday)));
@@ -698,7 +635,6 @@ export const getNotes = async () => {
 };
 
 export const subscribeToNotes = (callback: (notes: Note[]) => void) => {
-    if (!db) return () => {};
     const yesterday = Date.now() - 86400000;
     const q = query(collection(db, "notes"), where("timestamp", ">", yesterday));
     return onSnapshot(q, (snapshot) => {
@@ -713,24 +649,21 @@ export const sendNoteReply = async (rid: string, sid: string, text: string, note
 };
 
 export const saveMediaToGallery = async (userId: string, mediaUrl: string, mediaType: 'image' | 'video', senderName: string) => {
-  if (!db) return;
   const id = 'saved_' + generateUUID();
   await setDoc(doc(db, "saved_media", id), { id, userId, mediaUrl, mediaType, savedAt: Date.now(), originalSenderName: senderName });
 };
 
 export const getSavedGallery = async (userId: string) => {
-  if (!db) return [];
   try {
     const snapshot = await getDocs(query(collection(db, "saved_media"), where("userId", "==", userId)));
     return snapshot.docs.map(doc => doc.data() as SavedMedia).sort((a: any, b: any) => b.savedAt - a.savedAt);
   } catch(e) { return []; }
 };
 
-export const deleteSavedMedia = async (id: string) => { if (db) await deleteDoc(doc(db, "saved_media", id)); };
+export const deleteSavedMedia = async (id: string) => { await deleteDoc(doc(db, "saved_media", id)); };
 
 export const admin_getAllUsers = async () => getAllUsers();
 export const admin_toggleAdminAccess = async (uid: string) => {
-  if (!db) return;
   const snap = await getDoc(doc(db, "users", uid));
   if (snap.exists()) {
       const currentRole = snap.data().role || 'user';
@@ -740,17 +673,15 @@ export const admin_toggleAdminAccess = async (uid: string) => {
   }
 };
 export const admin_toggleGlobalBlock = async (uid: string) => {
-  if (!db) return;
   const snap = await getDoc(doc(db, "users", uid));
   if (snap.exists()) await updateDoc(doc(db, "users", uid), { isGloballyBlocked: !snap.data().isGloballyBlocked });
 };
-export const admin_deleteUser = async (uid: string) => { if (db) await deleteDoc(doc(db, "users", uid)); };
+export const admin_deleteUser = async (uid: string) => { await deleteDoc(doc(db, "users", uid)); };
 export const admin_getStats = async () => {
-  if (!db) return { users: 0, messages: 0, chats: 0, stories: 0 };
   try {
     const [u, m, c, s] = await Promise.all([getDocs(collection(db, "users")), getDocs(collection(db, "messages")), getDocs(collection(db, "chats")), getDocs(collection(db, "stories"))]);
     return { users: u.size, messages: m.size, chats: c.size, stories: s.size };
   } catch(e) { return { users: 0, messages: 0, chats: 0, stories: 0 }; }
 };
-export const blockUser = async (myUid: string, targetUid: string) => { if (db) await updateDoc(doc(db, "users", myUid), { blockedUsers: arrayUnion(targetUid) }); };
-export const unblockUser = async (myUid: string, targetUid: string) => { if (db) await updateDoc(doc(db, "users", myUid), { blockedUsers: arrayRemove(targetUid) }); };
+export const blockUser = async (myUid: string, targetUid: string) => { await updateDoc(doc(db, "users", myUid), { blockedUsers: arrayUnion(targetUid) }); };
+export const unblockUser = async (myUid: string, targetUid: string) => { await updateDoc(doc(db, "users", myUid), { blockedUsers: arrayRemove(targetUid) }); };
