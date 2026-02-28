@@ -410,35 +410,43 @@ export const subscribeToNicknames = (myUid: string, callback: (nicknames: Record
 
 export const getMyChats = async (uid: string) => {
   try {
-    const querySnapshot = await getDocs(collection(db, "chats"));
-    return querySnapshot.docs.map(doc => doc.data() as Chat).filter((c: any) => c.participants && c.participants.includes(uid))
+    const q = query(collection(db, "chats"), where("participants", "array-contains", uid));
+    const querySnapshot = await getDocs(q);
+    return querySnapshot.docs.map(doc => doc.data() as Chat)
                    .sort((a: any, b: any) => (b.updatedAt || 0) - (a.updatedAt || 0));
-  } catch(e) { return []; }
+  } catch(e) { 
+    console.error("Get My Chats Error:", e);
+    return []; 
+  }
 };
 
 export const getMessages = async (chatId: string, viewingAsAdmin: boolean = false) => {
   try {
-    const snapshot = await getDocs(collection(db, "messages"));
-    const allMsgs = snapshot.docs.map(doc => doc.data() as Message);
+    // Query messages by chatId to avoid fetching the entire collection
+    const q = query(collection(db, "messages"), where("chatId", "==", chatId));
+    const snapshot = await getDocs(q);
+    let filteredMsgs = snapshot.docs.map(doc => doc.data() as Message);
+    
     const currentUid = auth?.currentUser?.uid;
-    let filteredMsgs;
-    if (chatId.startsWith('group_')) filteredMsgs = allMsgs.filter((m: any) => m.recipientId === chatId);
-    else {
-      const parts = chatId.split('_');
-      if (parts.length < 2) return [];
-      const [u1, u2] = parts;
-      filteredMsgs = allMsgs.filter((m: any) => (m.senderId === u1 && m.recipientId === u2) || (m.senderId === u2 && m.recipientId === u1) || (m.recipientId === chatId));
+    if (currentUid && !viewingAsAdmin) {
+      filteredMsgs = filteredMsgs.filter((m: any) => !m.deletedFor?.includes(currentUid));
     }
-    if (currentUid && !viewingAsAdmin) filteredMsgs = filteredMsgs.filter((m: any) => !m.deletedFor?.includes(currentUid));
     return filteredMsgs.sort((a: any, b: any) => a.timestamp - b.timestamp);
-  } catch(e) { return []; }
+  } catch(e) { 
+    console.error("Get Messages Error:", e);
+    return []; 
+  }
 };
 
 export const addMessage = async (msg: any) => {
-  const safeMsg = sanitizeData(msg);
+  const chatId = msg.recipientId.startsWith('group_') 
+    ? msg.recipientId 
+    : [msg.senderId, msg.recipientId].sort().join('_');
+    
+  const safeMsg = sanitizeData({ ...msg, chatId });
   await setDoc(doc(db, "messages", safeMsg.id), safeMsg);
+  
   if (safeMsg.type !== 'system') {
-    const chatId = safeMsg.recipientId.startsWith('group_') ? safeMsg.recipientId : [safeMsg.senderId, safeMsg.recipientId].sort().join('_');
     await setDoc(doc(db, "chats", chatId), { 
       id: chatId, 
       lastMessage: { text: safeMsg.text || 'Media', senderId: safeMsg.senderId, timestamp: safeMsg.timestamp },
