@@ -621,6 +621,10 @@ export const likeStory = async (storyId: string, userId: string) => {
 };
 export const deleteStory = async (storyId: string) => { await deleteDoc(doc(db, "stories", storyId)); };
 
+export const deletePost = async (postId: string) => {
+  await deleteDoc(doc(db, "posts", postId));
+};
+
 export const sendStoryReply = async (rid: string, sid: string, text: string, story: any) => {
   const msg = { id: 'm_' + generateUUID(), senderId: sid, recipientId: rid, text, type: 'story_reply', timestamp: Date.now(), status: 'sent', storyContext: { storyId: story.id, mediaUrl: story.mediaUrl, mediaType: story.mediaType } };
   await addMessage(msg);

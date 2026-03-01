@@ -24,6 +24,8 @@ interface ChatDashboardProps {
 
 export type NavTab = 'home' | 'search' | 'reels' | 'add' | 'activity' | 'profile' | 'chats';
 
+import { motion, AnimatePresence } from 'motion/react';
+
 export const ChatDashboard: React.FC<ChatDashboardProps> = ({ currentUser, toggleDarkMode, isDarkMode }) => {
   const [activeTab, setActiveTab] = useState<NavTab>('home');
   const [selectedChat, setSelectedChat] = useState<Chat | null>(null);
@@ -34,6 +36,14 @@ export const ChatDashboard: React.FC<ChatDashboardProps> = ({ currentUser, toggl
   const [selectedPost, setSelectedPost] = useState<Post | null>(null);
   const [connectionsState, setConnectionsState] = useState<{ user: User, type: 'followers' | 'following' } | null>(null);
   const [nicknames, setNicknames] = useState<Record<string, string>>({});
+
+  // Swipe detection
+  const handleDragEnd = (event: any, info: any) => {
+    // If user drags from left to right significantly
+    if (info.offset.x > 150 && Math.abs(info.offset.y) < 50 && !selectedChat && !selectedPost) {
+      setShowStoryUpload(true);
+    }
+  };
 
   useEffect(() => {
     const unsub = subscribeToNicknames(currentUser.uid, (data) => setNicknames(data));
@@ -153,7 +163,13 @@ export const ChatDashboard: React.FC<ChatDashboardProps> = ({ currentUser, toggl
     <div className="flex flex-col h-[100dvh] w-full bg-background-light dark:bg-background-dark overflow-hidden font-display">
       
       {/* Top Main Content Area */}
-      <div className="flex-1 relative flex flex-col overflow-hidden">
+      <motion.div 
+        className="flex-1 relative flex flex-col overflow-hidden"
+        drag="x"
+        dragConstraints={{ left: 0, right: 0 }}
+        dragElastic={0.2}
+        onDragEnd={handleDragEnd}
+      >
         {selectedChat ? (
           <ChatWindow 
             chat={selectedChat} 
@@ -166,7 +182,7 @@ export const ChatDashboard: React.FC<ChatDashboardProps> = ({ currentUser, toggl
         ) : (
           renderTabContent()
         )}
-      </div>
+      </motion.div>
 
       {/* Global Bottom Navigation */}
       {!selectedChat && !selectedPost && !connectionsState && (

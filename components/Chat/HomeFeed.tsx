@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Post, User, Story } from '../../types';
-import { toggleLikePost, toggleBookmarkPost, getStories, subscribeToPosts } from '../../firebase';
+import { toggleLikePost, toggleBookmarkPost, getStories, subscribeToPosts, deletePost } from '../../firebase';
 
 interface HomeFeedProps {
   currentUser: User;
@@ -37,6 +37,12 @@ export const HomeFeed: React.FC<HomeFeedProps> = ({ currentUser, onOpenDMs, onUp
 
   const handleBookmark = async (postId: string) => {
     await toggleBookmarkPost(postId, currentUser.uid);
+  };
+
+  const handleDeletePost = async (postId: string) => {
+    if (window.confirm('Delete this post?')) {
+      await deletePost(postId);
+    }
   };
 
   // Group stories by user
@@ -120,9 +126,19 @@ export const HomeFeed: React.FC<HomeFeedProps> = ({ currentUser, onOpenDMs, onUp
                                         </span>
                                     </div>
                                 </div>
-                                <button className="text-white">
-                                    <span className="material-symbols-outlined">more_vert</span>
-                                </button>
+                                <div className="flex items-center gap-2">
+                                    {post.userId === currentUser.uid && (
+                                        <button 
+                                            onClick={(e) => { e.stopPropagation(); handleDeletePost(post.id); }}
+                                            className="text-white/80 hover:text-red-500 transition-colors p-1"
+                                        >
+                                            <span className="material-symbols-outlined text-xl">delete</span>
+                                        </button>
+                                    )}
+                                    <button className="text-white">
+                                        <span className="material-symbols-outlined">more_vert</span>
+                                    </button>
+                                </div>
                             </div>
 
                             {/* Main Media */}

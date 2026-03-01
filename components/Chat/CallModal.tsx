@@ -37,36 +37,53 @@ export const CallModal: React.FC<CallModalProps> = ({ session, onHangUp }) => {
             });
             localStream.current = stream;
             
-            // Fix: Immediately attach local stream to preview
             if (localVideoRef.current) {
                 localVideoRef.current.srcObject = stream;
-                localVideoRef.current.muted = true; // Mute self to prevent echo
+                localVideoRef.current.muted = true;
             }
 
-            pc.current = new RTCPeerConnection(SERVERS);
+            const peer = new RTCPeerConnection(SERVERS);
+            pc.current = peer;
 
-            stream.getTracks().forEach(track => pc.current?.addTrack(track, stream));
+            stream.getTracks().forEach(track => peer.addTrack(track, stream));
 
-            pc.current.ontrack = (event) => {
+            peer.ontrack = (event) => {
                 if (event.streams && event.streams[0]) {
                     if (session.type === 'video' && remoteVideoRef.current) {
                         remoteVideoRef.current.srcObject = event.streams[0];
                     }
                     if (remoteAudioRef.current) {
                         remoteAudioRef.current.srcObject = event.streams[0];
-                        remoteAudioRef.current.play().catch(e => console.warn("Audio autoplay blocked", e));
                     }
                 }
             };
 
-            pc.current.onicecandidate = (event) => {
-                if (event.candidate) addIceCandidate(session.id, event.candidate, session.isIncoming ? 'callee' : 'caller');
+            peer.onicecandidate = (event) => {
+                if (event.candidate) {
+                    addIceCandidate(session.id, event.candidate, session.isIncoming ? 'callee' : 'caller');
+                }
             };
 
+            peer.onconnectionstatechange = () => {
+                if (peer.connectionState === 'disconnected' || peer.connectionState === 'failed') {
+                    handleEnd();
+                }
+            };
+
+            // If we are the caller, create the offer immediately
             if (!session.isIncoming) {
-                const offer = await pc.current.createOffer();
-                await pc.current.setLocalDescription(offer);
+                const offer = await peer.createOffer();
+                await peer.setLocalDescription(offer);
                 await updateCallSignal(session.id, { offer });
+            } else if (status === 'accepted') {
+                // If we are the callee and just accepted, we need to handle the offer
+                const callData = await getCallById(session.id);
+                if (callData?.offer) {
+                    await peer.setRemoteDescription(new RTCSessionDescription(callData.offer));
+                    const answer = await peer.createAnswer();
+                    await peer.setLocalDescription(answer);
+                    await updateCallSignal(session.id, { answer });
+                }
             }
         } catch (e) {
             console.error("Media Error:", e);
@@ -82,49 +99,46 @@ export const CallModal: React.FC<CallModalProps> = ({ session, onHangUp }) => {
         localStream.current?.getTracks().forEach(t => t.stop());
         pc.current?.close();
     };
-  }, [session.isIncoming, status, session.type]);
+  }, [session.isIncoming, status]);
 
-  // 2. Signaling
+  // 2. Signaling Listener
   useEffect(() => {
     const unsub = subscribeToCall(session.id, async (data) => {
         if (!data) return;
         if (data.status === 'ended' || data.status === 'rejected') onHangUp();
-        if (data.status === 'accepted' && status !== 'accepted') setStatus('accepted');
+        
+        if (data.status === 'accepted' && status !== 'accepted') {
+            setStatus('accepted');
+            // Start duration timer
+            const timer = setInterval(() => setDuration(d => d + 1), 1000);
+            return () => clearInterval(timer);
+        }
 
         if (!pc.current) return;
 
-        if (!session.isIncoming && data.answer && !pc.current.currentRemoteDescription) {
+        // Caller handles answer
+        if (!session.isIncoming && data.answer && pc.current.signalingState === 'have-local-offer') {
             await pc.current.setRemoteDescription(new RTCSessionDescription(data.answer));
         }
 
-        const candidates = session.isIncoming ? data.callerCandidates : data.calleeCandidates;
-        candidates?.forEach(async (c: any) => {
-            try { await pc.current?.addIceCandidate(new RTCIceCandidate(c)); } catch(e){}
-        });
+        // Handle ICE candidates
+        const remoteCandidates = session.isIncoming ? data.callerCandidates : data.calleeCandidates;
+        if (remoteCandidates) {
+            for (const candidate of remoteCandidates) {
+                try {
+                    await pc.current.addIceCandidate(new RTCIceCandidate(candidate));
+                } catch (e) {
+                    // Ignore stale candidates
+                }
+            }
+        }
     });
     return () => unsub();
-  }, [session.id]);
+  }, [session.id, status]);
 
   const handleAccept = async () => {
-      setStatus('accepted'); // Triggers init in useEffect
       await updateCallStatus(session.id, 'accepted');
-      
-      // We need to wait for init to create PC, checking in loop or relying on effect
-      // For simplicity in this structure, we assume effect triggers. 
-      // But we need to create Answer once offer is set. 
-      // Simplification: Caller creates offer. Callee (here) waits for PC to be made by effect, then creates answer.
-      // Better flow: Manual logic here.
-      
-      setTimeout(async () => {
-          if(!pc.current) return; // Wait for effect
-          const callData = await getCallById(session.id);
-          if(callData?.offer) {
-              await pc.current.setRemoteDescription(new RTCSessionDescription(callData.offer));
-              const answer = await pc.current.createAnswer();
-              await pc.current.setLocalDescription(answer);
-              await updateCallSignal(session.id, { answer });
-          }
-      }, 1000);
+      setStatus('accepted');
   };
 
   const handleEnd = async () => {
