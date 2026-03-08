@@ -37,13 +37,15 @@ export const HomeFeed: React.FC<HomeFeedProps> = ({ currentUser, onOpenDMs, onUp
   useEffect(() => {
     // Subscribe to posts for real-time updates
     const unsubPosts = subscribeToPosts((updatedPosts) => {
-        setPosts(updatedPosts);
+        const visiblePosts = updatedPosts.filter(p => !p.isFlagged || p.userId === currentUser.uid);
+        setPosts(visiblePosts);
         setLoading(false);
     });
 
     const loadStories = async () => {
       const activeStories = await getStories();
-      setStories(activeStories);
+      const visibleStories = activeStories.filter(s => !s.isFlagged || s.userId === currentUser.uid);
+      setStories(visibleStories);
     };
     loadStories();
 

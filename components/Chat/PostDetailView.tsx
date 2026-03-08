@@ -41,10 +41,11 @@ export const PostDetailView: React.FC<PostDetailViewProps> = ({
     // Real-time synchronization
     const unsubPost = subscribeToPost(initialPost.id, (updated) => setPost(updated));
     const unsubComments = subscribeToComments(initialPost.id, (list) => {
-        setComments(list);
+        const visibleComments = list.filter(c => !c.isFlagged || c.userId === currentUser.uid);
+        setComments(visibleComments);
         // If there are comments, suggest replies to the latest one
-        if (list.length > 0 && list[0].userId !== currentUser.uid) {
-            aiService.suggestCommentReplies(list[0].text).then(setSuggestedReplies);
+        if (visibleComments.length > 0 && visibleComments[0].userId !== currentUser.uid) {
+            aiService.suggestCommentReplies(visibleComments[0].text).then(setSuggestedReplies);
         }
     });
     const unsubAuthor = subscribeToUser(initialPost.userId, (u) => {
@@ -88,8 +89,17 @@ export const PostDetailView: React.FC<PostDetailViewProps> = ({
         // AI Content Filtering
         const filterResult = await aiService.filterContent(newComment);
         if (!filterResult.isSafe) {
-            alert(`Comment hidden: ${filterResult.reason || "Inappropriate content detected."}`);
+            alert(`Comment flagged: ${filterResult.reason || "Inappropriate content detected."}. It will be reviewed.`);
+            await addComment(post.id, {
+                userId: currentUser.uid,
+                userName: currentUser.name,
+                userPhoto: currentUser.photoURL,
+                text: newComment.trim(),
+                isFlagged: true,
+                flagReason: filterResult.reason
+            });
             setNewComment('');
+            setSuggestedReplies([]);
             return;
         }
 

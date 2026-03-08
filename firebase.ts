@@ -430,7 +430,10 @@ export const getMessages = async (chatId: string, viewingAsAdmin: boolean = fals
     
     const currentUid = auth?.currentUser?.uid;
     if (currentUid && !viewingAsAdmin) {
-      filteredMsgs = filteredMsgs.filter((m: any) => !m.deletedFor?.includes(currentUid));
+      filteredMsgs = filteredMsgs.filter((m: any) => 
+        !m.deletedFor?.includes(currentUid) && 
+        (!m.isFlagged || m.senderId === currentUid)
+      );
     }
     return filteredMsgs.sort((a: any, b: any) => a.timestamp - b.timestamp);
   } catch(e) { 

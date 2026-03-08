@@ -91,6 +91,8 @@ export interface Comment {
   text: string;
   timestamp: number;
   likes: string[];
+  isFlagged?: boolean;
+  flagReason?: string;
 }
 
 export interface Post {
@@ -106,6 +108,8 @@ export interface Post {
   likes: string[]; // UIDs
   bookmarks: string[]; // UIDs
   commentCount: number;
+  isFlagged?: boolean;
+  flagReason?: string;
 }
 
 export type MessageType = 'text' | 'image' | 'video' | 'file' | 'voice' | 'story_reply' | 'note_reply' | 'deleted' | 'poll' | 'sticker' | 'system';
@@ -163,6 +167,8 @@ export interface Message {
   poll?: PollData;
   stickerUrl?: string;
   visibleTo?: string[]; 
+  isFlagged?: boolean;
+  flagReason?: string;
 }
 
 export interface StoryView {
@@ -183,6 +189,8 @@ export interface Story {
   likes?: string[]; 
   views?: StoryView[];
   music?: MusicMetadata; 
+  isFlagged?: boolean;
+  flagReason?: string;
 }
 
 export interface Note {

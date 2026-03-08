@@ -222,6 +222,28 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ chat, currentUser, onClo
     setTypingStatus(chat.id, currentUser.uid, false);
     const recipient = isGroup ? chat.id : otherId!;
     
+    // AI Content Filtering
+    const filterResult = await aiService.filterContent(text);
+    if (!filterResult.isSafe) {
+        alert(`Message flagged: ${filterResult.reason || "Inappropriate content detected."}. This message will be hidden.`);
+        const msg: Message = {
+            id: 'm_' + Math.random().toString(36).substring(2, 11),
+            senderId: currentUser.uid, 
+            recipientId: recipient,
+            text, 
+            type: 'text', 
+            timestamp: Date.now(), 
+            status: 'sent',
+            isFlagged: true,
+            flagReason: filterResult.reason
+        };
+        setMessages(prev => [...prev, msg]);
+        setInputText('');
+        setSmartReplies([]);
+        await addMessage(msg);
+        return;
+    }
+
     const msg: Message = {
       id: 'm_' + Math.random().toString(36).substring(2, 11),
       senderId: currentUser.uid, 

@@ -224,6 +224,45 @@ export const StoryUpload: React.FC<StoryUploadProps> = ({ currentUser, onClose }
 
       const uploadId = generateUID();
 
+      // AI Content Filtering
+      if (caption.trim()) {
+        const filterResult = await aiService.filterContent(caption);
+        if (!filterResult.isSafe) {
+          alert(`Content flagged: ${filterResult.reason || "Inappropriate content detected."}. Your post will be reviewed.`);
+          // We still allow upload but mark as flagged
+          if (mode === 'Story') {
+            await addStory({
+              id: 'story_' + uploadId,
+              userId: currentUser.uid,
+              userName: currentUser.name,
+              userPhoto: currentUser.photoURL,
+              mediaUrl: finalMediaData,
+              mediaType: mediaType!,
+              caption,
+              timestamp: Date.now(),
+              music: selectedMusic || undefined,
+              isFlagged: true,
+              flagReason: filterResult.reason
+            });
+          } else if (mode === 'Post') {
+            await addPost({
+              userId: currentUser.uid,
+              userName: currentUser.name,
+              userPhoto: currentUser.photoURL,
+              mediaUrl: finalMediaData,
+              mediaType: mediaType!,
+              caption,
+              location: 'ROXX Universe',
+              timestamp: Date.now(),
+              isFlagged: true,
+              flagReason: filterResult.reason
+            });
+          }
+          onClose();
+          return;
+        }
+      }
+
       if (mode === 'Story') {
         await addStory({
           id: 'story_' + uploadId,
