@@ -14,7 +14,7 @@ import { ActivityView } from './ActivityView';
 import { PostDetailView } from './PostDetailView';
 import { ConnectionsView } from './ConnectionsView';
 import { ReelsView } from './ReelsView';
-import { initiateCall, getIncomingCall, getUserById, updateCallStatus, cleanOldCalls, subscribeToNicknames } from '../../firebase';
+import { initiateCall, subscribeToIncomingCalls, getUserById, updateCallStatus, cleanOldCalls, subscribeToNicknames } from '../../firebase';
 
 interface ChatDashboardProps {
   currentUser: User;
@@ -54,21 +54,18 @@ export const ChatDashboard: React.FC<ChatDashboardProps> = ({ currentUser, toggl
     // Run cleanup once on mount
     cleanOldCalls();
     
-    const poll = async () => {
+    const unsub = subscribeToIncomingCalls(currentUser.uid, async (incoming) => {
       if (activeCall) return; 
-      const incoming = await getIncomingCall(currentUser.uid);
-      if (incoming) {
-        const caller = await getUserById(incoming.callerId);
-        if (caller) {
-          setActiveCall({
-            id: incoming.id, partner: caller, type: incoming.type, callerId: incoming.callerId,
-            receiverId: incoming.receiverId, status: incoming.status, isIncoming: true, timestamp: incoming.timestamp
-          });
-        }
+      const caller = await getUserById(incoming.callerId);
+      if (caller) {
+        setActiveCall({
+          id: incoming.id, partner: caller, type: incoming.type, callerId: incoming.callerId,
+          receiverId: incoming.receiverId, status: incoming.status, isIncoming: true, timestamp: incoming.timestamp
+        });
       }
-    };
-    const itv = setInterval(poll, 3000);
-    return () => clearInterval(itv);
+    });
+
+    return () => unsub();
   }, [currentUser.uid, activeCall]);
 
   const startCall = async (user: User, type: 'voice' | 'video') => {

@@ -299,9 +299,14 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ chat, currentUser, onClo
             </div>
             <div className="flex items-center gap-3">
                 {!isGroup && (
-                    <button onClick={() => onCallStart?.(otherUser!, 'video')} className="size-11 flex items-center justify-center rounded-2xl bg-white/5 hover:bg-white/10 transition-all active:scale-90 border border-white/5">
-                        <span className="material-symbols-outlined text-white text-xl">videocam</span>
-                    </button>
+                    <>
+                        <button onClick={() => onCallStart?.(otherUser!, 'voice')} className="size-11 flex items-center justify-center rounded-2xl bg-white/5 hover:bg-white/10 transition-all active:scale-90 border border-white/5">
+                            <span className="material-symbols-outlined text-white text-xl">call</span>
+                        </button>
+                        <button onClick={() => onCallStart?.(otherUser!, 'video')} className="size-11 flex items-center justify-center rounded-2xl bg-white/5 hover:bg-white/10 transition-all active:scale-90 border border-white/5">
+                            <span className="material-symbols-outlined text-white text-xl">videocam</span>
+                        </button>
+                    </>
                 )}
                 <button onClick={() => isGroup ? setShowGroupInfo(true) : onUserClick(otherUser!)} className="size-11 flex items-center justify-center rounded-2xl bg-white/5 hover:bg-white/10 transition-all active:scale-90 border border-white/5">
                     <span className="material-symbols-outlined text-white text-xl">more_vert</span>

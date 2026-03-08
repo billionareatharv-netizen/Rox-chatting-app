@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Post, User, Story } from '../../types';
-import { toggleLikePost, toggleBookmarkPost, getStories, subscribeToPosts, deletePost } from '../../firebase';
+import { toggleLikePost, toggleBookmarkPost, getStories, subscribeToPosts, deletePost, deleteAllPosts } from '../../firebase';
 
 interface HomeFeedProps {
   currentUser: User;
@@ -14,6 +14,8 @@ export const HomeFeed: React.FC<HomeFeedProps> = ({ currentUser, onOpenDMs, onUp
   const [posts, setPosts] = useState<Post[]>([]);
   const [stories, setStories] = useState<Story[]>([]);
   const [loading, setLoading] = useState(true);
+  const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
+  const [showClearConfirm, setShowClearConfirm] = useState(false);
 
   useEffect(() => {
     // Subscribe to posts for real-time updates
@@ -40,9 +42,13 @@ export const HomeFeed: React.FC<HomeFeedProps> = ({ currentUser, onOpenDMs, onUp
   };
 
   const handleDeletePost = async (postId: string) => {
-    if (window.confirm('Delete this post?')) {
-      await deletePost(postId);
-    }
+    await deletePost(postId);
+    setConfirmDelete(null);
+  };
+
+  const handleClearAll = async () => {
+    await deleteAllPosts();
+    setShowClearConfirm(false);
   };
 
   // Group stories by user
@@ -64,6 +70,15 @@ export const HomeFeed: React.FC<HomeFeedProps> = ({ currentUser, onOpenDMs, onUp
                 <h1 className="text-xl font-black tracking-tighter bg-clip-text text-transparent bg-gradient-to-r from-slate-900 to-slate-500 dark:from-white dark:to-slate-400">ROXX SOCIAL</h1>
             </div>
             <div className="flex items-center gap-4">
+                {currentUser.isAdmin && (
+                    <button 
+                        onClick={() => setShowClearConfirm(true)}
+                        className="p-2 rounded-full hover:bg-rose-500/10 text-rose-500 transition-colors"
+                        title="Clear All Posts"
+                    >
+                        <span className="material-symbols-outlined text-2xl">delete_sweep</span>
+                    </button>
+                )}
                 <button 
                     onClick={onOpenDMs}
                     className="relative p-2 rounded-full hover:bg-black/5 dark:hover:bg-white/10 transition-colors"
@@ -129,19 +144,38 @@ export const HomeFeed: React.FC<HomeFeedProps> = ({ currentUser, onOpenDMs, onUp
                                         </span>
                                     </div>
                                 </div>
-                                <div className="flex items-center gap-1">
-                                    {post.userId === currentUser.uid && (
-                                        <button 
-                                            onClick={(e) => { e.stopPropagation(); handleDeletePost(post.id); }}
-                                            className="text-slate-400 hover:text-rose-500 transition-colors p-2 rounded-full hover:bg-rose-500/10"
-                                            title="Delete Post"
-                                        >
-                                            <span className="material-symbols-outlined text-xl">delete</span>
-                                        </button>
+                                 <div className="flex items-center gap-1">
+                                    {confirmDelete === post.id ? (
+                                        <div className="flex items-center gap-2 animate-in fade-in zoom-in duration-200">
+                                            <button 
+                                                onClick={(e) => { e.stopPropagation(); handleDeletePost(post.id); }}
+                                                className="bg-rose-500 text-white text-[9px] font-black px-3 py-1.5 rounded-full uppercase tracking-widest shadow-lg shadow-rose-500/20"
+                                            >
+                                                Delete
+                                            </button>
+                                            <button 
+                                                onClick={(e) => { e.stopPropagation(); setConfirmDelete(null); }}
+                                                className="bg-slate-200 dark:bg-white/10 text-slate-900 dark:text-white text-[9px] font-black px-3 py-1.5 rounded-full uppercase tracking-widest"
+                                            >
+                                                No
+                                            </button>
+                                        </div>
+                                    ) : (
+                                        <>
+                                            {post.userId === currentUser.uid && (
+                                                <button 
+                                                    onClick={(e) => { e.stopPropagation(); setConfirmDelete(post.id); }}
+                                                    className="text-slate-400 hover:text-rose-500 transition-colors p-2 rounded-full hover:bg-rose-500/10"
+                                                    title="Delete Post"
+                                                >
+                                                    <span className="material-symbols-outlined text-xl">delete</span>
+                                                </button>
+                                            )}
+                                            <button className="text-slate-400 p-2 rounded-full hover:bg-black/5 dark:hover:bg-white/5">
+                                                <span className="material-symbols-outlined">more_horiz</span>
+                                            </button>
+                                        </>
                                     )}
-                                    <button className="text-slate-400 p-2 rounded-full hover:bg-black/5 dark:hover:bg-white/5">
-                                        <span className="material-symbols-outlined">more_horiz</span>
-                                    </button>
                                 </div>
                             </div>
 
@@ -199,6 +233,35 @@ export const HomeFeed: React.FC<HomeFeedProps> = ({ currentUser, onOpenDMs, onUp
                 )}
             </main>
         </div>
+
+        {/* Clear All Confirmation Modal */}
+        {showClearConfirm && (
+            <div className="fixed inset-0 z-[100] flex items-center justify-center p-6 bg-black/60 backdrop-blur-sm animate-in fade-in">
+                <div className="bg-white dark:bg-card-dark w-full max-w-sm rounded-[2.5rem] p-8 shadow-2xl border border-black/5 dark:border-white/5 animate-in zoom-in duration-300">
+                    <div className="w-20 h-20 bg-rose-500/20 text-rose-500 rounded-3xl flex items-center justify-center mx-auto mb-6">
+                        <span className="material-symbols-outlined text-4xl">delete_forever</span>
+                    </div>
+                    <h3 className="text-xl font-black text-center mb-2 tracking-tight">Clear All Posts?</h3>
+                    <p className="text-sm text-center text-slate-500 dark:text-[#a19cba] mb-8 font-medium">
+                        This will permanently delete every post from the feed. This action cannot be undone.
+                    </p>
+                    <div className="flex flex-col gap-3">
+                        <button 
+                            onClick={handleClearAll}
+                            className="w-full bg-rose-500 text-white font-black py-4 rounded-2xl shadow-lg shadow-rose-500/20 active:scale-95 transition-all uppercase tracking-widest text-xs"
+                        >
+                            Yes, Clear Everything
+                        </button>
+                        <button 
+                            onClick={() => setShowClearConfirm(false)}
+                            className="w-full bg-slate-100 dark:bg-white/5 text-slate-900 dark:text-white font-black py-4 rounded-2xl active:scale-95 transition-all uppercase tracking-widest text-xs"
+                        >
+                            Cancel
+                        </button>
+                    </div>
+                </div>
+            </div>
+        )}
     </div>
   );
 };

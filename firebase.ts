@@ -592,6 +592,20 @@ export const getIncomingCall = async (userId: string) => {
   } catch(e) { return null; }
 };
 
+export const subscribeToIncomingCalls = (userId: string, callback: (call: any) => void) => {
+  const q = query(
+    collection(db, "calls"), 
+    where("receiverId", "==", userId), 
+    where("status", "==", "ringing")
+  );
+  return onSnapshot(q, (snapshot) => {
+    if (!snapshot.empty) {
+      const incoming = snapshot.docs.map(doc => doc.data() as any).sort((a: any, b: any) => b.timestamp - a.timestamp)[0];
+      callback(incoming);
+    }
+  });
+};
+
 export const updateCallStatus = async (callId: string, status: string) => {
   await updateDoc(doc(db, "calls", callId), { status });
 };
@@ -655,6 +669,12 @@ export const deleteStory = async (storyId: string) => { await deleteDoc(doc(db, 
 
 export const deletePost = async (postId: string) => {
   await deleteDoc(doc(db, "posts", postId));
+};
+
+export const deleteAllPosts = async () => {
+  const snapshot = await getDocs(collection(db, "posts"));
+  const batch = snapshot.docs.map(d => deleteDoc(d.ref));
+  await Promise.all(batch);
 };
 
 export const sendStoryReply = async (rid: string, sid: string, text: string, story: any) => {
