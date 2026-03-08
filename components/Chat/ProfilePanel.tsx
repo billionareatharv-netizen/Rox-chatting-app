@@ -3,6 +3,7 @@ import { User, PremiumCustomization, SavedMedia, Post } from '../../types';
 import { useAuth } from '../../hooks/useAuth';
 import { updateProfile, saveWallpaper, updatePrivacySettings, getSavedGallery, subscribeToUserPosts, subscribeToUser } from '../../firebase';
 import { SubscriptionModal } from '../Premium/SubscriptionModal';
+import { aiService } from '../../src/services/aiService';
 
 interface ProfilePanelProps {
   user: User;
@@ -29,6 +30,7 @@ export const ProfilePanel: React.FC<ProfilePanelProps> = ({
   const [galleryItems, setGalleryItems] = useState<SavedMedia[]>([]);
   const [userPosts, setUserPosts] = useState<Post[]>([]);
   const [isSaving, setIsSaving] = useState(false);
+  const [isAIGenerating, setIsAIGenerating] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -68,6 +70,19 @@ export const ProfilePanel: React.FC<ProfilePanelProps> = ({
       await updateProfile(user, { name, bio });
       setIsSaving(false);
       setViewMode('main');
+  };
+
+  const handleAIBio = async () => {
+    if (isAIGenerating) return;
+    setIsAIGenerating(true);
+    try {
+      const result = await aiService.generateBio(bio || "I love social media and design");
+      setBio(result);
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setIsAIGenerating(false);
+    }
   };
 
   const handlePrivacyToggle = async (key: string, current: any) => {
@@ -112,7 +127,17 @@ export const ProfilePanel: React.FC<ProfilePanelProps> = ({
                       </div>
                       <div>
                           <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest ml-1">Bio</label>
-                          <textarea value={bio} onChange={e => setBio(e.target.value)} className="w-full mt-1 bg-slate-100 dark:bg-card-dark p-4 rounded-2xl outline-none font-medium text-slate-900 dark:text-white border border-transparent focus:border-primary transition-all resize-none h-24" />
+                          <div className="relative">
+                            <textarea value={bio} onChange={e => setBio(e.target.value)} className="w-full mt-1 bg-slate-100 dark:bg-card-dark p-4 rounded-2xl outline-none font-medium text-slate-900 dark:text-white border border-transparent focus:border-primary transition-all resize-none h-24" />
+                            <button 
+                                onClick={handleAIBio}
+                                disabled={isAIGenerating}
+                                className="absolute bottom-3 right-3 px-3 py-1.5 bg-primary/10 hover:bg-primary/20 border border-primary/20 rounded-full text-[9px] font-black uppercase tracking-widest flex items-center gap-2 transition-all"
+                            >
+                                <span className="material-symbols-outlined text-xs">magic_button</span>
+                                {isAIGenerating ? 'Generating...' : 'AI Bio'}
+                            </button>
+                          </div>
                       </div>
                   </div>
                   <button onClick={handleSaveProfile} disabled={isSaving} className="w-full h-14 bg-primary text-white rounded-full font-bold shadow-lg shadow-primary/20 active:scale-95 transition-all">

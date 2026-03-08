@@ -2,6 +2,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { User, Story, MusicMetadata, Post } from '../../types';
 import { addStory, addPost } from '../../firebase';
 import { MusicPicker } from './MusicPicker';
+import { aiService } from '../../src/services/aiService';
 import { motion, AnimatePresence } from 'motion/react';
 
 interface StoryUploadProps {
@@ -28,6 +29,7 @@ export const StoryUpload: React.FC<StoryUploadProps> = ({ currentUser, onClose }
   const [caption, setCaption] = useState('');
   const [isUploading, setIsUploading] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
+  const [isAIGenerating, setIsAIGenerating] = useState(false);
   const [showMusicPicker, setShowMusicPicker] = useState(false);
   const [selectedMusic, setSelectedMusic] = useState<MusicMetadata | null>(null);
 
@@ -255,6 +257,45 @@ export const StoryUpload: React.FC<StoryUploadProps> = ({ currentUser, onClose }
     }
   };
 
+  const handleAICaption = async () => {
+    if (isAIGenerating) return;
+    setIsAIGenerating(true);
+    try {
+      const result = await aiService.generateCaption(caption || "something cool");
+      setCaption(result);
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setIsAIGenerating(false);
+    }
+  };
+
+  const handleAIHashtags = async () => {
+    if (isAIGenerating || !caption) return;
+    setIsAIGenerating(true);
+    try {
+      const tags = await aiService.generateHashtags(caption);
+      setCaption(prev => prev + "\n\n" + tags);
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setIsAIGenerating(false);
+    }
+  };
+
+  const handleAIRefine = async () => {
+    if (isAIGenerating || !caption) return;
+    setIsAIGenerating(true);
+    try {
+      const refined = await aiService.refineText(caption);
+      setCaption(refined);
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setIsAIGenerating(false);
+    }
+  };
+
   return (
     <div className="fixed inset-0 z-[500] bg-black text-white font-display overflow-hidden animate-in fade-in flex flex-col h-[100dvh]">
       <input type="file" ref={fileInputRef} onChange={handleFileChange} accept="image/*,video/*" className="hidden" />
@@ -351,6 +392,34 @@ export const StoryUpload: React.FC<StoryUploadProps> = ({ currentUser, onClose }
                             className="bg-transparent border-none focus:ring-0 text-white placeholder-white/20 text-lg font-bold resize-none h-24 w-full text-center" 
                         />
                         <div className="absolute -top-2 left-1/2 -translate-x-1/2 w-8 h-1 bg-white/10 rounded-full"></div>
+                        
+                        {/* AI Tools for Caption */}
+                        <div className="flex justify-center gap-2 mt-2">
+                            <button 
+                                onClick={handleAICaption}
+                                disabled={isAIGenerating}
+                                className="px-3 py-1.5 bg-primary/20 hover:bg-primary/40 border border-primary/30 rounded-full text-[9px] font-black uppercase tracking-widest flex items-center gap-2 transition-all"
+                            >
+                                <span className="material-symbols-outlined text-xs">magic_button</span>
+                                {isAIGenerating ? 'Thinking...' : 'AI Caption'}
+                            </button>
+                            <button 
+                                onClick={handleAIHashtags}
+                                disabled={isAIGenerating || !caption}
+                                className="px-3 py-1.5 bg-purple-500/20 hover:bg-purple-500/40 border border-purple-500/30 rounded-full text-[9px] font-black uppercase tracking-widest flex items-center gap-2 transition-all disabled:opacity-30"
+                            >
+                                <span className="material-symbols-outlined text-xs">tag</span>
+                                AI Hashtags
+                            </button>
+                            <button 
+                                onClick={handleAIRefine}
+                                disabled={isAIGenerating || !caption}
+                                className="px-3 py-1.5 bg-emerald-500/20 hover:bg-emerald-500/40 border border-emerald-500/30 rounded-full text-[9px] font-black uppercase tracking-widest flex items-center gap-2 transition-all disabled:opacity-30"
+                            >
+                                <span className="material-symbols-outlined text-xs">auto_fix_high</span>
+                                Refine
+                            </button>
+                        </div>
                     </div>
                     
                     <div className="flex gap-4">

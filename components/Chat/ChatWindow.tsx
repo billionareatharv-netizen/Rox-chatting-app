@@ -2,6 +2,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { User, Chat, Message, PollData } from '../../types';
 import { MessageBubble } from './MessageBubble';
+import { aiService } from '../../src/services/aiService';
 import { GroupInfoModal } from './GroupInfoModal';
 import { MediaViewer } from './MediaViewer';
 import { PollModal } from './PollModal';
@@ -47,6 +48,8 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ chat, currentUser, onClo
   const [editingMessage, setEditingMessage] = useState<Message | null>(null);
   const [showForwardModal, setShowForwardModal] = useState(false);
   const [messageToForward, setMessageToForward] = useState<Message | null>(null);
+  const [isAIGenerating, setIsAIGenerating] = useState(false);
+  const [smartReplies, setSmartReplies] = useState<string[]>([]);
   
   const fileInputRef = useRef<HTMLInputElement>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
@@ -186,6 +189,16 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ chat, currentUser, onClo
     const sync = async () => {
       const msgs = await getMessages(chat.id, currentUser.role !== 'user');
       setMessages(msgs);
+      
+      // Suggest smart replies if the last message is from the other user
+      if (msgs.length > 0) {
+          const lastMsg = msgs[msgs.length - 1];
+          if (lastMsg.senderId !== currentUser.uid) {
+              aiService.suggestDMReplies(lastMsg.text).then(setSmartReplies);
+          } else {
+              setSmartReplies([]);
+          }
+      }
     };
     sync();
     const itv = setInterval(sync, 2000); 
@@ -223,7 +236,19 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ chat, currentUser, onClo
     setMessages(prev => [...prev, msg]);
     setInputText('');
     setReplyingTo(null);
+    setSmartReplies([]);
     await addMessage(msg);
+  };
+
+  const handleAIRefine = async () => {
+    if (!inputText.trim() || isAIGenerating) return;
+    setIsAIGenerating(true);
+    try {
+        const refined = await aiService.refineText(inputText);
+        setInputText(refined);
+    } finally {
+        setIsAIGenerating(false);
+    }
   };
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -341,6 +366,21 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ chat, currentUser, onClo
       {/* Glassmorphism Input Bar */}
       <footer className="fixed bottom-0 w-full z-50 glass pb-10 pt-4 px-4">
         <div className="max-w-2xl mx-auto flex flex-col gap-2">
+            {/* AI Smart Replies */}
+            {smartReplies.length > 0 && (
+                <div className="flex gap-2 mb-2 overflow-x-auto no-scrollbar py-1">
+                    {smartReplies.map((reply, i) => (
+                        <button 
+                            key={i}
+                            onClick={() => setInputText(reply)}
+                            className="shrink-0 px-4 py-1.5 bg-primary/10 border border-primary/20 rounded-full text-[11px] font-bold text-primary whitespace-nowrap active:scale-95 transition-all"
+                        >
+                            {reply}
+                        </button>
+                    ))}
+                </div>
+            )}
+
             {replyingTo && (
                 <div className="flex items-center justify-between bg-white/5 px-4 py-2 rounded-2xl border border-white/5 mb-1 animate-in slide-in-from-bottom-2">
                     <div className="flex flex-col overflow-hidden">
@@ -443,18 +483,29 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ chat, currentUser, onClo
                             <button type="button" onClick={cancelRecording} className="text-red-500 text-[10px] font-black uppercase tracking-widest">Cancel</button>
                         </div>
                     ) : (
-                        <input 
-                            value={inputText}
-                            onChange={handleInputChange}
-                            className="w-full bg-white/5 border-none rounded-full py-3.5 px-5 text-sm focus:ring-1 focus:ring-primary/50 text-white placeholder-[#a19cba]/50 transition-all outline-none" 
-                            placeholder="Message..." 
-                            type="text"
-                        />
-                    )}
-                    {!isRecording && (
-                        <button type="button" className="absolute right-3 text-[#a19cba] hover:text-white">
-                            <span className="material-symbols-outlined text-xl">mood</span>
-                        </button>
+                        <div className="w-full relative flex items-center">
+                            <input 
+                                value={inputText}
+                                onChange={handleInputChange}
+                                className="w-full bg-white/5 border-none rounded-full py-3.5 px-5 pr-12 text-sm focus:ring-1 focus:ring-primary/50 text-white placeholder-[#a19cba]/50 transition-all outline-none" 
+                                placeholder="Message..." 
+                                type="text"
+                            />
+                            {inputText.trim() && (
+                                <button 
+                                    type="button"
+                                    onClick={handleAIRefine}
+                                    disabled={isAIGenerating}
+                                    className="absolute right-10 p-1.5 text-primary hover:bg-primary/10 rounded-full transition-all"
+                                    title="AI Refine"
+                                >
+                                    <span className={`material-symbols-outlined text-lg ${isAIGenerating ? 'animate-spin' : ''}`}>auto_fix_high</span>
+                                </button>
+                            )}
+                            <button type="button" className="absolute right-3 text-[#a19cba] hover:text-white">
+                                <span className="material-symbols-outlined text-xl">mood</span>
+                            </button>
+                        </div>
                     )}
                 </div>
 

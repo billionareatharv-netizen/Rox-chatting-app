@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { User, Post, Comment } from '../../types';
+import { aiService } from '../../src/services/aiService';
 import { 
   toggleLikePost, 
   toggleBookmarkPost, 
@@ -29,6 +30,8 @@ export const PostDetailView: React.FC<PostDetailViewProps> = ({
   const [newComment, setNewComment] = useState('');
   const [showHeartAnim, setShowHeartAnim] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isAIGenerating, setIsAIGenerating] = useState(false);
+  const [suggestedReplies, setSuggestedReplies] = useState<string[]>([]);
   const [isFollowing, setIsFollowing] = useState(currentUser.following?.includes(initialPost.userId) || false);
   
   const commentInputRef = useRef<HTMLInputElement>(null);
@@ -37,7 +40,13 @@ export const PostDetailView: React.FC<PostDetailViewProps> = ({
   useEffect(() => {
     // Real-time synchronization
     const unsubPost = subscribeToPost(initialPost.id, (updated) => setPost(updated));
-    const unsubComments = subscribeToComments(initialPost.id, (list) => setComments(list));
+    const unsubComments = subscribeToComments(initialPost.id, (list) => {
+        setComments(list);
+        // If there are comments, suggest replies to the latest one
+        if (list.length > 0 && list[0].userId !== currentUser.uid) {
+            aiService.suggestCommentReplies(list[0].text).then(setSuggestedReplies);
+        }
+    });
     const unsubAuthor = subscribeToUser(initialPost.userId, (u) => {
         if(u) {
             setAuthor(u as User);
@@ -76,6 +85,14 @@ export const PostDetailView: React.FC<PostDetailViewProps> = ({
     
     setIsSubmitting(true);
     try {
+        // AI Content Filtering
+        const filterResult = await aiService.filterContent(newComment);
+        if (!filterResult.isSafe) {
+            alert(`Comment hidden: ${filterResult.reason || "Inappropriate content detected."}`);
+            setNewComment('');
+            return;
+        }
+
         await addComment(post.id, {
             userId: currentUser.uid,
             userName: currentUser.name,
@@ -83,9 +100,20 @@ export const PostDetailView: React.FC<PostDetailViewProps> = ({
             text: newComment.trim()
         });
         setNewComment('');
-        // Scroll to bottom of comments if needed
+        setSuggestedReplies([]);
     } finally {
         setIsSubmitting(false);
+    }
+  };
+
+  const handleAIRefine = async () => {
+    if (!newComment.trim() || isAIGenerating) return;
+    setIsAIGenerating(true);
+    try {
+        const refined = await aiService.refineText(newComment);
+        setNewComment(refined);
+    } finally {
+        setIsAIGenerating(false);
     }
   };
 
@@ -248,6 +276,21 @@ export const PostDetailView: React.FC<PostDetailViewProps> = ({
 
         {/* Bottom Interaction Bar */}
         <footer className="fixed bottom-0 inset-x-0 z-50 p-4 pb-8 bg-background-light/95 dark:bg-background-dark/95 backdrop-blur-xl border-t border-slate-200 dark:border-white/5">
+            {/* AI Suggested Replies */}
+            {suggestedReplies.length > 0 && (
+                <div className="flex gap-2 mb-3 overflow-x-auto no-scrollbar py-1">
+                    {suggestedReplies.map((reply, i) => (
+                        <button 
+                            key={i}
+                            onClick={() => setNewComment(reply)}
+                            className="shrink-0 px-4 py-1.5 bg-primary/10 border border-primary/20 rounded-full text-[11px] font-bold text-primary whitespace-nowrap active:scale-95 transition-all"
+                        >
+                            {reply}
+                        </button>
+                    ))}
+                </div>
+            )}
+            
             <div className="max-w-[480px] mx-auto flex items-center gap-3">
                 <img src={currentUser.photoURL} className="size-10 rounded-full border border-black/10 dark:border-white/20 object-cover" alt="" />
                 <form onSubmit={handlePostComment} className="flex-1 relative flex items-center">
@@ -255,17 +298,30 @@ export const PostDetailView: React.FC<PostDetailViewProps> = ({
                         ref={commentInputRef}
                         value={newComment}
                         onChange={(e) => setNewComment(e.target.value)}
-                        className="w-full h-11 bg-black/5 dark:bg-white/10 border-none rounded-full px-5 text-sm font-medium focus:ring-2 focus:ring-primary placeholder:text-slate-400 dark:placeholder-[#a19cba] text-slate-900 dark:text-white" 
+                        className="w-full h-11 bg-black/5 dark:bg-white/10 border-none rounded-full px-5 pr-20 text-sm font-medium focus:ring-2 focus:ring-primary placeholder:text-slate-400 dark:placeholder-[#a19cba] text-slate-900 dark:text-white" 
                         placeholder="Add a comment..." 
                         type="text"
                     />
-                    <button 
-                        type="submit"
-                        disabled={!newComment.trim() || isSubmitting}
-                        className={`absolute right-4 top-1/2 -translate-y-1/2 font-bold text-sm transition-all ${newComment.trim() && !isSubmitting ? 'text-primary scale-110' : 'text-slate-400 opacity-50'}`}
-                    >
-                        {isSubmitting ? '...' : 'Post'}
-                    </button>
+                    <div className="absolute right-2 flex items-center gap-1">
+                        {newComment.trim() && (
+                            <button 
+                                type="button"
+                                onClick={handleAIRefine}
+                                disabled={isAIGenerating}
+                                className="p-1.5 text-primary hover:bg-primary/10 rounded-full transition-all"
+                                title="AI Refine"
+                            >
+                                <span className={`material-symbols-outlined text-lg ${isAIGenerating ? 'animate-spin' : ''}`}>auto_fix_high</span>
+                            </button>
+                        )}
+                        <button 
+                            type="submit"
+                            disabled={!newComment.trim() || isSubmitting}
+                            className={`font-bold text-sm px-2 transition-all ${newComment.trim() && !isSubmitting ? 'text-primary scale-110' : 'text-slate-400 opacity-50'}`}
+                        >
+                            {isSubmitting ? '...' : 'Post'}
+                        </button>
+                    </div>
                 </form>
             </div>
             {/* iOS Home Indicator Visual */}
