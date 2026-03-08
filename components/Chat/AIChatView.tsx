@@ -1,12 +1,12 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { User } from '../../types';
-import { GoogleGenAI } from "@google/genai";
+import OpenAI from 'openai';
 
 interface Message {
   id: string;
-  role: 'user' | 'ai';
-  text: string;
+  role: 'user' | 'assistant';
+  content: string;
   timestamp: number;
 }
 
@@ -16,12 +16,12 @@ interface AIChatViewProps {
 }
 
 const MODELS = {
-  "dev-x": "gemini-3-flash-preview",
-  "gpt-oss-120b": "gemini-3.1-pro-preview",
-  "llama-3.3-70b-instruct": "gemini-3-flash-preview",
-  "gpt-5-nano": "gemini-3-flash-preview",
-  "gemini-2.5-flash-lite": "gemini-3.1-flash-lite-preview",
-  "qwen3": "gemini-3-flash-preview"
+  "dev-x": "dev-x",
+  "gpt-oss-120b": "gpt-oss-120b",
+  "llama-3.3-70b-instruct": "llama-3.3-70b-instruct",
+  "gpt-5-nano": "gpt-5-nano",
+  "gemini-2.5-flash-lite": "gemini-2.5-flash-lite",
+  "qwen3": "qwen3"
 };
 
 export const AIChatView: React.FC<AIChatViewProps> = ({ currentUser, onClose }) => {
@@ -44,8 +44,8 @@ export const AIChatView: React.FC<AIChatViewProps> = ({ currentUser, onClose }) 
         // Initial greeting
         setMessages([{
             id: 'init',
-            role: 'ai',
-            text: "Hey! I'm Roxx AI 🤖. How can I help you today?",
+            role: 'assistant',
+            content: "Hey! I'm Roxx AI 🤖. How can I help you today?",
             timestamp: Date.now()
         }]);
     }
@@ -64,7 +64,7 @@ export const AIChatView: React.FC<AIChatViewProps> = ({ currentUser, onClose }) 
     const userMsg: Message = {
       id: Date.now().toString(),
       role: 'user',
-      text: input,
+      content: input,
       timestamp: Date.now()
     };
 
@@ -73,30 +73,33 @@ export const AIChatView: React.FC<AIChatViewProps> = ({ currentUser, onClose }) 
     setIsTyping(true);
 
     try {
-      const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY || '' });
-      const modelName = MODELS[selectedModel];
+      const client = new OpenAI({
+        baseURL: "https://aimodelapi.onrender.com/v1",
+        apiKey: "devx-5xc0eda8tc5rcjgvuo0kxio4wncq1o1v",
+        dangerouslyAllowBrowser: true
+      });
+
+      const modelId = MODELS[selectedModel];
       
       // Prepare history for context
       const history = messages.slice(-5).map(m => ({
-        role: m.role === 'user' ? 'user' : 'model',
-        parts: [{ text: m.text }]
+        role: m.role,
+        content: m.content
       }));
 
-      const response = await ai.models.generateContent({
-        model: modelName,
-        contents: [
+      const response = await client.chat.completions.create({
+        model: modelId,
+        messages: [
+            { role: 'system', content: "You are Roxx AI, a helpful and trendy AI assistant for the Red Rox social media app. Be concise, friendly, and use emojis." },
             ...history,
-            { role: 'user', parts: [{ text: userMsg.text }] }
-        ],
-        config: {
-            systemInstruction: "You are Roxx AI, a helpful and trendy AI assistant for the Red Rox social media app. Be concise, friendly, and use emojis."
-        }
+            { role: 'user', content: userMsg.content }
+        ]
       });
 
       const aiMsg: Message = {
         id: (Date.now() + 1).toString(),
-        role: 'ai',
-        text: response.text || "Sorry, I'm having trouble thinking right now. 🤖",
+        role: 'assistant',
+        content: response.choices[0].message.content || "Sorry, I'm having trouble thinking right now. 🤖",
         timestamp: Date.now()
       };
 
@@ -105,8 +108,8 @@ export const AIChatView: React.FC<AIChatViewProps> = ({ currentUser, onClose }) 
       console.error("AI Error:", error);
       const errorMsg: Message = {
         id: (Date.now() + 1).toString(),
-        role: 'ai',
-        text: "Oops! Something went wrong. Please try again later. 🤖",
+        role: 'assistant',
+        content: "Oops! Something went wrong. Please try again later. 🤖",
         timestamp: Date.now()
       };
       setMessages(prev => [...prev, errorMsg]);
@@ -167,7 +170,7 @@ export const AIChatView: React.FC<AIChatViewProps> = ({ currentUser, onClose }) 
                   ? 'bg-primary text-white rounded-tr-none' 
                   : 'bg-slate-100 dark:bg-white/5 text-slate-900 dark:text-white rounded-tl-none border border-black/5 dark:border-white/5'
               }`}>
-                {msg.text}
+                {msg.content}
                 <div className={`text-[9px] mt-1 opacity-50 font-bold uppercase tracking-widest ${msg.role === 'user' ? 'text-right' : 'text-left'}`}>
                   {new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                 </div>
