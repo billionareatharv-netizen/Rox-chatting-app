@@ -1,0 +1,53 @@
+@import "tailwindcss";
+
+@theme {
+  --color-primary: #330df2;
+  --color-primary-dark: #2a0bc7;
+  --color-background-light: #f6f5f8;
+  --color-background-dark: #0a090f;
+  --color-card-dark: #16151d;
+  --color-border-dark: rgba(255, 255, 255, 0.08);
+  --font-display: "Spline Sans", sans-serif;
+}
+
+@layer base {
+  body {
+    @apply bg-background-light dark:bg-background-dark text-slate-900 dark:text-slate-100 font-display transition-colors duration-300;
+  }
+}
+
+@layer components {
+  .glass {
+    @apply bg-white/70 dark:bg-card-dark/70 backdrop-blur-xl border-t border-white/10 dark:border-white/5;
+  }
+  
+  .header-glass {
+    @apply bg-background-light/80 dark:bg-background-dark/80 backdrop-blur-md border-b border-black/5 dark:border-white/5;
+  }
+
+  .no-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+  .no-scrollbar {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+
+  .premium-card {
+    @apply bg-white dark:bg-card-dark border border-black/5 dark:border-white/5 rounded-3xl shadow-sm dark:shadow-2xl dark:shadow-black/50;
+  }
+
+  .btn-primary {
+    @apply bg-primary hover:bg-primary-dark text-white font-bold py-3 px-6 rounded-2xl transition-all active:scale-95 shadow-lg shadow-primary/20;
+  }
+}
+
+/* Custom Animations */
+@keyframes float {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-10px); }
+}
+
+.animate-float {
+  animation: float 3s ease-in-out infinite;
+}

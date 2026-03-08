@@ -4,6 +4,8 @@ import { User, Chat, Message, PollData } from '../../types';
 import { MessageBubble } from './MessageBubble';
 import { GroupInfoModal } from './GroupInfoModal';
 import { MediaViewer } from './MediaViewer';
+import { PollModal } from './PollModal';
+import { ForwardModal } from './ForwardModal';
 import { getAIResponse } from '../../gemini';
 import { 
   getUserById, 
@@ -12,7 +14,9 @@ import {
   deleteMessageForEveryone, 
   deleteMessageForMe, 
   togglePinMessage, 
-  setTypingStatus
+  setTypingStatus,
+  editMessage,
+  voteInPoll
 } from '../../firebase';
 import { ROLE_STYLES } from '../../premiumUtils';
 
@@ -36,10 +40,126 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ chat, currentUser, onClo
   const [showDeleteOptions, setShowDeleteOptions] = useState(false);
   const [viewingMedia, setViewingMedia] = useState<Message | null>(null);
   const [replyingTo, setReplyingTo] = useState<Message | null>(null);
+  const [isRecording, setIsRecording] = useState(false);
+  const [recordingDuration, setRecordingDuration] = useState(0);
+  const [showPlusMenu, setShowPlusMenu] = useState(false);
+  const [showPollModal, setShowPollModal] = useState(false);
+  const [editingMessage, setEditingMessage] = useState<Message | null>(null);
+  const [showForwardModal, setShowForwardModal] = useState(false);
+  const [messageToForward, setMessageToForward] = useState<Message | null>(null);
+  
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const audioChunksRef = useRef<Blob[]>([]);
+  const recordingIntervalRef = useRef<any>(null);
   
   const scrollRef = useRef<HTMLDivElement>(null);
   const typingTimeoutRef = useRef<any>(null);
+
+  // Voice Recording Logic
+  const startRecording = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const recorder = new MediaRecorder(stream);
+      mediaRecorderRef.current = recorder;
+      audioChunksRef.current = [];
+
+      recorder.ondataavailable = (e) => {
+        if (e.data.size > 0) audioChunksRef.current.push(e.data);
+      };
+
+      recorder.onstop = async () => {
+        const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
+        const reader = new FileReader();
+        reader.onload = async (e) => {
+          const base64 = e.target?.result as string;
+          const recipient = isGroup ? chat.id : otherId!;
+          await addMessage({
+            id: 'voice_' + Date.now(),
+            senderId: currentUser.uid,
+            recipientId: recipient,
+            text: '🎤 Voice Note',
+            type: 'voice',
+            timestamp: Date.now(),
+            status: 'sent',
+            audioUrl: base64,
+            duration: recordingDuration
+          });
+        };
+        reader.readAsDataURL(audioBlob);
+        stream.getTracks().forEach(t => t.stop());
+      };
+
+      recorder.start();
+      setIsRecording(true);
+      setRecordingDuration(0);
+      recordingIntervalRef.current = setInterval(() => {
+        setRecordingDuration(prev => prev + 1);
+      }, 1000);
+    } catch (err) {
+      console.error("Failed to start recording", err);
+      alert("Microphone access denied or not available");
+    }
+  };
+
+  const stopRecording = () => {
+    if (mediaRecorderRef.current && isRecording) {
+      mediaRecorderRef.current.stop();
+      setIsRecording(false);
+      clearInterval(recordingIntervalRef.current);
+    }
+  };
+
+  const cancelRecording = () => {
+    if (mediaRecorderRef.current && isRecording) {
+      mediaRecorderRef.current.stop();
+      setIsRecording(false);
+      clearInterval(recordingIntervalRef.current);
+      audioChunksRef.current = []; // Clear chunks so it doesn't send
+    }
+  };
+
+  const handlePollCreate = async (question: string, options: string[]) => {
+    const recipient = isGroup ? chat.id : otherId!;
+    const pollData: PollData = {
+      question,
+      allowMultiple: false,
+      options: options.map(opt => ({ id: Math.random().toString(36).substr(2, 9), text: opt, votes: [] }))
+    };
+    
+    await addMessage({
+      id: 'poll_' + Date.now(),
+      senderId: currentUser.uid,
+      recipientId: recipient,
+      text: `📊 Poll: ${question}`,
+      type: 'poll',
+      timestamp: Date.now(),
+      status: 'sent',
+      poll: pollData
+    });
+    setShowPollModal(false);
+  };
+
+  const handleEdit = (msg: Message) => {
+    setEditingMessage(msg);
+    setInputText(msg.text);
+  };
+
+  const handleSaveEdit = async () => {
+    if (!editingMessage || !inputText.trim()) return;
+    await editMessage(editingMessage.id, inputText.trim());
+    setEditingMessage(null);
+    setInputText('');
+  };
+
+  const handleForward = (msg: Message) => {
+    setMessageToForward(msg);
+    setShowForwardModal(true);
+  };
+
+  const handleVote = async (msgId: string, optId: string) => {
+      await voteInPoll(msgId, optId, currentUser.uid);
+  };
 
   const isGroup = chat.type === 'group';
   const otherId = !isGroup ? chat.participants.find(p => p !== currentUser.uid) : null;
@@ -80,6 +200,11 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ chat, currentUser, onClo
     e?.preventDefault();
     const text = inputText.trim();
     if (!text) return;
+
+    if (editingMessage) {
+        await handleSaveEdit();
+        return;
+    }
 
     setTypingStatus(chat.id, currentUser.uid, false);
     const recipient = isGroup ? chat.id : otherId!;
@@ -139,40 +264,47 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ chat, currentUser, onClo
   };
 
   return (
-    <div className="flex flex-col h-[100dvh] bg-background-dark text-white font-display relative overflow-hidden bg-pattern">
+    <div className="flex flex-col h-[100dvh] bg-background-dark text-white font-display relative overflow-hidden">
+      {/* Background Decor */}
+      <div className="absolute inset-0 z-0 opacity-20 pointer-events-none">
+        <div className="absolute top-[-10%] left-[-10%] w-[40%] h-[40%] bg-primary/20 blur-[120px] rounded-full"></div>
+        <div className="absolute bottom-[-10%] right-[-10%] w-[40%] h-[40%] bg-purple-500/10 blur-[120px] rounded-full"></div>
+      </div>
       
       {/* TopAppBar */}
-      <header className="fixed top-0 w-full z-40 header-glass">
-        <div className="flex items-center p-4 justify-between max-w-2xl mx-auto">
-            <div className="flex items-center gap-3">
-                <button onClick={onClose} className="flex items-center justify-center p-1 hover:bg-white/5 rounded-full transition-colors">
-                    <span className="material-symbols-outlined text-white">chevron_left</span>
+      <header className="fixed top-0 w-full z-40 header-glass border-b border-white/5">
+        <div className="flex items-center p-4 justify-between max-w-2xl mx-auto h-20">
+            <div className="flex items-center gap-4">
+                <button onClick={onClose} className="flex items-center justify-center size-10 hover:bg-white/5 rounded-full transition-all active:scale-90">
+                    <span className="material-symbols-outlined text-white text-2xl">arrow_back_ios_new</span>
                 </button>
-                <div className="relative shrink-0 cursor-pointer" onClick={() => isGroup ? setShowGroupInfo(true) : onUserClick(otherUser!)}>
-                    <img 
-                        src={isGroup ? (chat.groupIcon || `https://picsum.photos/seed/${chat.id}/200`) : otherUser?.photoURL} 
-                        className="aspect-square rounded-full size-10 object-cover border border-white/10" 
-                        alt="" 
-                    />
-                    {!isGroup && otherUser?.status === 'online' && (
-                        <div className="absolute bottom-0 right-0 size-3 bg-green-500 rounded-full border-2 border-background-dark"></div>
-                    )}
-                </div>
-                <div className="flex flex-col cursor-pointer" onClick={() => isGroup ? setShowGroupInfo(true) : onUserClick(otherUser!)}>
-                    <h2 className="text-white text-base font-bold leading-tight tracking-tight truncate max-w-[150px]">{displayName}</h2>
-                    <span className="text-[#a19cba] text-[10px] font-medium uppercase tracking-widest">
-                        {isGroup ? `${chat.participants.length} members` : (otherUser?.status === 'online' ? 'Active Now' : 'Offline')}
-                    </span>
+                <div className="flex items-center gap-3 cursor-pointer group" onClick={() => isGroup ? setShowGroupInfo(true) : onUserClick(otherUser!)}>
+                    <div className="relative shrink-0">
+                        <img 
+                            src={isGroup ? (chat.groupIcon || `https://picsum.photos/seed/${chat.id}/200`) : otherUser?.photoURL} 
+                            className="aspect-square rounded-2xl size-11 object-cover border border-white/10 group-hover:scale-105 transition-transform" 
+                            alt="" 
+                        />
+                        {!isGroup && otherUser?.status === 'online' && (
+                            <div className="absolute -bottom-1 -right-1 size-4 bg-emerald-500 rounded-full border-2 border-background-dark shadow-lg"></div>
+                        )}
+                    </div>
+                    <div className="flex flex-col">
+                        <h2 className="text-white text-base font-black leading-tight tracking-tight truncate max-w-[150px]">{displayName}</h2>
+                        <span className="text-[#a19cba] text-[9px] font-black uppercase tracking-[0.2em] opacity-60">
+                            {isGroup ? `${chat.participants.length} members` : (otherUser?.status === 'online' ? 'Active Now' : 'Offline')}
+                        </span>
+                    </div>
                 </div>
             </div>
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-3">
                 {!isGroup && (
-                    <button onClick={() => onCallStart?.(otherUser!, 'video')} className="w-10 h-10 flex items-center justify-center rounded-full bg-white/5 hover:bg-white/10 transition-colors">
+                    <button onClick={() => onCallStart?.(otherUser!, 'video')} className="size-11 flex items-center justify-center rounded-2xl bg-white/5 hover:bg-white/10 transition-all active:scale-90 border border-white/5">
                         <span className="material-symbols-outlined text-white text-xl">videocam</span>
                     </button>
                 )}
-                <button onClick={() => isGroup ? setShowGroupInfo(true) : onUserClick(otherUser!)} className="w-10 h-10 flex items-center justify-center rounded-full bg-white/5 hover:bg-white/10 transition-colors">
-                    <span className="material-symbols-outlined text-white text-xl">info</span>
+                <button onClick={() => isGroup ? setShowGroupInfo(true) : onUserClick(otherUser!)} className="size-11 flex items-center justify-center rounded-2xl bg-white/5 hover:bg-white/10 transition-all active:scale-90 border border-white/5">
+                    <span className="material-symbols-outlined text-white text-xl">more_vert</span>
                 </button>
             </div>
         </div>
@@ -189,6 +321,10 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ chat, currentUser, onClo
                     isAI={msg.senderId === AI_BOT_ID} 
                     onReply={setReplyingTo} 
                     onDelete={(m) => { setMessageToDelete(m); setShowDeleteOptions(true); }}
+                    onPin={(m) => togglePinMessage(chat.id, m.id)}
+                    onForward={handleForward}
+                    onEdit={handleEdit}
+                    onVote={handleVote}
                     onMediaClick={setViewingMedia}
                     senderUser={!isGroup ? (msg.senderId === otherId ? otherUser : null) : null}
                     hideAvatar={index > 0 && messages[index-1].senderId === msg.senderId}
@@ -210,11 +346,82 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ chat, currentUser, onClo
                 </div>
             )}
             
+            {editingMessage && (
+                <div className="flex items-center justify-between bg-primary/10 px-4 py-2 rounded-2xl border border-primary/20 mb-1 animate-in slide-in-from-bottom-2">
+                    <div className="flex flex-col overflow-hidden">
+                        <span className="text-[10px] font-black uppercase text-primary tracking-widest">Editing Message</span>
+                        <p className="text-xs text-[#a19cba] truncate">{editingMessage.text}</p>
+                    </div>
+                    <button onClick={() => { setEditingMessage(null); setInputText(''); }} className="text-primary"><span className="material-symbols-outlined text-sm">close</span></button>
+                </div>
+            )}
+            
             <form onSubmit={handleSend} className="flex items-center gap-3">
-                <div className="flex items-center gap-1">
-                    <button type="button" onClick={() => fileInputRef.current?.click()} className="w-10 h-10 flex items-center justify-center rounded-full text-[#a19cba] hover:text-white transition-colors">
+                <div className="flex items-center gap-1 relative">
+                    <button 
+                        type="button" 
+                        onClick={() => setShowPlusMenu(!showPlusMenu)} 
+                        className={`w-10 h-10 flex items-center justify-center rounded-full transition-all ${showPlusMenu ? 'bg-primary text-white rotate-45' : 'text-[#a19cba] hover:text-white'}`}
+                    >
                         <span className="material-symbols-outlined">add_circle</span>
                     </button>
+                    
+                    {showPlusMenu && (
+                        <div className="absolute bottom-full left-0 mb-4 bg-card-dark border border-white/10 p-2 rounded-[2rem] shadow-2xl z-[60] flex flex-col gap-2 min-w-[180px] animate-in slide-in-from-bottom-4">
+                            <button 
+                                type="button"
+                                onClick={() => { setShowPollModal(true); setShowPlusMenu(false); }}
+                                className="flex items-center gap-4 p-4 hover:bg-white/5 rounded-3xl transition-all text-left group"
+                            >
+                                <div className="w-12 h-12 rounded-2xl bg-orange-500/20 text-orange-500 flex items-center justify-center group-hover:scale-110 transition-transform">
+                                    <span className="material-symbols-outlined text-2xl">poll</span>
+                                </div>
+                                <div className="flex flex-col">
+                                    <span className="text-[11px] font-black uppercase tracking-widest">Create Poll</span>
+                                    <span className="text-[9px] text-[#a19cba] font-bold uppercase tracking-widest">Ask a question</span>
+                                </div>
+                            </button>
+                            <button 
+                                type="button"
+                                onClick={() => { fileInputRef.current?.click(); setShowPlusMenu(false); }}
+                                className="flex items-center gap-4 p-4 hover:bg-white/5 rounded-3xl transition-all text-left group"
+                            >
+                                <div className="w-12 h-12 rounded-2xl bg-blue-500/20 text-blue-500 flex items-center justify-center group-hover:scale-110 transition-transform">
+                                    <span className="material-symbols-outlined text-2xl">description</span>
+                                </div>
+                                <div className="flex flex-col">
+                                    <span className="text-[11px] font-black uppercase tracking-widest">Document</span>
+                                    <span className="text-[9px] text-[#a19cba] font-bold uppercase tracking-widest">Share files</span>
+                                </div>
+                            </button>
+                            <button 
+                                type="button"
+                                onClick={() => { fileInputRef.current?.click(); setShowPlusMenu(false); }}
+                                className="flex items-center gap-4 p-4 hover:bg-white/5 rounded-3xl transition-all text-left group"
+                            >
+                                <div className="w-12 h-12 rounded-2xl bg-purple-500/20 text-purple-500 flex items-center justify-center group-hover:scale-110 transition-transform">
+                                    <span className="material-symbols-outlined text-2xl">photo_library</span>
+                                </div>
+                                <div className="flex flex-col">
+                                    <span className="text-[11px] font-black uppercase tracking-widest">Gallery</span>
+                                    <span className="text-[9px] text-[#a19cba] font-bold uppercase tracking-widest">Photos & Videos</span>
+                                </div>
+                            </button>
+                            <button 
+                                type="button"
+                                className="flex items-center gap-4 p-4 hover:bg-white/5 rounded-3xl transition-all text-left group"
+                            >
+                                <div className="w-12 h-12 rounded-2xl bg-green-500/20 text-green-500 flex items-center justify-center group-hover:scale-110 transition-transform">
+                                    <span className="material-symbols-outlined text-2xl">location_on</span>
+                                </div>
+                                <div className="flex flex-col">
+                                    <span className="text-[11px] font-black uppercase tracking-widest">Location</span>
+                                    <span className="text-[9px] text-[#a19cba] font-bold uppercase tracking-widest">Share your spot</span>
+                                </div>
+                            </button>
+                        </div>
+                    )}
+
                     <button type="button" onClick={() => fileInputRef.current?.click()} className="w-10 h-10 flex items-center justify-center rounded-full text-[#a19cba] hover:text-white transition-colors">
                         <span className="material-symbols-outlined">photo_library</span>
                     </button>
@@ -222,16 +429,28 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ chat, currentUser, onClo
                 </div>
                 
                 <div className="flex-1 relative flex items-center">
-                    <input 
-                        value={inputText}
-                        onChange={handleInputChange}
-                        className="w-full bg-white/5 border-none rounded-full py-3.5 px-5 text-sm focus:ring-1 focus:ring-primary/50 text-white placeholder-[#a19cba]/50 transition-all outline-none" 
-                        placeholder="Message..." 
-                        type="text"
-                    />
-                    <button type="button" className="absolute right-3 text-[#a19cba] hover:text-white">
-                        <span className="material-symbols-outlined text-xl">mood</span>
-                    </button>
+                    {isRecording ? (
+                        <div className="w-full bg-primary/10 rounded-full py-3 px-5 flex items-center justify-between animate-pulse">
+                            <div className="flex items-center gap-2">
+                                <div className="w-2 h-2 bg-red-500 rounded-full animate-ping"></div>
+                                <span className="text-xs font-bold text-primary uppercase tracking-widest">Recording {Math.floor(recordingDuration / 60)}:{(recordingDuration % 60).toString().padStart(2, '0')}</span>
+                            </div>
+                            <button type="button" onClick={cancelRecording} className="text-red-500 text-[10px] font-black uppercase tracking-widest">Cancel</button>
+                        </div>
+                    ) : (
+                        <input 
+                            value={inputText}
+                            onChange={handleInputChange}
+                            className="w-full bg-white/5 border-none rounded-full py-3.5 px-5 text-sm focus:ring-1 focus:ring-primary/50 text-white placeholder-[#a19cba]/50 transition-all outline-none" 
+                            placeholder="Message..." 
+                            type="text"
+                        />
+                    )}
+                    {!isRecording && (
+                        <button type="button" className="absolute right-3 text-[#a19cba] hover:text-white">
+                            <span className="material-symbols-outlined text-xl">mood</span>
+                        </button>
+                    )}
                 </div>
 
                 <div className="flex items-center gap-2">
@@ -240,14 +459,28 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ chat, currentUser, onClo
                             <span className="material-symbols-outlined fill-1">send</span>
                         </button>
                     ) : (
-                        <button type="button" className="w-10 h-10 flex items-center justify-center rounded-full text-[#a19cba] hover:text-white transition-colors">
-                            <span className="material-symbols-outlined">mic</span>
+                        <button 
+                            type="button" 
+                            onMouseDown={startRecording}
+                            onMouseUp={stopRecording}
+                            onTouchStart={startRecording}
+                            onTouchEnd={stopRecording}
+                            className={`w-11 h-11 flex items-center justify-center rounded-full transition-all ${isRecording ? 'bg-red-500 scale-125 shadow-lg shadow-red-500/20' : 'bg-white/5 text-[#a19cba] hover:text-white'}`}
+                        >
+                            <span className={`material-symbols-outlined ${isRecording ? 'text-white' : ''}`}>mic</span>
                         </button>
                     )}
                 </div>
             </form>
         </div>
       </footer>
+
+      {showPollModal && (
+          <PollModal 
+            onClose={() => setShowPollModal(false)} 
+            onCreate={handlePollCreate} 
+          />
+      )}
 
       {showDeleteOptions && messageToDelete && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-md animate-in fade-in">
@@ -264,6 +497,13 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ chat, currentUser, onClo
 
       {showGroupInfo && <GroupInfoModal chat={chat} currentUser={currentUser} onClose={() => setShowGroupInfo(false)} />}
       {viewingMedia && <MediaViewer message={viewingMedia} currentUser={currentUser} onClose={() => setViewingMedia(null)} onForward={() => {}} onReply={setReplyingTo} />}
+      {showForwardModal && messageToForward && (
+          <ForwardModal 
+            currentUser={currentUser} 
+            messageText={messageToForward.text} 
+            onClose={() => setShowForwardModal(false)} 
+          />
+      )}
     </div>
   );
 };

@@ -2,6 +2,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { User, Story, MusicMetadata, Post } from '../../types';
 import { addStory, addPost } from '../../firebase';
 import { MusicPicker } from './MusicPicker';
+import { motion, AnimatePresence } from 'motion/react';
 
 interface StoryUploadProps {
   currentUser: User;
@@ -61,12 +62,28 @@ export const StoryUpload: React.FC<StoryUploadProps> = ({ currentUser, onClose }
     stopCamera();
 
     try {
+      // Try with ideal constraints first
       const constraints = {
-        video: { facingMode: cameraFacing, width: { ideal: 1280 }, height: { ideal: 720 } },
+        video: { 
+          facingMode: cameraFacing,
+          width: { ideal: 1280 },
+          height: { ideal: 720 }
+        },
         audio: false
       };
 
-      const stream = await navigator.mediaDevices.getUserMedia(constraints);
+      let stream: MediaStream;
+      try {
+        stream = await navigator.mediaDevices.getUserMedia(constraints);
+      } catch (firstErr) {
+        console.warn("Ideal constraints failed, trying simple constraints", firstErr);
+        // Fallback to simple constraints
+        stream = await navigator.mediaDevices.getUserMedia({ 
+          video: { facingMode: cameraFacing },
+          audio: false 
+        });
+      }
+
       streamRef.current = stream;
 
       if (videoRef.current) {
@@ -83,7 +100,15 @@ export const StoryUpload: React.FC<StoryUploadProps> = ({ currentUser, onClose }
       }
     } catch (err: any) {
       console.error("Camera Access Error:", err);
-      setHasError("Camera unavailable. Try gallery.");
+      if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
+        setHasError("Camera permission denied");
+      } else if (err.name === 'NotFoundError' || err.name === 'DevicesNotFoundError') {
+        setHasError("No camera found");
+      } else if (err.name === 'NotReadableError' || err.name === 'TrackStartError') {
+        setHasError("Camera is already in use by another app");
+      } else {
+        setHasError(err.message || "Camera unavailable");
+      }
     }
   };
 
@@ -235,33 +260,52 @@ export const StoryUpload: React.FC<StoryUploadProps> = ({ currentUser, onClose }
       <input type="file" ref={fileInputRef} onChange={handleFileChange} accept="image/*,video/*" className="hidden" />
       <canvas ref={canvasRef} className="hidden" />
 
-      <div className="absolute inset-0 z-0 bg-black flex items-center justify-center" onClick={() => !isCameraReady && !preview && startCamera()}>
+      {/* Background Media / Camera */}
+      <div className="absolute inset-0 z-0 bg-black flex items-center justify-center overflow-hidden" onClick={() => !isCameraReady && !preview && startCamera()}>
         {preview ? (
-            <div className={`w-full h-full relative transition-all duration-500 ${selectedFilter.class}`}>
+            <motion.div 
+                initial={{ scale: 1.1, opacity: 0 }}
+                animate={{ scale: 1, opacity: 1 }}
+                className={`w-full h-full relative transition-all duration-700 ease-out ${selectedFilter.class}`}
+            >
                 {mediaType === 'video' ? (
                     <video src={preview} className="w-full h-full object-cover" autoPlay muted loop playsInline />
                 ) : (
                     <img src={preview} className="w-full h-full object-cover" alt="Preview" />
                 )}
-            </div>
+            </motion.div>
         ) : (
             <div className={`w-full h-full relative ${selectedFilter.class}`}>
-                <video ref={videoRef} autoPlay playsInline muted className={`w-full h-full object-cover transition-opacity duration-300 ${isCameraReady ? 'opacity-100' : 'opacity-0'} ${cameraFacing === 'user' ? 'scale-x-[-1]' : ''}`} />
+                <video 
+                    ref={videoRef} 
+                    autoPlay 
+                    playsInline 
+                    muted 
+                    className={`w-full h-full object-cover transition-opacity duration-500 ${isCameraReady ? 'opacity-100' : 'opacity-0'} ${cameraFacing === 'user' ? 'scale-x-[-1]' : ''}`} 
+                />
                 {!isCameraReady && (
-                    <div className="absolute inset-0 flex flex-col items-center justify-center gap-4 bg-slate-900/40 backdrop-blur-sm">
+                    <div className="absolute inset-0 flex flex-col items-center justify-center gap-6 bg-slate-950/60 backdrop-blur-md">
                         {isProcessing ? (
-                            <div className="text-center">
-                                <div className="w-10 h-10 border-4 border-primary border-t-transparent rounded-full animate-spin mb-4 mx-auto"></div>
-                                <p className="text-[10px] font-black uppercase tracking-[0.2em]">Optimizing Media...</p>
+                            <div className="text-center animate-pulse">
+                                <div className="w-12 h-12 border-4 border-primary border-t-transparent rounded-full animate-spin mb-6 mx-auto"></div>
+                                <p className="text-[11px] font-black uppercase tracking-[0.3em] text-primary">Processing Media</p>
                             </div>
                         ) : hasError ? (
-                             <div className="text-center p-6">
-                                <span className="material-symbols-outlined text-4xl text-rose-500 mb-2">videocam_off</span>
-                                <p className="text-xs font-bold uppercase tracking-widest">{hasError}</p>
-                                <button onClick={startCamera} className="mt-4 px-6 py-2 bg-white/10 rounded-full text-[10px] font-black uppercase">Retry</button>
+                             <div className="text-center p-8 max-w-xs bg-black/40 rounded-[2rem] border border-white/10">
+                                <span className="material-symbols-outlined text-5xl text-rose-500 mb-4">videocam_off</span>
+                                <p className="text-sm font-bold mb-6 leading-relaxed">{hasError}</p>
+                                <button 
+                                    onClick={startCamera} 
+                                    className="w-full py-4 bg-white text-black rounded-2xl text-[11px] font-black uppercase tracking-widest active:scale-95 transition-all"
+                                >
+                                    Try Again
+                                </button>
                              </div>
                         ) : (
-                            <div className="w-10 h-10 border-4 border-primary border-t-transparent rounded-full animate-spin"></div>
+                            <div className="flex flex-col items-center gap-4">
+                                <div className="w-12 h-12 border-4 border-primary/30 border-t-primary rounded-full animate-spin"></div>
+                                <p className="text-[10px] font-black uppercase tracking-[0.2em] opacity-50">Initializing Lens</p>
+                            </div>
                         )}
                     </div>
                 )}
@@ -269,48 +313,132 @@ export const StoryUpload: React.FC<StoryUploadProps> = ({ currentUser, onClose }
         )}
       </div>
 
-      <div className="relative z-10 flex items-center justify-between p-6 pt-12 bg-gradient-to-b from-black/60 to-transparent">
-        <button onClick={onClose} className="flex items-center justify-center size-12 rounded-full bg-black/40 backdrop-blur-xl border border-white/10 text-white active:scale-90"><span className="material-symbols-outlined">close</span></button>
-        {!preview && <button onClick={handleSwitchCamera} className="flex items-center justify-center size-12 rounded-full bg-black/40 backdrop-blur-xl border border-white/10 text-white active:bg-white/20 transition-all"><span className="material-symbols-outlined">sync</span></button>}
-      </div>
-
-      <div className="mt-auto relative z-20 w-full flex flex-col items-center">
-        {preview && (
-            <div className="w-full px-6 mb-8 animate-in slide-in-from-bottom-10">
-                <div className="bg-black/60 backdrop-blur-3xl p-6 rounded-[2.5rem] border border-white/10 flex flex-col gap-5 shadow-2xl">
-                    <textarea value={caption} onChange={(e) => setCaption(e.target.value)} placeholder="Add a caption..." className="bg-transparent border-none focus:ring-0 text-white placeholder-white/30 text-sm font-bold resize-none h-20 w-full text-center" />
-                    <div className="flex gap-3">
-                        <button onClick={() => { setPreview(null); setFile(null); startCamera(); }} disabled={isUploading} className="flex-1 py-4 bg-white/10 text-white rounded-3xl font-bold uppercase tracking-widest text-[10px]">Retake</button>
-                        <button onClick={handleUpload} disabled={isUploading} className="flex-[2] py-4 bg-primary text-white rounded-3xl font-black uppercase tracking-[0.2em] shadow-lg active:scale-95 transition-all disabled:opacity-50 flex items-center justify-center gap-3">{isUploading ? <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"></div> : `Post ${mode}`}</button>
-                    </div>
-                </div>
+      {/* Top Controls */}
+      <div className="relative z-10 flex items-center justify-between p-6 pt-12">
+        <button 
+            onClick={onClose} 
+            className="flex items-center justify-center size-12 rounded-full bg-black/20 backdrop-blur-xl border border-white/10 text-white active:scale-90 transition-all hover:bg-black/40"
+        >
+            <span className="material-symbols-outlined">close</span>
+        </button>
+        
+        {!preview && (
+            <div className="flex items-center gap-3">
+                <button 
+                    onClick={handleSwitchCamera} 
+                    className="flex items-center justify-center size-12 rounded-full bg-black/20 backdrop-blur-xl border border-white/10 text-white active:bg-white/20 transition-all"
+                >
+                    <span className="material-symbols-outlined">sync</span>
+                </button>
             </div>
         )}
+      </div>
 
-        {!preview && (
+      {/* Bottom Controls / Preview UI */}
+      <div className="mt-auto relative z-20 w-full flex flex-col items-center pb-10">
+        {preview ? (
+            <motion.div 
+                initial={{ y: 100, opacity: 0 }}
+                animate={{ y: 0, opacity: 1 }}
+                className="w-full px-6 mb-4"
+            >
+                <div className="bg-black/40 backdrop-blur-3xl p-6 rounded-[3rem] border border-white/10 flex flex-col gap-6 shadow-2xl">
+                    <div className="relative">
+                        <textarea 
+                            value={caption} 
+                            onChange={(e) => setCaption(e.target.value)} 
+                            placeholder="Write a caption..." 
+                            className="bg-transparent border-none focus:ring-0 text-white placeholder-white/20 text-lg font-bold resize-none h-24 w-full text-center" 
+                        />
+                        <div className="absolute -top-2 left-1/2 -translate-x-1/2 w-8 h-1 bg-white/10 rounded-full"></div>
+                    </div>
+                    
+                    <div className="flex gap-4">
+                        <button 
+                            onClick={() => { setPreview(null); setFile(null); startCamera(); }} 
+                            disabled={isUploading} 
+                            className="flex-1 py-5 bg-white/5 hover:bg-white/10 text-white rounded-[2rem] font-black uppercase tracking-widest text-[11px] transition-all active:scale-95"
+                        >
+                            Retake
+                        </button>
+                        <button 
+                            onClick={handleUpload} 
+                            disabled={isUploading} 
+                            className="flex-[2] py-5 bg-primary hover:bg-primary-dark text-white rounded-[2rem] font-black uppercase tracking-[0.2em] shadow-xl shadow-primary/20 active:scale-95 transition-all disabled:opacity-50 flex items-center justify-center gap-3"
+                        >
+                            {isUploading ? (
+                                <div className="w-5 h-5 border-3 border-white/30 border-t-white rounded-full animate-spin"></div>
+                            ) : (
+                                <>
+                                    <span>Share to {mode}</span>
+                                    <span className="material-symbols-outlined text-lg">arrow_forward</span>
+                                </>
+                            )}
+                        </button>
+                    </div>
+                </div>
+            </motion.div>
+        ) : (
             <>
-                <div className="flex w-full overflow-x-auto no-scrollbar px-4 py-6 bg-gradient-to-t from-black/60 to-transparent">
+                {/* Filter Selector */}
+                <div className="flex w-full overflow-x-auto no-scrollbar px-6 py-8">
                     <div className="flex flex-row items-end justify-center gap-6 mx-auto">
                         {FILTERS.map((f) => (
-                            <button key={f.name} onClick={() => setSelectedFilter(f)} className="flex flex-col items-center gap-3 min-w-[70px]">
-                                <div className={`size-14 rounded-full border-2 transition-all overflow-hidden ${selectedFilter.name === f.name ? 'size-20 border-primary ring-4 ring-black/50 scale-110' : 'border-white/20'}`}><img src={f.preview} className="w-full h-full object-cover" alt={f.name} /></div>
-                                <p className={`text-[10px] font-black tracking-widest uppercase ${selectedFilter.name === f.name ? 'text-primary' : 'text-white/60'}`}>{f.name}</p>
+                            <button 
+                                key={f.name} 
+                                onClick={() => setSelectedFilter(f)} 
+                                className="flex flex-col items-center gap-3 min-w-[70px] group"
+                            >
+                                <div className={`relative rounded-full transition-all duration-300 overflow-hidden ${selectedFilter.name === f.name ? 'size-20 ring-4 ring-primary ring-offset-4 ring-offset-black scale-110 shadow-2xl shadow-primary/40' : 'size-14 border-2 border-white/20 opacity-60 group-hover:opacity-100'}`}>
+                                    <img src={f.preview} className="w-full h-full object-cover" alt={f.name} />
+                                    {selectedFilter.name === f.name && (
+                                        <div className="absolute inset-0 bg-primary/20 flex items-center justify-center">
+                                            <span className="material-symbols-outlined text-white text-xl">check</span>
+                                        </div>
+                                    )}
+                                </div>
+                                <p className={`text-[10px] font-black tracking-widest uppercase transition-colors ${selectedFilter.name === f.name ? 'text-primary' : 'text-white/40'}`}>{f.name}</p>
                             </button>
                         ))}
                     </div>
                 </div>
-                <div className="flex items-center justify-center gap-10 p-4 pb-8 w-full max-sm:max-w-xs">
-                    <button onClick={() => fileInputRef.current?.click()} className="flex shrink-0 items-center justify-center rounded-full size-12 bg-white/10 backdrop-blur-xl border border-white/10"><span className="material-symbols-outlined">photo_library</span></button>
-                    <button onClick={handleCapture} disabled={!isCameraReady} className="relative flex items-center justify-center group active:scale-110 transition-transform">
-                        <div className="absolute size-24 bg-primary/20 rounded-full animate-pulse"></div>
-                        <div className="relative flex shrink-0 items-center justify-center rounded-full size-20 border-[6px] border-white/40 bg-white/5 p-1"><div className="size-full bg-white rounded-full transition-transform group-active:scale-90"></div></div>
+
+                {/* Main Action Buttons */}
+                <div className="flex items-center justify-center gap-12 p-4 w-full">
+                    <button 
+                        onClick={() => fileInputRef.current?.click()} 
+                        className="flex shrink-0 items-center justify-center rounded-full size-14 bg-white/5 backdrop-blur-xl border border-white/10 hover:bg-white/10 transition-all active:scale-90"
+                    >
+                        <span className="material-symbols-outlined text-2xl">photo_library</span>
                     </button>
-                    <button onClick={() => setShowMusicPicker(true)} className="flex shrink-0 items-center justify-center rounded-full size-12 bg-white/10 backdrop-blur-xl border border-white/10"><span className={`material-symbols-outlined ${selectedMusic ? 'text-primary' : ''}`}>music_note</span></button>
+                    
+                    <button 
+                        onClick={handleCapture} 
+                        disabled={!isCameraReady} 
+                        className="relative flex items-center justify-center group active:scale-110 transition-all"
+                    >
+                        <div className="absolute size-28 bg-primary/10 rounded-full animate-pulse group-hover:bg-primary/20"></div>
+                        <div className="relative flex shrink-0 items-center justify-center rounded-full size-24 border-[8px] border-white/20 bg-white/5 p-1.5 transition-all group-hover:border-white/40">
+                            <div className="size-full bg-white rounded-full transition-transform group-active:scale-90 shadow-xl"></div>
+                        </div>
+                    </button>
+                    
+                    <button 
+                        onClick={() => setShowMusicPicker(true)} 
+                        className="flex shrink-0 items-center justify-center rounded-full size-14 bg-white/5 backdrop-blur-xl border border-white/10 hover:bg-white/10 transition-all active:scale-90"
+                    >
+                        <span className={`material-symbols-outlined text-2xl ${selectedMusic ? 'text-primary animate-pulse' : ''}`}>music_note</span>
+                    </button>
                 </div>
-                <div className="flex px-8 pb-10 w-full max-w-sm">
-                    <div className="flex h-12 flex-1 items-center justify-center rounded-full bg-black/40 backdrop-blur-xl p-1.5 border border-white/10">
+
+                {/* Mode Selector */}
+                <div className="flex px-8 mt-8 w-full max-w-sm">
+                    <div className="flex h-14 flex-1 items-center justify-center rounded-full bg-white/5 backdrop-blur-2xl p-1.5 border border-white/10">
                         {(['Post', 'Story', 'Live'] as CameraMode[]).map((m) => (
-                            <label key={m} className={`flex cursor-pointer h-full grow items-center justify-center rounded-full px-4 text-[10px] font-black uppercase tracking-[0.2em] transition-all ${mode === m ? 'bg-white text-black' : 'text-white/40'}`}>
+                            <label 
+                                key={m} 
+                                className={`flex cursor-pointer h-full grow items-center justify-center rounded-full px-6 text-[10px] font-black uppercase tracking-[0.2em] transition-all duration-300 ${mode === m ? 'bg-white text-black shadow-lg' : 'text-white/40 hover:text-white/60'}`}
+                            >
                                 <span>{m}</span>
                                 <input type="radio" className="invisible w-0" name="camera-mode" checked={mode === m} onChange={() => setMode(m)} />
                             </label>
@@ -320,7 +448,11 @@ export const StoryUpload: React.FC<StoryUploadProps> = ({ currentUser, onClose }
             </>
         )}
       </div>
+      
       {showMusicPicker && <MusicPicker onClose={() => setShowMusicPicker(false)} onSelect={setSelectedMusic} />}
+      
+      {/* iOS Home Indicator Visual */}
+      <div className="fixed bottom-1 left-1/2 -translate-x-1/2 w-32 h-1.5 bg-white/20 rounded-full z-[60]"></div>
     </div>
   );
 };

@@ -51,8 +51,10 @@ export const ChatDashboard: React.FC<ChatDashboardProps> = ({ currentUser, toggl
   }, [currentUser.uid]);
 
   useEffect(() => {
+    // Run cleanup once on mount
+    cleanOldCalls();
+    
     const poll = async () => {
-      cleanOldCalls();
       if (activeCall) return; 
       const incoming = await getIncomingCall(currentUser.uid);
       if (incoming) {

@@ -50,7 +50,8 @@ import {
   Story,
   Note,
   SavedMedia,
-  Comment
+  Comment,
+  PollData
 } from './types';
 import { calculateExpiry, getPlanDetails } from './premiumUtils';
 
@@ -247,7 +248,7 @@ export const getFeedPosts = async () => {
     const q = query(collection(db, "posts"), limit(50));
     const snapshot = await getDocs(q);
     return snapshot.docs
-      .map(d => d.data() as Post)
+      .map(d => ({ id: d.id, ...d.data() } as Post))
       .sort((a, b) => b.timestamp - a.timestamp);
   } catch(e) { return []; }
 };
@@ -257,7 +258,7 @@ export const getPostsByUser = async (userId: string) => {
     const q = query(collection(db, "posts"), where("userId", "==", userId));
     const snapshot = await getDocs(q);
     return snapshot.docs
-      .map(d => d.data() as Post)
+      .map(d => ({ id: d.id, ...d.data() } as Post))
       .sort((a, b) => b.timestamp - a.timestamp);
   } catch(e) { return []; }
 };
@@ -265,7 +266,7 @@ export const getPostsByUser = async (userId: string) => {
 export const subscribeToUserPosts = (userId: string, callback: (posts: Post[]) => void) => {
     const q = query(collection(db, "posts"), where("userId", "==", userId));
     return onSnapshot(q, (snapshot) => {
-        const posts = snapshot.docs.map(d => d.data() as Post);
+        const posts = snapshot.docs.map(d => ({ id: d.id, ...d.data() } as Post));
         callback(posts.sort((a, b) => b.timestamp - a.timestamp));
     });
 };
@@ -273,14 +274,14 @@ export const subscribeToUserPosts = (userId: string, callback: (posts: Post[]) =
 export const subscribeToPosts = (callback: (posts: Post[]) => void) => {
   const q = query(collection(db, "posts"), limit(30));
   return onSnapshot(q, (snapshot) => {
-    const posts = snapshot.docs.map(d => d.data() as Post);
+    const posts = snapshot.docs.map(d => ({ id: d.id, ...d.data() } as Post));
     callback(posts.sort((a, b) => b.timestamp - a.timestamp));
   }, (err) => console.error("Posts Sub Error", err));
 };
 
 export const subscribeToPost = (postId: string, callback: (post: Post) => void) => {
   return onSnapshot(doc(db, "posts", postId), (snap) => {
-    if (snap.exists()) callback(snap.data() as Post);
+    if (snap.exists()) callback({ id: snap.id, ...snap.data() } as Post);
   });
 };
 
@@ -477,6 +478,37 @@ export const deleteMessageForMe = async (messageId: string, userId: string) => {
     await updateDoc(doc(db, "messages", messageId), { deletedFor: arrayUnion(userId) });
 };
 
+export const voteInPoll = async (messageId: string, optionId: string, userId: string) => {
+  const msgRef = doc(db, "messages", messageId);
+  const snap = await getDoc(msgRef);
+  if (!snap.exists()) return;
+  const poll = snap.data().poll as PollData;
+  if (!poll) return;
+  
+  poll.options = poll.options.map(opt => {
+    if (opt.id === optionId) {
+      if (opt.votes.includes(userId)) {
+        opt.votes = opt.votes.filter(id => id !== userId);
+      } else {
+        opt.votes = [...opt.votes, userId];
+      }
+    } else if (!poll.allowMultiple) {
+      opt.votes = opt.votes.filter(id => id !== userId);
+    }
+    return opt;
+  });
+  
+  await updateDoc(msgRef, { poll });
+};
+
+export const editMessage = async (messageId: string, newText: string) => {
+  await updateDoc(doc(db, "messages", messageId), { 
+    text: newText, 
+    isEdited: true,
+    lastEditedAt: Date.now()
+  });
+};
+
 export const setTypingStatus = async (chatId: string, userId: string, isTyping: boolean) => {
   await setDoc(doc(db, "chats", chatId), { typing: { [userId]: isTyping } }, { merge: true });
 };
@@ -574,7 +606,7 @@ export const cleanOldCalls = async () => {
     snap.docs.forEach(d => batch.delete(d.ref));
     await batch.commit();
   } catch (e) {
-    console.error("Clean calls failed:", e);
+    // Fail silently to avoid console clutter
   }
 };
 

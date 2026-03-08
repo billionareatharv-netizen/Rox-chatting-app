@@ -95,24 +95,28 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const myNote = notes.find(n => n.userId === currentUser.uid);
 
   return (
-    <div className="w-full h-full flex flex-col bg-background-light dark:bg-background-dark animate-in fade-in duration-300 overflow-hidden">
+    <div className="w-full h-full flex flex-col bg-background-light dark:bg-background-dark animate-in fade-in duration-300 overflow-hidden relative">
+      {/* Background Decor */}
+      <div className="absolute inset-0 z-0 opacity-10 dark:opacity-20 pointer-events-none">
+        <div className="absolute top-[-5%] right-[-5%] w-[30%] h-[30%] bg-primary/20 blur-[80px] rounded-full"></div>
+      </div>
       
       {/* Top Navigation */}
-      <header className="sticky top-0 z-50 bg-background-light/80 dark:bg-background-dark/80 backdrop-blur-md px-4 pt-6 pb-2 shrink-0">
-        <div className="flex items-center justify-between mb-4">
-            <div className="flex items-center gap-2">
-                <button onClick={onBack} className="p-1 -ml-1 text-slate-900 dark:text-white active:scale-90 transition-transform">
-                    <span className="material-symbols-outlined text-2xl">arrow_back_ios</span>
+      <header className="sticky top-0 z-50 bg-background-light/80 dark:bg-background-dark/80 backdrop-blur-md px-6 pt-8 pb-4 shrink-0">
+        <div className="flex items-center justify-between mb-6">
+            <div className="flex items-center gap-4">
+                <button onClick={onBack} className="p-2 -ml-2 text-slate-900 dark:text-white active:scale-90 transition-transform hover:bg-black/5 dark:hover:bg-white/5 rounded-full">
+                    <span className="material-symbols-outlined text-2xl">arrow_back_ios_new</span>
                 </button>
-                <h1 className="text-2xl font-black tracking-tighter text-slate-900 dark:text-white uppercase">Messages</h1>
+                <h1 className="text-3xl font-black tracking-tighter text-slate-900 dark:text-white uppercase italic">Inbox</h1>
             </div>
             <div className="flex gap-3">
-                <button className="w-10 h-10 flex items-center justify-center rounded-full bg-slate-200/50 dark:bg-white/5 text-slate-900 dark:text-white active:scale-95 transition-all">
+                <button className="size-11 flex items-center justify-center rounded-2xl bg-slate-200/50 dark:bg-white/5 text-slate-900 dark:text-white active:scale-95 transition-all border border-transparent dark:border-white/5">
                     <span className="material-symbols-outlined text-[22px]">video_call</span>
                 </button>
                 <button 
                     onClick={() => setShowMenu(!showMenu)}
-                    className={`w-10 h-10 flex items-center justify-center rounded-full transition-all ${showMenu ? 'bg-primary text-white' : 'bg-slate-200/50 dark:bg-white/5 text-slate-900 dark:text-white'}`}
+                    className={`size-11 flex items-center justify-center rounded-2xl transition-all border border-transparent dark:border-white/5 ${showMenu ? 'bg-primary text-white shadow-lg shadow-primary/20' : 'bg-slate-200/50 dark:bg-white/5 text-slate-900 dark:text-white'}`}
                 >
                     <span className="material-symbols-outlined text-[22px]">edit_square</span>
                 </button>
@@ -120,14 +124,14 @@ export const Sidebar: React.FC<SidebarProps> = ({
         </div>
 
         {/* Glassmorphism Search Bar */}
-        <div className="mb-4">
-            <div className="relative flex items-center w-full h-12 rounded-full bg-slate-200/50 dark:bg-[#2b2839]/60 backdrop-blur-xl border border-transparent dark:border-white/5 px-4">
-                <span className="material-symbols-outlined text-[#a19cba] mr-2">search</span>
+        <div className="mb-2">
+            <div className="relative flex items-center w-full h-14 rounded-3xl bg-slate-200/50 dark:bg-[#2b2839]/60 backdrop-blur-xl border border-transparent dark:border-white/5 px-5 shadow-inner">
+                <span className="material-symbols-outlined text-[#a19cba] mr-3">search</span>
                 <input 
                     value={search}
                     onChange={(e) => setSearch(e.target.value)}
-                    className="flex-1 bg-transparent border-none text-slate-900 dark:text-white focus:ring-0 placeholder:text-[#a19cba] text-sm font-bold" 
-                    placeholder="Search messages..."
+                    className="flex-1 bg-transparent border-none text-slate-900 dark:text-white focus:ring-0 placeholder:text-[#a19cba]/60 text-sm font-bold" 
+                    placeholder="Search conversations..."
                 />
             </div>
         </div>

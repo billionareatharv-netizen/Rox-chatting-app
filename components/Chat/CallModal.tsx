@@ -20,6 +20,7 @@ export const CallModal: React.FC<CallModalProps> = ({ session, onHangUp }) => {
   const [isMuted, setIsMuted] = useState(false);
   const [isVideoOff, setIsVideoOff] = useState(session.type === 'voice');
   const [duration, setDuration] = useState(0);
+  const [error, setError] = useState<string | null>(null);
   
   const localVideoRef = useRef<HTMLVideoElement>(null);
   const remoteVideoRef = useRef<HTMLVideoElement>(null);
@@ -31,10 +32,22 @@ export const CallModal: React.FC<CallModalProps> = ({ session, onHangUp }) => {
   useEffect(() => {
     const init = async () => {
         try {
-            const stream = await navigator.mediaDevices.getUserMedia({ 
-                audio: true, 
-                video: session.type === 'video' ? { facingMode: 'user' } : false 
-            });
+            setError(null);
+            let stream: MediaStream;
+            
+            try {
+                stream = await navigator.mediaDevices.getUserMedia({ 
+                    audio: true, 
+                    video: session.type === 'video' ? { facingMode: 'user', width: { ideal: 1280 }, height: { ideal: 720 } } : false 
+                });
+            } catch (firstErr) {
+                console.warn("Ideal constraints failed, trying simple constraints", firstErr);
+                stream = await navigator.mediaDevices.getUserMedia({ 
+                    audio: true, 
+                    video: session.type === 'video' ? { facingMode: 'user' } : false 
+                });
+            }
+
             localStream.current = stream;
             
             if (localVideoRef.current) {
@@ -85,8 +98,17 @@ export const CallModal: React.FC<CallModalProps> = ({ session, onHangUp }) => {
                     await updateCallSignal(session.id, { answer });
                 }
             }
-        } catch (e) {
+        } catch (e: any) {
             console.error("Media Error:", e);
+            if (e.name === 'NotAllowedError' || e.name === 'PermissionDeniedError') {
+                setError("Camera/Microphone permission denied. Please allow access in your browser settings.");
+            } else if (e.name === 'NotReadableError' || e.name === 'TrackStartError') {
+                setError("Camera or microphone is already in use by another application.");
+            } else if (e.name === 'NotFoundError' || e.name === 'DevicesNotFoundError') {
+                setError("No camera or microphone found on your device.");
+            } else {
+                setError(e.message || "Could not access camera/microphone.");
+            }
             setStatus('denied');
         }
     };
@@ -145,6 +167,24 @@ export const CallModal: React.FC<CallModalProps> = ({ session, onHangUp }) => {
       await updateCallStatus(session.id, 'ended');
       onHangUp();
   };
+
+  if (status === 'denied') {
+      return (
+          <div className="fixed inset-0 z-[9999] bg-slate-950 flex flex-col items-center justify-center p-8 text-center text-white">
+              <div className="w-20 h-20 bg-red-500/20 rounded-full flex items-center justify-center mb-6 border border-red-500/50">
+                  <span className="material-symbols-outlined text-4xl text-red-500">videocam_off</span>
+              </div>
+              <h2 className="text-2xl font-bold mb-4">Call Failed</h2>
+              <p className="text-slate-400 mb-8 max-w-sm">{error}</p>
+              <button 
+                  onClick={onHangUp}
+                  className="px-8 py-3 bg-white/10 hover:bg-white/20 rounded-2xl font-bold transition-all"
+              >
+                  Go Back
+              </button>
+          </div>
+      );
+  }
 
   return (
     <div className="fixed inset-0 z-[9999] bg-slate-900 flex flex-col items-center justify-between py-10 text-white animate-in fade-in">
