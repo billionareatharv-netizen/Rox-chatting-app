@@ -14,6 +14,7 @@ import { ActivityView } from './ActivityView';
 import { PostDetailView } from './PostDetailView';
 import { ConnectionsView } from './ConnectionsView';
 import { ReelsView } from './ReelsView';
+import { AIChatView } from './AIChatView';
 import { initiateCall, subscribeToIncomingCalls, getUserById, updateCallStatus, cleanOldCalls, subscribeToNicknames } from '../../firebase';
 
 interface ChatDashboardProps {
@@ -36,6 +37,7 @@ export const ChatDashboard: React.FC<ChatDashboardProps> = ({ currentUser, toggl
   const [selectedPost, setSelectedPost] = useState<Post | null>(null);
   const [connectionsState, setConnectionsState] = useState<{ user: User, type: 'followers' | 'following' } | null>(null);
   const [nicknames, setNicknames] = useState<Record<string, string>>({});
+  const [showAIChat, setShowAIChat] = useState(false);
 
   // Swipe detection
   const handleDragEnd = (event: any, info: any) => {
@@ -106,6 +108,7 @@ export const ChatDashboard: React.FC<ChatDashboardProps> = ({ currentUser, toggl
             onUploadPost={() => setShowStoryUpload(true)}
             onOpenStory={setViewingStories}
             onOpenPost={setSelectedPost}
+            onOpenAIChat={() => setShowAIChat(true)}
           />
         );
       case 'chats':
@@ -113,6 +116,7 @@ export const ChatDashboard: React.FC<ChatDashboardProps> = ({ currentUser, toggl
           <Sidebar 
             currentUser={currentUser} 
             onChatSelect={setSelectedChat} 
+            onOpenAIChat={() => setShowAIChat(true)}
             activeChatId={selectedChat?.id}
             nicknames={nicknames}
             onBack={() => setActiveTab('home')}
@@ -231,6 +235,9 @@ export const ChatDashboard: React.FC<ChatDashboardProps> = ({ currentUser, toggl
             onOpenProfile={handleOpenProfileByUid}
         />
       )}
+      <AnimatePresence>
+        {showAIChat && <AIChatView currentUser={currentUser} onClose={() => setShowAIChat(false)} />}
+      </AnimatePresence>
     </div>
   );
 };

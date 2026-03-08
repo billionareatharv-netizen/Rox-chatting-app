@@ -9,13 +9,14 @@ import { CreateNoteModal } from './CreateNoteModal';
 interface SidebarProps {
   currentUser: User;
   onChatSelect: (chat: Chat) => void;
+  onOpenAIChat: () => void;
   activeChatId?: string;
   nicknames: Record<string, string>; 
   onBack?: () => void;
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({ 
-  currentUser, onChatSelect, activeChatId, nicknames, onBack
+  currentUser, onChatSelect, onOpenAIChat, activeChatId, nicknames, onBack
 }) => {
   const [search, setSearch] = useState('');
   const [allUsers, setAllUsers] = useState<User[]>([]);
@@ -159,6 +160,24 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 </div>
                 
                 <div className="flex w-full overflow-x-auto px-4 gap-6 no-scrollbar scroll-smooth py-4">
+                    {/* Roxx AI Note */}
+                    <div className="flex flex-col items-center gap-3 shrink-0 relative">
+                        <div className="relative group cursor-pointer" onClick={onOpenAIChat}>
+                            <div className="absolute -top-10 left-1/2 -translate-x-1/2 bg-gradient-to-r from-rose-500 to-rose-600 px-3 py-1.5 rounded-xl shadow-xl border border-white/10 z-20 min-w-[70px]">
+                                <p className="text-[10px] font-black text-center leading-tight text-white uppercase tracking-tighter">
+                                    Roxx AI 🤖
+                                </p>
+                                <div className="absolute -bottom-1 left-1/2 -translate-x-1/2 w-2 h-2 bg-rose-600 rotate-45 border-r border-b border-white/10"></div>
+                            </div>
+                            <div className="w-16 h-16 rounded-full bg-gradient-to-br from-rose-400 to-rose-600 p-1 shadow-lg group-hover:scale-105 transition-transform">
+                                <div className="w-full h-full rounded-full bg-background-light dark:bg-background-dark flex items-center justify-center">
+                                    <span className="material-symbols-outlined text-rose-500 text-3xl animate-pulse">smart_toy</span>
+                                </div>
+                            </div>
+                        </div>
+                        <p className="text-rose-500 text-[10px] font-black uppercase tracking-tight">Roxx AI</p>
+                    </div>
+
                     {/* My Note / Profile First */}
                     <div className="flex flex-col items-center gap-3 shrink-0 relative">
                         <div className="relative group cursor-pointer" onClick={() => setShowNoteModal(true)}>

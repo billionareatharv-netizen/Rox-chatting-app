@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { motion, AnimatePresence } from 'motion/react';
 import { Post, User, Story } from '../../types';
 import { toggleLikePost, toggleBookmarkPost, getStories, subscribeToPosts, deletePost, deleteAllPosts } from '../../firebase';
 
@@ -8,14 +9,30 @@ interface HomeFeedProps {
   onUploadPost: () => void;
   onOpenStory: (stories: Story[]) => void;
   onOpenPost: (post: Post) => void;
+  onOpenAIChat: () => void;
 }
 
-export const HomeFeed: React.FC<HomeFeedProps> = ({ currentUser, onOpenDMs, onUploadPost, onOpenStory, onOpenPost }) => {
+export const HomeFeed: React.FC<HomeFeedProps> = ({ currentUser, onOpenDMs, onUploadPost, onOpenStory, onOpenPost, onOpenAIChat }) => {
   const [posts, setPosts] = useState<Post[]>([]);
   const [stories, setStories] = useState<Story[]>([]);
   const [loading, setLoading] = useState(true);
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
   const [showClearConfirm, setShowClearConfirm] = useState(false);
+  const [showAIBubble, setShowAIBubble] = useState(false);
+  const [bubbleDismissed, setBubbleDismissed] = useState(false);
+
+  useEffect(() => {
+    // Show AI bubble every 10 seconds if not dismissed
+    const interval = setInterval(() => {
+        if (!bubbleDismissed) {
+            setShowAIBubble(true);
+            // Auto hide after 5 seconds
+            setTimeout(() => setShowAIBubble(false), 5000);
+        }
+    }, 10000);
+
+    return () => clearInterval(interval);
+  }, [bubbleDismissed]);
 
   useEffect(() => {
     // Subscribe to posts for real-time updates
@@ -67,7 +84,7 @@ export const HomeFeed: React.FC<HomeFeedProps> = ({ currentUser, onOpenDMs, onUp
                 <div className="bg-primary size-8 rounded-lg flex items-center justify-center shadow-lg shadow-primary/20">
                     <span className="material-symbols-outlined text-white text-xl">blur_on</span>
                 </div>
-                <h1 className="text-xl font-black tracking-tighter bg-clip-text text-transparent bg-gradient-to-r from-slate-900 to-slate-500 dark:from-white dark:to-slate-400">ROXX SOCIAL</h1>
+                <h1 className="text-xl font-black tracking-tighter bg-clip-text text-transparent bg-gradient-to-r from-rose-600 to-rose-400 dark:from-rose-500 dark:to-rose-300">RED ROX</h1>
             </div>
             <div className="flex items-center gap-4">
                 {currentUser.isAdmin && (
@@ -262,6 +279,32 @@ export const HomeFeed: React.FC<HomeFeedProps> = ({ currentUser, onOpenDMs, onUp
                 </div>
             </div>
         )}
+
+        {/* Floating AI Bubble */}
+        <AnimatePresence>
+            {showAIBubble && (
+                <motion.div 
+                    initial={{ opacity: 0, x: 50, scale: 0.8 }}
+                    animate={{ opacity: 1, x: 0, scale: 1 }}
+                    exit={{ opacity: 0, x: 50, scale: 0.8 }}
+                    className="fixed right-6 bottom-48 z-[90] flex items-center gap-3"
+                >
+                    <div 
+                        onClick={onOpenAIChat}
+                        className="bg-rose-500 text-white px-4 py-3 rounded-2xl rounded-br-none shadow-2xl cursor-pointer hover:scale-105 active:scale-95 transition-all border border-white/20 flex items-center gap-2"
+                    >
+                        <span className="material-symbols-outlined text-xl animate-bounce">smart_toy</span>
+                        <span className="text-xs font-black uppercase tracking-tight">Chat with Roxx AI 🤖</span>
+                    </div>
+                    <button 
+                        onClick={(e) => { e.stopPropagation(); setShowAIBubble(false); setBubbleDismissed(true); }}
+                        className="size-8 bg-white/10 backdrop-blur-md border border-white/20 rounded-full flex items-center justify-center text-white hover:bg-white/20 transition-all"
+                    >
+                        <span className="material-symbols-outlined text-sm">close</span>
+                    </button>
+                </motion.div>
+            )}
+        </AnimatePresence>
     </div>
   );
 };
