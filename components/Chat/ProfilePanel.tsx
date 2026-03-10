@@ -4,6 +4,7 @@ import { useAuth } from '../../hooks/useAuth';
 import { updateProfile, saveWallpaper, updatePrivacySettings, getSavedGallery, subscribeToUserPosts, subscribeToUser } from '../../firebase';
 import { SubscriptionModal } from '../Premium/SubscriptionModal';
 import { aiService } from '../../src/services/aiService';
+import { AISelectionModal } from './AISelectionModal';
 
 interface ProfilePanelProps {
   user: User;
@@ -31,6 +32,8 @@ export const ProfilePanel: React.FC<ProfilePanelProps> = ({
   const [userPosts, setUserPosts] = useState<Post[]>([]);
   const [isSaving, setIsSaving] = useState(false);
   const [isAIGenerating, setIsAIGenerating] = useState(false);
+  const [aiOptions, setAiOptions] = useState<string[]>([]);
+  const [showAIModal, setShowAIModal] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -75,11 +78,25 @@ export const ProfilePanel: React.FC<ProfilePanelProps> = ({
   const handleAIBio = async () => {
     if (isAIGenerating) return;
     setIsAIGenerating(true);
+    setAiOptions([]);
+    setShowAIModal(true);
     try {
-      const result = await aiService.generateBio(bio || "I love social media and design");
-      setBio(result);
+      const options = await aiService.generateBioOptions(bio || "I love social media and design");
+      setAiOptions(options);
     } catch (e) {
       console.error(e);
+      setShowAIModal(false);
+    } finally {
+      setIsAIGenerating(false);
+    }
+  };
+
+  const handleAIRefine = async () => {
+    if (!bio.trim() || isAIGenerating) return;
+    setIsAIGenerating(true);
+    try {
+      const refined = await aiService.refineText(bio);
+      setBio(refined);
     } finally {
       setIsAIGenerating(false);
     }
@@ -129,14 +146,25 @@ export const ProfilePanel: React.FC<ProfilePanelProps> = ({
                           <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest ml-1">Bio</label>
                           <div className="relative">
                             <textarea value={bio} onChange={e => setBio(e.target.value)} className="w-full mt-1 bg-slate-100 dark:bg-card-dark p-4 rounded-2xl outline-none font-medium text-slate-900 dark:text-white border border-transparent focus:border-primary transition-all resize-none h-24" />
-                            <button 
-                                onClick={handleAIBio}
-                                disabled={isAIGenerating}
-                                className="absolute bottom-3 right-3 px-3 py-1.5 bg-primary/10 hover:bg-primary/20 border border-primary/20 rounded-full text-[9px] font-black uppercase tracking-widest flex items-center gap-2 transition-all"
-                            >
-                                <span className="material-symbols-outlined text-xs">magic_button</span>
-                                {isAIGenerating ? 'Generating...' : 'AI Bio'}
-                            </button>
+                            <div className="flex gap-2 absolute bottom-3 right-3">
+                                <button 
+                                    onClick={handleAIRefine}
+                                    disabled={isAIGenerating || !bio.trim()}
+                                    className="px-3 py-1.5 bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/20 rounded-full text-[9px] font-black uppercase tracking-widest flex items-center gap-2 transition-all disabled:opacity-30"
+                                    title="Refine with AI"
+                                >
+                                    <span className="material-symbols-outlined text-xs">auto_fix_high</span>
+                                    Refine
+                                </button>
+                                <button 
+                                    onClick={handleAIBio}
+                                    disabled={isAIGenerating}
+                                    className="px-3 py-1.5 bg-primary/10 hover:bg-primary/20 border border-primary/20 rounded-full text-[9px] font-black uppercase tracking-widest flex items-center gap-2 transition-all"
+                                >
+                                    <span className="material-symbols-outlined text-xs">magic_button</span>
+                                    {isAIGenerating ? 'Generating...' : 'AI Bio'}
+                                </button>
+                            </div>
                           </div>
                       </div>
                   </div>
@@ -336,6 +364,14 @@ export const ProfilePanel: React.FC<ProfilePanelProps> = ({
             </section>
         </main>
         {showSubModal && <SubscriptionModal currentUser={user} onClose={() => setShowSubModal(false)} />}
+        <AISelectionModal
+            isOpen={showAIModal}
+            onClose={() => setShowAIModal(false)}
+            title="Select AI Bio"
+            options={aiOptions}
+            isLoading={isAIGenerating}
+            onSelect={setBio}
+        />
     </div>
   );
 };

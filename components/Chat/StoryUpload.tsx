@@ -4,6 +4,7 @@ import { addStory, addPost } from '../../firebase';
 import { MusicPicker } from './MusicPicker';
 import { aiService } from '../../src/services/aiService';
 import { motion, AnimatePresence } from 'motion/react';
+import { AISelectionModal } from './AISelectionModal';
 
 interface StoryUploadProps {
   currentUser: User;
@@ -30,6 +31,9 @@ export const StoryUpload: React.FC<StoryUploadProps> = ({ currentUser, onClose }
   const [isUploading, setIsUploading] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
   const [isAIGenerating, setIsAIGenerating] = useState(false);
+  const [aiOptions, setAiOptions] = useState<string[]>([]);
+  const [showAIModal, setShowAIModal] = useState(false);
+  const [aiModalTitle, setAiModalTitle] = useState('');
   const [showMusicPicker, setShowMusicPicker] = useState(false);
   const [selectedMusic, setSelectedMusic] = useState<MusicMetadata | null>(null);
 
@@ -299,11 +303,14 @@ export const StoryUpload: React.FC<StoryUploadProps> = ({ currentUser, onClose }
   const handleAICaption = async () => {
     if (isAIGenerating) return;
     setIsAIGenerating(true);
+    setAiModalTitle("Select AI Caption");
+    setShowAIModal(true);
     try {
-      const result = await aiService.generateCaption(caption || "something cool");
-      setCaption(result);
+      const options = await aiService.generateCaptionOptions(caption || "something cool");
+      setAiOptions(options);
     } catch (e) {
       console.error(e);
+      setShowAIModal(false);
     } finally {
       setIsAIGenerating(false);
     }
@@ -312,11 +319,15 @@ export const StoryUpload: React.FC<StoryUploadProps> = ({ currentUser, onClose }
   const handleAIHashtags = async () => {
     if (isAIGenerating || !caption) return;
     setIsAIGenerating(true);
+    setAiModalTitle("Select AI Hashtags");
+    setShowAIModal(true);
     try {
       const tags = await aiService.generateHashtags(caption);
-      setCaption(prev => prev + "\n\n" + tags);
+      // For hashtags, we might just want to show them as options or just one option
+      setAiOptions([tags]);
     } catch (e) {
       console.error(e);
+      setShowAIModal(false);
     } finally {
       setIsAIGenerating(false);
     }
@@ -559,6 +570,21 @@ export const StoryUpload: React.FC<StoryUploadProps> = ({ currentUser, onClose }
       
       {showMusicPicker && <MusicPicker onClose={() => setShowMusicPicker(false)} onSelect={setSelectedMusic} />}
       
+      <AISelectionModal
+        isOpen={showAIModal}
+        onClose={() => setShowAIModal(false)}
+        title={aiModalTitle}
+        options={aiOptions}
+        isLoading={isAIGenerating}
+        onSelect={(opt) => {
+          if (aiModalTitle.includes("Hashtags")) {
+            setCaption(prev => prev + "\n\n" + opt);
+          } else {
+            setCaption(opt);
+          }
+        }}
+      />
+
       {/* iOS Home Indicator Visual */}
       <div className="fixed bottom-1 left-1/2 -translate-x-1/2 w-32 h-1.5 bg-white/20 rounded-full z-[60]"></div>
     </div>

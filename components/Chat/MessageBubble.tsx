@@ -40,8 +40,18 @@ export const MessageBubble: React.FC<MessageBubbleProps> = memo(({
   const togglePlay = (e: React.MouseEvent) => {
     e.stopPropagation();
     if (!audioRef.current) return;
-    if (isPlaying) audioRef.current.pause();
-    else audioRef.current.play();
+    if (isPlaying) {
+        audioRef.current.pause();
+    } else {
+        audioRef.current.play().catch(err => {
+            console.error("Audio play failed:", err);
+            // Fallback: try to reload and play
+            if (audioRef.current) {
+                audioRef.current.load();
+                audioRef.current.play().catch(e => console.error("Retry failed:", e));
+            }
+        });
+    }
   };
 
   const isDeleted = message.type === 'deleted';
@@ -92,7 +102,7 @@ export const MessageBubble: React.FC<MessageBubbleProps> = memo(({
                                 <div className="h-full bg-white w-1/3 rounded-full"></div>
                             </div>
                             <span className="text-[10px] font-bold opacity-60 uppercase tracking-widest">
-                                {Math.floor((message.duration || 0) / 60)}:{(message.duration || 0 % 60).toString().padStart(2, '0')}
+                                {Math.floor((message.duration || 0) / 60)}:{((message.duration || 0) % 60).toString().padStart(2, '0')}
                             </span>
                         </div>
                         <audio 

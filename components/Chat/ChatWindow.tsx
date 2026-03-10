@@ -12,6 +12,7 @@ import {
   getUserById, 
   addMessage, 
   getMessages, 
+  subscribeToMessages,
   deleteMessageForEveryone, 
   deleteMessageForMe, 
   togglePinMessage, 
@@ -49,6 +50,7 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ chat, currentUser, onClo
   const [showForwardModal, setShowForwardModal] = useState(false);
   const [messageToForward, setMessageToForward] = useState<Message | null>(null);
   const [isAIGenerating, setIsAIGenerating] = useState(false);
+  const [isSending, setIsSending] = useState(false);
   const [smartReplies, setSmartReplies] = useState<string[]>([]);
   
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -186,8 +188,7 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ chat, currentUser, onClo
   }, [messages.length]);
 
   useEffect(() => {
-    const sync = async () => {
-      const msgs = await getMessages(chat.id, currentUser.role !== 'user');
+    const unsub = subscribeToMessages(chat.id, currentUser.role !== 'user', (msgs) => {
       setMessages(msgs);
       
       // Suggest smart replies if the last message is from the other user
@@ -199,11 +200,9 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ chat, currentUser, onClo
               setSmartReplies([]);
           }
       }
-    };
-    sync();
-    const itv = setInterval(sync, 2000); 
-    return () => clearInterval(itv);
-  }, [chat.id]);
+    });
+    return () => unsub();
+  }, [chat.id, currentUser.uid, currentUser.role]);
 
   useEffect(() => {
     if (!isGroup && otherId) getUserById(otherId).then(setOtherUser);
@@ -212,54 +211,62 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ chat, currentUser, onClo
   const handleSend = async (e?: React.FormEvent) => {
     e?.preventDefault();
     const text = inputText.trim();
-    if (!text) return;
+    if (!text || isSending) return;
 
     if (editingMessage) {
         await handleSaveEdit();
         return;
     }
 
-    setTypingStatus(chat.id, currentUser.uid, false);
-    const recipient = isGroup ? chat.id : otherId!;
-    
-    // AI Content Filtering
-    const filterResult = await aiService.filterContent(text);
-    if (!filterResult.isSafe) {
-        alert(`Message flagged: ${filterResult.reason || "Inappropriate content detected."}. This message will be hidden.`);
+    setIsSending(true);
+    try {
+        setTypingStatus(chat.id, currentUser.uid, false);
+        const recipient = isGroup ? chat.id : otherId!;
+        
+        // AI Content Filtering
+        const filterResult = await aiService.filterContent(text);
+        if (!filterResult.isSafe) {
+            alert(`Message flagged: ${filterResult.reason || "Inappropriate content detected."}. This message will be hidden.`);
+            const msg: Message = {
+                id: 'm_' + Math.random().toString(36).substring(2, 11),
+                senderId: currentUser.uid, 
+                recipientId: recipient,
+                text, 
+                type: 'text', 
+                timestamp: Date.now(), 
+                status: 'sent',
+                isFlagged: true,
+                flagReason: filterResult.reason
+            };
+            setMessages(prev => [...prev, msg]);
+            setInputText('');
+            setSmartReplies([]);
+            await addMessage(msg);
+            return;
+        }
+
         const msg: Message = {
-            id: 'm_' + Math.random().toString(36).substring(2, 11),
-            senderId: currentUser.uid, 
-            recipientId: recipient,
-            text, 
-            type: 'text', 
-            timestamp: Date.now(), 
-            status: 'sent',
-            isFlagged: true,
-            flagReason: filterResult.reason
+          id: 'm_' + Math.random().toString(36).substring(2, 11),
+          senderId: currentUser.uid, 
+          recipientId: recipient,
+          text, 
+          type: 'text', 
+          timestamp: Date.now(), 
+          status: 'sent',
+          replyContext: replyingTo ? { messageId: replyingTo.id, text: replyingTo.text || 'Media', senderName: replyingTo.senderId === currentUser.uid ? 'You' : (otherUser?.name || 'User') } : undefined
         };
+
         setMessages(prev => [...prev, msg]);
         setInputText('');
+        setReplyingTo(null);
         setSmartReplies([]);
         await addMessage(msg);
-        return;
+    } catch (err) {
+        console.error("Failed to send message:", err);
+        alert("Failed to send message. Please try again.");
+    } finally {
+        setIsSending(false);
     }
-
-    const msg: Message = {
-      id: 'm_' + Math.random().toString(36).substring(2, 11),
-      senderId: currentUser.uid, 
-      recipientId: recipient,
-      text, 
-      type: 'text', 
-      timestamp: Date.now(), 
-      status: 'sent',
-      replyContext: replyingTo ? { messageId: replyingTo.id, text: replyingTo.text || 'Media', senderName: replyingTo.senderId === currentUser.uid ? 'You' : (otherUser?.name || 'User') } : undefined
-    };
-
-    setMessages(prev => [...prev, msg]);
-    setInputText('');
-    setReplyingTo(null);
-    setSmartReplies([]);
-    await addMessage(msg);
   };
 
   const handleAIRefine = async () => {
@@ -532,9 +539,17 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ chat, currentUser, onClo
                 </div>
 
                 <div className="flex items-center gap-2">
-                    {inputText.trim() ? (
-                        <button type="submit" className="w-11 h-11 flex items-center justify-center rounded-full bg-primary text-white glow-button active:scale-90 transition-all">
-                            <span className="material-symbols-outlined fill-1">send</span>
+                    {inputText.trim() || isSending ? (
+                        <button 
+                            type="submit" 
+                            disabled={isSending}
+                            className={`w-11 h-11 flex items-center justify-center rounded-full bg-primary text-white glow-button active:scale-90 transition-all ${isSending ? 'opacity-50' : ''}`}
+                        >
+                            {isSending ? (
+                                <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                            ) : (
+                                <span className="material-symbols-outlined fill-1">send</span>
+                            )}
                         </button>
                     ) : (
                         <button 

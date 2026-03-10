@@ -9,15 +9,16 @@ const client = new OpenAI({
 const DEFAULT_MODEL = "gemini-2.5-flash-lite";
 
 export const aiService = {
-  async generateCaption(prompt: string): Promise<string> {
+  async generateCaptionOptions(prompt: string): Promise<string[]> {
     const response = await client.chat.completions.create({
       model: DEFAULT_MODEL,
       messages: [
-        { role: 'system', content: "You are a creative social media manager. Generate a catchy, trendy caption with emojis based on the user's description. Keep it short and engaging." },
-        { role: 'user', content: `Generate a caption for: ${prompt}` }
+        { role: 'system', content: "You are a creative social media manager. Generate 5 catchy, trendy captions with emojis based on the user's description. Return them as a simple list separated by pipe characters (|). Keep them short and engaging." },
+        { role: 'user', content: `Generate captions for: ${prompt}` }
       ]
     });
-    return response.choices[0].message.content || "";
+    const content = response.choices[0].message.content || "";
+    return content.split('|').map(s => s.trim()).filter(Boolean);
   },
 
   async generateHashtags(caption: string): Promise<string> {
@@ -31,15 +32,16 @@ export const aiService = {
     return response.choices[0].message.content || "";
   },
 
-  async generateBio(interests: string): Promise<string> {
+  async generateBioOptions(interests: string): Promise<string[]> {
     const response = await client.chat.completions.create({
       model: DEFAULT_MODEL,
       messages: [
-        { role: 'system', content: "Create a short, creative, and professional social media bio (max 150 chars) based on the user's interests. Use emojis." },
+        { role: 'system', content: "Create 5 short, creative social media bios (max 150 chars) based on the user's interests. Use emojis. Return them as a simple list separated by pipe characters (|)." },
         { role: 'user', content: `Interests: ${interests}` }
       ]
     });
-    return response.choices[0].message.content || "";
+    const content = response.choices[0].message.content || "";
+    return content.split('|').map(s => s.trim()).filter(Boolean);
   },
 
   async suggestCommentReplies(comment: string): Promise<string[]> {
