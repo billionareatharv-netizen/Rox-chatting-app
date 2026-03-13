@@ -173,18 +173,38 @@ export const ChatDashboard: React.FC<ChatDashboardProps> = ({ currentUser, toggl
         dragElastic={0.2}
         onDragEnd={handleDragEnd}
       >
-        {selectedChat ? (
-          <ChatWindow 
-            chat={selectedChat} 
-            currentUser={currentUser} 
-            onClose={() => setSelectedChat(null)}
-            onUserClick={setViewingUser}
-            onCallStart={startCall}
-            nicknames={nicknames}
-          />
-        ) : (
-          renderTabContent()
-        )}
+        <AnimatePresence mode="wait">
+          {selectedChat ? (
+            <motion.div
+              key="chat-window"
+              initial={{ x: '100%' }}
+              animate={{ x: 0 }}
+              exit={{ x: '100%' }}
+              transition={{ type: 'spring', damping: 25, stiffness: 200 }}
+              className="absolute inset-0 z-50 bg-background-light dark:bg-background-dark"
+            >
+              <ChatWindow 
+                chat={selectedChat} 
+                currentUser={currentUser} 
+                onClose={() => setSelectedChat(null)}
+                onUserClick={setViewingUser}
+                onCallStart={startCall}
+                nicknames={nicknames}
+              />
+            </motion.div>
+          ) : (
+            <motion.div
+              key={activeTab}
+              initial={{ opacity: 0, x: 10 }}
+              animate={{ opacity: 1, x: 0 }}
+              exit={{ opacity: 0, x: -10 }}
+              transition={{ duration: 0.2 }}
+              className="flex-1 flex flex-col overflow-hidden"
+            >
+              {renderTabContent()}
+            </motion.div>
+          )}
+        </AnimatePresence>
       </motion.div>
 
       {/* Global Bottom Navigation */}

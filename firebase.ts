@@ -69,7 +69,10 @@ const app = getApps().length ? getApp() : initializeApp(firebaseConfig);
 
 // Initialize services once
 export const auth = getAuth(app);
-export const db = getFirestore(app);
+import { initializeFirestore } from "firebase/firestore";
+export const db = initializeFirestore(app, {
+  experimentalForceLongPolling: true,
+});
 export const storage = getStorage(app);
 
 const generateUUID = () => {
@@ -714,7 +717,8 @@ export const getCallById = async (callId: string) => {
 };
 
 export const addStory = async (story: any) => {
-  await setDoc(doc(db, "stories", story.id), { ...story, likes: [], views: [] });
+  const safeStory = sanitizeData(story);
+  await setDoc(doc(db, "stories", safeStory.id), { ...safeStory, likes: [], views: [] });
 };
 export const getStories = async () => {
   try {
@@ -761,7 +765,7 @@ export const sendStoryReply = async (rid: string, sid: string, text: string, sto
 
 export const addNote = async (userId: string, userName: string, userPhoto: string, text: string, music?: any) => {
   const noteId = `note_${userId}`;
-  const note = { id: noteId, userId, userName, userPhoto, text, timestamp: Date.now(), music };
+  const note = sanitizeData({ id: noteId, userId, userName, userPhoto, text, timestamp: Date.now(), music });
   await setDoc(doc(db, "notes", noteId), note);
   return note;
 };

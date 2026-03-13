@@ -136,7 +136,7 @@ export const HomeFeed: React.FC<HomeFeedProps> = ({ currentUser, onOpenDMs, onUp
             </section>
 
             {/* Feed List */}
-            <main className="flex flex-col gap-10 py-8 max-w-lg mx-auto">
+            <main className="flex flex-col gap-6 py-6 max-w-lg mx-auto px-4 sm:px-0">
                 {loading ? (
                     <div className="flex justify-center py-20">
                         <div className="w-8 h-8 border-4 border-primary border-t-transparent rounded-full animate-spin"></div>
@@ -148,16 +148,16 @@ export const HomeFeed: React.FC<HomeFeedProps> = ({ currentUser, onOpenDMs, onUp
                     </div>
                 ) : (
                     posts.map(post => (
-                        <article key={post.id} className="relative w-full animate-in slide-in-from-bottom-10 duration-500">
+                        <article key={post.id} className="relative w-full bg-white dark:bg-[#1a1a1a] rounded-[2rem] overflow-hidden border border-slate-200/50 dark:border-white/5 shadow-sm hover:shadow-md transition-all duration-300">
                             {/* Post Header */}
-                            <div className="flex items-center justify-between px-4 mb-3">
+                            <div className="flex items-center justify-between px-5 py-4">
                                 <div className="flex items-center gap-3 cursor-pointer" onClick={() => onOpenPost(post)}>
                                     <div className="relative">
                                         <img src={post.userPhoto} className="w-10 h-10 rounded-full border border-black/5 dark:border-white/10 object-cover" alt="" />
-                                        <div className="absolute -bottom-1 -right-1 w-4 h-4 bg-emerald-500 border-2 border-white dark:border-background-dark rounded-full"></div>
+                                        <div className="absolute -bottom-0.5 -right-0.5 w-3.5 h-3.5 bg-emerald-500 border-2 border-white dark:border-[#1a1a1a] rounded-full"></div>
                                     </div>
                                     <div className="flex flex-col">
-                                        <span className="text-sm font-black tracking-tight">{post.userName}</span>
+                                        <span className="text-sm font-bold tracking-tight">{post.userName}</span>
                                         <span className="text-[10px] opacity-50 flex items-center gap-1 font-bold uppercase tracking-widest">
                                             {post.location || 'Cyber Space'}
                                         </span>
@@ -199,7 +199,7 @@ export const HomeFeed: React.FC<HomeFeedProps> = ({ currentUser, onOpenDMs, onUp
                             </div>
 
                             {/* Main Media */}
-                            <div className="w-full aspect-[4/5] bg-slate-100 dark:bg-card-dark overflow-hidden cursor-pointer sm:rounded-3xl border border-black/5 dark:border-white/5 shadow-xl" onClick={() => onOpenPost(post)}>
+                            <div className="w-full aspect-[4/5] bg-slate-100 dark:bg-[#0f0f0f] overflow-hidden cursor-pointer" onClick={() => onOpenPost(post)}>
                                 {post.mediaType === 'video' ? (
                                     <video src={post.mediaUrl} className="w-full h-full object-cover" autoPlay muted loop playsInline />
                                 ) : (
@@ -208,22 +208,22 @@ export const HomeFeed: React.FC<HomeFeedProps> = ({ currentUser, onOpenDMs, onUp
                             </div>
 
                             {/* Interaction Bar */}
-                            <div className="px-4 mt-4">
-                                <div className="flex items-center justify-between mb-3">
-                                    <div className="flex items-center gap-5">
+                            <div className="px-5 py-5">
+                                <div className="flex items-center justify-between mb-4">
+                                    <div className="flex items-center gap-6">
                                         <button 
                                             onClick={() => handleLike(post.id)}
-                                            className={`flex items-center gap-1.5 transition-all active:scale-125 ${post.likes.includes(currentUser.uid) ? 'text-rose-500' : 'text-slate-900 dark:text-white'}`}
+                                            className={`flex items-center gap-2 transition-all active:scale-125 ${post.likes.includes(currentUser.uid) ? 'text-rose-500' : 'text-slate-900 dark:text-white'}`}
                                         >
                                             <span className="material-symbols-outlined text-2xl" style={post.likes.includes(currentUser.uid) ? { fontVariationSettings: "'FILL' 1" } : {}}>favorite</span>
-                                            <span className="text-xs font-black">{post.likes.length}</span>
+                                            <span className="text-xs font-bold">{post.likes.length}</span>
                                         </button>
                                         <button 
                                             onClick={() => onOpenPost(post)}
-                                            className="flex items-center gap-1.5 text-slate-900 dark:text-white"
+                                            className="flex items-center gap-2 text-slate-900 dark:text-white"
                                         >
                                             <span className="material-symbols-outlined text-2xl">chat_bubble</span>
-                                            <span className="text-xs font-black">{post.commentCount}</span>
+                                            <span className="text-xs font-bold">{post.commentCount}</span>
                                         </button>
                                         <button className="text-slate-900 dark:text-white hover:text-primary transition-colors">
                                             <span className="material-symbols-outlined text-2xl">send</span>
@@ -237,13 +237,13 @@ export const HomeFeed: React.FC<HomeFeedProps> = ({ currentUser, onOpenDMs, onUp
                                     </button>
                                 </div>
                                 <div className="text-sm leading-relaxed">
-                                    <span className="font-black mr-2">@{post.userName.toLowerCase().replace(/\s/g, '_')}</span> 
-                                    <span className="font-medium opacity-90">{post.caption}</span>
+                                    <span className="font-bold mr-2">@{post.userName.toLowerCase().replace(/\s/g, '_')}</span> 
+                                    <span className="font-medium opacity-80">{post.caption}</span>
                                     {post.caption && post.caption.length > 60 && (
                                         <button onClick={() => onOpenPost(post)} className="ml-1 text-primary font-bold">...more</button>
                                     )}
                                 </div>
-                                <button onClick={() => onOpenPost(post)} className="mt-2 text-[11px] font-bold uppercase tracking-widest opacity-40 hover:opacity-100 transition-opacity">
+                                <button onClick={() => onOpenPost(post)} className="mt-3 text-[11px] font-bold uppercase tracking-widest opacity-40 hover:opacity-100 transition-opacity">
                                     View all {post.commentCount} comments
                                 </button>
                             </div>

@@ -155,67 +155,84 @@ export const AIChatView: React.FC<AIChatViewProps> = ({ currentUser, onClose }) 
       {/* Chat Container */}
       <div 
         ref={scrollRef}
-        className="flex-1 overflow-y-auto p-4 md:p-8 space-y-6 no-scrollbar bg-slate-50 dark:bg-slate-950/50"
+        className="flex-1 overflow-y-auto p-4 md:p-8 space-y-8 no-scrollbar bg-white dark:bg-background-dark"
       >
-        <AnimatePresence initial={false}>
-          {messages.map((msg) => (
-            <motion.div
-              key={msg.id}
-              initial={{ opacity: 0, scale: 0.95, y: 10 }}
-              animate={{ opacity: 1, scale: 1, y: 0 }}
-              className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}
+        <div className="max-w-3xl mx-auto space-y-8">
+          <AnimatePresence initial={false}>
+            {messages.map((msg) => (
+              <motion.div
+                key={msg.id}
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                className={`flex gap-4 ${msg.role === 'user' ? 'flex-row-reverse' : 'flex-row'}`}
+              >
+                <div className={`shrink-0 w-8 h-8 rounded-lg flex items-center justify-center text-white font-bold text-xs ${msg.role === 'user' ? 'bg-indigo-500' : 'bg-emerald-500'}`}>
+                  {msg.role === 'user' ? 'U' : 'AI'}
+                </div>
+                <div className={`flex flex-col max-w-[85%] ${msg.role === 'user' ? 'items-end' : 'items-start'}`}>
+                  <div className={`px-5 py-3.5 rounded-2xl text-[15px] leading-relaxed whitespace-pre-wrap ${
+                    msg.role === 'user' 
+                      ? 'bg-slate-100 dark:bg-white/5 text-slate-900 dark:text-white' 
+                      : 'text-slate-800 dark:text-slate-200'
+                  }`}>
+                      {msg.content}
+                  </div>
+                  <div className="text-[9px] mt-1.5 opacity-30 font-bold uppercase tracking-widest">
+                    {new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                  </div>
+                </div>
+              </motion.div>
+            ))}
+          </AnimatePresence>
+          
+          {isTyping && (
+            <motion.div 
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="flex gap-4"
             >
-              <div className={`max-w-[85%] md:max-w-[70%] px-6 py-4 rounded-[1.5rem] text-sm md:text-base font-medium shadow-lg backdrop-blur-sm ${
-                msg.role === 'user' 
-                  ? 'bg-gradient-to-br from-primary to-indigo-600 text-white rounded-tr-none' 
-                  : 'bg-white dark:bg-[#1d1b27] text-slate-900 dark:text-white rounded-tl-none border border-black/5 dark:border-white/10'
-              }`}>
-                <div className="leading-relaxed whitespace-pre-wrap">
-                    {msg.content}
-                </div>
-                <div className={`text-[10px] mt-2 opacity-40 font-black uppercase tracking-widest ${msg.role === 'user' ? 'text-right' : 'text-left'}`}>
-                  {new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                </div>
+              <div className="shrink-0 w-8 h-8 rounded-lg bg-emerald-500 flex items-center justify-center text-white font-bold text-xs">
+                AI
+              </div>
+              <div className="bg-slate-50 dark:bg-white/5 px-4 py-3 rounded-2xl flex gap-1.5 items-center">
+                <div className="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-bounce [animation-duration:0.8s]"></div>
+                <div className="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-bounce [animation-duration:0.8s] [animation-delay:0.2s]"></div>
+                <div className="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-bounce [animation-duration:0.8s] [animation-delay:0.4s]"></div>
               </div>
             </motion.div>
-          ))}
-        </AnimatePresence>
-        
-        {isTyping && (
-          <motion.div 
-            initial={{ opacity: 0, y: 10 }}
-            animate={{ opacity: 1, y: 0 }}
-            className="flex justify-start"
-          >
-            <div className="bg-white dark:bg-[#1d1b27] px-6 py-4 rounded-[1.5rem] rounded-tl-none flex gap-1.5 items-center border border-black/5 dark:border-white/10 shadow-md">
-              <div className="w-2 h-2 bg-primary rounded-full animate-bounce [animation-duration:0.8s]"></div>
-              <div className="w-2 h-2 bg-primary rounded-full animate-bounce [animation-duration:0.8s] [animation-delay:0.2s]"></div>
-              <div className="w-2 h-2 bg-primary rounded-full animate-bounce [animation-duration:0.8s] [animation-delay:0.4s]"></div>
-            </div>
-          </motion.div>
-        )}
+          )}
+        </div>
       </div>
 
       {/* Input Area */}
-      <footer className="p-4 md:p-8 bg-white/80 dark:bg-background-dark/80 backdrop-blur-xl border-t border-black/5 dark:border-white/10">
-        <div className="max-w-3xl mx-auto flex items-center gap-4 bg-slate-100 dark:bg-[#2b2839]/80 rounded-[2rem] px-6 py-3 shadow-inner border border-transparent dark:border-white/5 group focus-within:ring-2 focus-within:ring-primary/30 transition-all">
-          <input 
+      <footer className="p-4 md:p-10 bg-white dark:bg-background-dark">
+        <div className="max-w-3xl mx-auto relative">
+          <textarea 
+            rows={1}
             value={input}
             onChange={(e) => setInput(e.target.value)}
-            onKeyDown={(e) => e.key === 'Enter' && handleSend()}
-            placeholder="Type a message..."
-            className="flex-1 bg-transparent border-none focus:ring-0 text-sm md:text-base font-bold text-slate-900 dark:text-white placeholder:text-slate-400"
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                handleSend();
+              }
+            }}
+            placeholder="Message Roxx AI..."
+            className="w-full bg-slate-100 dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-2xl px-5 py-4 pr-14 outline-none focus:border-primary/50 transition-all resize-none text-[15px] font-medium text-slate-900 dark:text-white placeholder:text-slate-400 dark:placeholder:text-slate-500"
           />
           <button 
             onClick={handleSend}
             disabled={!input.trim() || isTyping}
-            className={`size-12 rounded-full flex items-center justify-center transition-all active:scale-90 ${
-              input.trim() && !isTyping ? 'bg-primary text-white shadow-xl shadow-primary/30' : 'bg-slate-300 dark:bg-white/10 text-slate-500'
+            className={`absolute right-2.5 bottom-2.5 size-10 rounded-xl flex items-center justify-center transition-all ${
+              input.trim() && !isTyping ? 'bg-primary text-white shadow-lg' : 'bg-slate-200 dark:bg-white/10 text-slate-400'
             }`}
           >
-            <span className="material-symbols-outlined text-2xl">send</span>
+            <span className="material-symbols-outlined text-xl">arrow_upward</span>
           </button>
         </div>
+        <p className="text-center text-[10px] text-slate-400 dark:text-slate-600 mt-3 font-medium">
+          Roxx AI can make mistakes. Check important info.
+        </p>
       </footer>
     </motion.div>
   );

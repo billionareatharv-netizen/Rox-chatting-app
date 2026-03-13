@@ -251,27 +251,29 @@ export const Sidebar: React.FC<SidebarProps> = ({
                         <div 
                             key={chat.id} 
                             onClick={() => onChatSelect(chat)} 
-                            className={`flex items-center gap-4 px-4 py-4 rounded-3xl group cursor-pointer transition-all active:scale-[0.98] ${isActive ? 'bg-primary text-white shadow-lg shadow-primary/20' : isUnread ? 'bg-indigo-500/5 dark:bg-[#330df2]/10 border-l-4 border-primary' : 'hover:bg-slate-100 dark:hover:bg-white/5'}`}
+                            className={`flex items-center gap-3 px-4 py-3 rounded-2xl group cursor-pointer transition-all active:scale-[0.98] ${isActive ? 'bg-primary/10 dark:bg-primary/20 border-l-4 border-primary' : isUnread ? 'bg-indigo-500/5 dark:bg-[#330df2]/5 border-l-4 border-primary' : 'hover:bg-slate-100 dark:hover:bg-white/5'}`}
                         >
                             <div className="relative shrink-0">
-                                <img src={info.photo} className={`w-14 h-14 rounded-full object-cover border-2 ${isActive ? 'border-white/30' : 'border-transparent'}`} alt="" />
-                                {info.userObj?.status === 'online' && !isActive && (
-                                    <div className="absolute -bottom-0.5 -right-0.5 w-4 h-4 bg-green-500 rounded-full border-2 border-background-light dark:border-background-dark"></div>
-                                )}
-                                {isUnread && !isActive && (
-                                    <div className="absolute -top-1 -right-1 w-4 h-4 bg-primary rounded-full border-2 border-background-light dark:border-background-dark shadow-md"></div>
+                                <img src={info.photo} className={`w-12 h-12 rounded-full object-cover border-2 ${isActive ? 'border-primary/30' : 'border-transparent'}`} alt="" />
+                                {info.userObj?.status === 'online' && (
+                                    <div className="absolute bottom-0 right-0 w-3.5 h-3.5 bg-green-500 rounded-full border-2 border-background-light dark:border-background-dark"></div>
                                 )}
                             </div>
                             <div className="flex-1 min-w-0">
-                                <div className="flex justify-between items-baseline mb-0.5">
-                                    <h4 className={`text-sm font-black truncate ${isActive ? 'text-white' : 'text-slate-900 dark:text-white'}`}>{info.name}</h4>
-                                    <span className={`text-[10px] font-bold ${isActive ? 'text-white/70' : isUnread ? 'text-primary' : 'text-slate-400'}`}>
+                                <div className="flex justify-between items-center mb-0.5">
+                                    <h4 className={`text-sm font-bold truncate ${isActive || isUnread ? 'text-slate-900 dark:text-white' : 'text-slate-700 dark:text-slate-300'}`}>{info.name}</h4>
+                                    <span className={`text-[10px] font-medium ${isUnread ? 'text-primary' : 'text-slate-400'}`}>
                                         {getTimeLabel(chat.lastMessage?.timestamp)}
                                     </span>
                                 </div>
-                                <p className={`text-[13px] line-clamp-1 font-medium ${isActive ? 'text-white/80' : isUnread ? 'text-slate-900 dark:text-white font-bold' : 'text-slate-500 dark:text-[#a19cba]'}`}>
-                                    {chat.lastMessage?.text || 'Start a new conversation'}
-                                </p>
+                                <div className="flex justify-between items-center">
+                                    <p className={`text-[13px] line-clamp-1 flex-1 ${isUnread ? 'text-slate-900 dark:text-white font-bold' : 'text-slate-500 dark:text-slate-400'}`}>
+                                        {chat.lastMessage?.text || 'Start a new conversation'}
+                                    </p>
+                                    {isUnread && (
+                                        <div className="ml-2 w-2 h-2 bg-primary rounded-full"></div>
+                                    )}
+                                </div>
                             </div>
                         </div>
                     );

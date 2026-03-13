@@ -5,6 +5,7 @@ import { updateProfile, saveWallpaper, updatePrivacySettings, getSavedGallery, s
 import { SubscriptionModal } from '../Premium/SubscriptionModal';
 import { aiService } from '../../src/services/aiService';
 import { AISelectionModal } from './AISelectionModal';
+import { QRCodeModal } from './QRCodeModal';
 
 interface ProfilePanelProps {
   user: User;
@@ -34,6 +35,7 @@ export const ProfilePanel: React.FC<ProfilePanelProps> = ({
   const [isAIGenerating, setIsAIGenerating] = useState(false);
   const [aiOptions, setAiOptions] = useState<string[]>([]);
   const [showAIModal, setShowAIModal] = useState(false);
+  const [showQRModal, setShowQRModal] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -303,7 +305,7 @@ export const ProfilePanel: React.FC<ProfilePanelProps> = ({
                         <button onClick={() => setViewMode('edit')} className="flex-1 h-12 bg-slate-200 dark:bg-white/10 text-slate-900 dark:text-white flex items-center justify-center rounded-full text-xs font-black uppercase tracking-widest border border-slate-300 dark:border-white/10 active:scale-95 transition-all">
                             Edit Profile
                         </button>
-                        <button className="flex-1 h-12 bg-primary text-white flex items-center justify-center rounded-full text-xs font-black uppercase tracking-widest shadow-lg active:scale-95 transition-all">
+                        <button onClick={() => setShowQRModal(true)} className="flex-1 h-12 bg-primary text-white flex items-center justify-center rounded-full text-xs font-black uppercase tracking-widest shadow-lg active:scale-95 transition-all">
                             Share Profile
                         </button>
                     </div>
@@ -371,6 +373,11 @@ export const ProfilePanel: React.FC<ProfilePanelProps> = ({
             options={aiOptions}
             isLoading={isAIGenerating}
             onSelect={setBio}
+        />
+        <QRCodeModal 
+            user={user}
+            isOpen={showQRModal}
+            onClose={() => setShowQRModal(false)}
         />
     </div>
   );
