@@ -230,7 +230,11 @@ export const saveWallpaper = async (userId: string, target: string, wallpaper: s
 };
 
 export const updatePrivacySettings = async (userId: string, settings: any) => {
-    await updateDoc(doc(db, "users", userId), { privacySettings: settings });
+    try {
+        await updateDoc(doc(db, "users", userId), { privacySettings: settings });
+    } catch (error) {
+        handleFirestoreError(error, OperationType.UPDATE, `users/${userId}`);
+    }
 };
 
 export const addPost = async (post: Omit<Post, 'id' | 'likes' | 'bookmarks' | 'commentCount'>) => {
@@ -242,18 +246,26 @@ export const addPost = async (post: Omit<Post, 'id' | 'likes' | 'bookmarks' | 'c
     bookmarks: [],
     commentCount: 0
   };
-  await setDoc(doc(db, "posts", postId), fullPost);
-  return fullPost;
+  try {
+    await setDoc(doc(db, "posts", postId), fullPost);
+    return fullPost;
+  } catch (error) {
+    handleFirestoreError(error, OperationType.CREATE, `posts/${postId}`);
+  }
 };
 
 export const getFeedPosts = async () => {
+  const path = "posts";
   try {
-    const q = query(collection(db, "posts"), limit(50));
+    const q = query(collection(db, path), limit(50));
     const snapshot = await getDocs(q);
     return snapshot.docs
       .map(d => ({ id: d.id, ...d.data() } as Post))
       .sort((a, b) => b.timestamp - a.timestamp);
-  } catch(e) { return []; }
+  } catch(error) { 
+    handleFirestoreError(error, OperationType.LIST, path);
+    return []; 
+  }
 };
 
 export const getPostsByUser = async (userId: string) => {
@@ -275,11 +287,14 @@ export const subscribeToUserPosts = (userId: string, callback: (posts: Post[]) =
 };
 
 export const subscribeToPosts = (callback: (posts: Post[]) => void) => {
-  const q = query(collection(db, "posts"), limit(30));
+  const path = "posts";
+  const q = query(collection(db, path), limit(30));
   return onSnapshot(q, (snapshot) => {
     const posts = snapshot.docs.map(d => ({ id: d.id, ...d.data() } as Post));
     callback(posts.sort((a, b) => b.timestamp - a.timestamp));
-  }, (err) => console.error("Posts Sub Error", err));
+  }, (error) => {
+    handleFirestoreError(error, OperationType.LIST, path);
+  });
 };
 
 export const subscribeToPost = (postId: string, callback: (post: Post) => void) => {
@@ -310,15 +325,20 @@ export const toggleBookmarkPost = async (postId: string, userId: string) => {
 
 export const addComment = async (postId: string, comment: Omit<Comment, 'id' | 'likes' | 'timestamp'>) => {
     const commentId = 'comm_' + generateUUID();
+    const path = `posts/${postId}/comments/${commentId}`;
     const fullComment: Comment = {
         ...comment,
         id: commentId,
         timestamp: Date.now(),
         likes: []
     };
-    await setDoc(doc(db, "posts", postId, "comments", commentId), fullComment);
-    await updateDoc(doc(db, "posts", postId), { commentCount: increment(1) });
-    return fullComment;
+    try {
+        await setDoc(doc(db, "posts", postId, "comments", commentId), fullComment);
+        await updateDoc(doc(db, "posts", postId), { commentCount: increment(1) });
+        return fullComment;
+    } catch (error) {
+        handleFirestoreError(error, OperationType.CREATE, path);
+    }
 };
 
 export const subscribeToComments = (postId: string, callback: (comments: Comment[]) => void) => {
@@ -413,13 +433,14 @@ export const subscribeToNicknames = (myUid: string, callback: (nicknames: Record
 };
 
 export const getMyChats = async (uid: string) => {
+  const path = "chats";
   try {
-    const q = query(collection(db, "chats"), where("participants", "array-contains", uid));
+    const q = query(collection(db, path), where("participants", "array-contains", uid));
     const querySnapshot = await getDocs(q);
     return querySnapshot.docs.map(doc => doc.data() as Chat)
                    .sort((a: any, b: any) => (b.updatedAt || 0) - (a.updatedAt || 0));
-  } catch(e) { 
-    console.error("Get My Chats Error:", e);
+  } catch(error) { 
+    handleFirestoreError(error, OperationType.LIST, path);
     return []; 
   }
 };
@@ -517,15 +538,19 @@ export const addMessage = async (msg: any) => {
     : [msg.senderId, msg.recipientId].sort().join('_');
     
   const safeMsg = sanitizeData({ ...msg, chatId });
-  await setDoc(doc(db, "messages", safeMsg.id), safeMsg);
-  
-  if (safeMsg.type !== 'system') {
-    await setDoc(doc(db, "chats", chatId), { 
-      id: chatId, 
-      lastMessage: { text: safeMsg.text || 'Media', senderId: safeMsg.senderId, timestamp: safeMsg.timestamp },
-      updatedAt: safeMsg.timestamp,
-      participants: safeMsg.recipientId.startsWith('group_') ? arrayUnion(safeMsg.senderId) : [safeMsg.senderId, safeMsg.recipientId]
-    }, { merge: true });
+  try {
+    await setDoc(doc(db, "messages", safeMsg.id), safeMsg);
+    
+    if (safeMsg.type !== 'system') {
+      await setDoc(doc(db, "chats", chatId), { 
+        id: chatId, 
+        lastMessage: { text: safeMsg.text || 'Media', senderId: safeMsg.senderId, timestamp: safeMsg.timestamp },
+        updatedAt: safeMsg.timestamp,
+        participants: safeMsg.recipientId.startsWith('group_') ? arrayUnion(safeMsg.senderId) : [safeMsg.senderId, safeMsg.recipientId]
+      }, { merge: true });
+    }
+  } catch (error) {
+    handleFirestoreError(error, OperationType.WRITE, `messages/${safeMsg.id}`);
   }
 };
 
@@ -718,7 +743,11 @@ export const getCallById = async (callId: string) => {
 
 export const addStory = async (story: any) => {
   const safeStory = sanitizeData(story);
-  await setDoc(doc(db, "stories", safeStory.id), { ...safeStory, likes: [], views: [] });
+  try {
+    await setDoc(doc(db, "stories", safeStory.id), { ...safeStory, likes: [], views: [] });
+  } catch (error) {
+    handleFirestoreError(error, OperationType.CREATE, `stories/${safeStory.id}`);
+  }
 };
 export const getStories = async () => {
   try {
@@ -745,10 +774,20 @@ export const likeStory = async (storyId: string, userId: string) => {
     else await updateDoc(doc(db, "stories", storyId), { likes: arrayUnion(userId) });
   }
 };
-export const deleteStory = async (storyId: string) => { await deleteDoc(doc(db, "stories", storyId)); };
+export const deleteStory = async (storyId: string) => { 
+  try {
+    await deleteDoc(doc(db, "stories", storyId)); 
+  } catch (error) {
+    handleFirestoreError(error, OperationType.DELETE, `stories/${storyId}`);
+  }
+};
 
 export const deletePost = async (postId: string) => {
-  await deleteDoc(doc(db, "posts", postId));
+  try {
+    await deleteDoc(doc(db, "posts", postId));
+  } catch (error) {
+    handleFirestoreError(error, OperationType.DELETE, `posts/${postId}`);
+  }
 };
 
 export const deleteAllPosts = async () => {
@@ -766,8 +805,12 @@ export const sendStoryReply = async (rid: string, sid: string, text: string, sto
 export const addNote = async (userId: string, userName: string, userPhoto: string, text: string, music?: any) => {
   const noteId = `note_${userId}`;
   const note = sanitizeData({ id: noteId, userId, userName, userPhoto, text, timestamp: Date.now(), music });
-  await setDoc(doc(db, "notes", noteId), note);
-  return note;
+  try {
+    await setDoc(doc(db, "notes", noteId), note);
+    return note;
+  } catch (error) {
+    handleFirestoreError(error, OperationType.CREATE, `notes/${noteId}`);
+  }
 };
 
 export const getNotes = async () => {
@@ -794,7 +837,11 @@ export const sendNoteReply = async (rid: string, sid: string, text: string, note
 
 export const saveMediaToGallery = async (userId: string, mediaUrl: string, mediaType: 'image' | 'video', senderName: string) => {
   const id = 'saved_' + generateUUID();
-  await setDoc(doc(db, "saved_media", id), { id, userId, mediaUrl, mediaType, savedAt: Date.now(), originalSenderName: senderName });
+  try {
+    await setDoc(doc(db, "saved_media", id), { id, userId, mediaUrl, mediaType, savedAt: Date.now(), originalSenderName: senderName });
+  } catch (error) {
+    handleFirestoreError(error, OperationType.CREATE, `saved_media/${id}`);
+  }
 };
 
 export const getSavedGallery = async (userId: string) => {
@@ -804,7 +851,13 @@ export const getSavedGallery = async (userId: string) => {
   } catch(e) { return []; }
 };
 
-export const deleteSavedMedia = async (id: string) => { await deleteDoc(doc(db, "saved_media", id)); };
+export const deleteSavedMedia = async (id: string) => { 
+  try {
+    await deleteDoc(doc(db, "saved_media", id)); 
+  } catch (error) {
+    handleFirestoreError(error, OperationType.DELETE, `saved_media/${id}`);
+  }
+};
 
 export const admin_getAllUsers = async () => getAllUsers();
 export const admin_toggleAdminAccess = async (uid: string) => {

@@ -8,27 +8,7 @@ import { useAuth } from './hooks/useAuth';
 
 type AppView = 'auth' | 'role_select' | 'user' | 'admin';
 
-interface ErrorBoundaryProps { children?: ReactNode; }
-interface ErrorBoundaryState { hasError: boolean; }
-
-class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoundaryState> {
-  state: ErrorBoundaryState = { hasError: false };
-  static getDerivedStateFromError(error: any): ErrorBoundaryState { return { hasError: true }; }
-  componentDidCatch(error: any, errorInfo: any) { console.error("App Crash:", error, errorInfo); }
-  render() {
-    if (this.state.hasError) {
-      return (
-        <div className="h-screen w-full flex items-center justify-center bg-slate-900 text-white p-4 text-center">
-           <div className="max-w-md">
-             <h1 className="text-2xl font-bold mb-4">App Error</h1>
-             <button onClick={() => { localStorage.removeItem('roxx_settings'); window.location.reload(); }} className="px-6 py-3 bg-indigo-500 rounded-xl font-bold">Reload</button>
-           </div>
-        </div>
-      );
-    }
-    return (this as any).props.children;
-  }
-}
+import { ErrorBoundary } from './components/ErrorBoundary';
 
 const App: React.FC = () => {
   const { user, loading } = useAuth();

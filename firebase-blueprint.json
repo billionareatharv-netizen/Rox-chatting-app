@@ -1,0 +1,191 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "User profile and settings",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "email": { "type": "string", "format": "email" },
+        "name": { "type": "string" },
+        "photoURL": { "type": "string" },
+        "status": { "type": "string", "enum": ["online", "offline"] },
+        "lastSeen": { "type": "number" },
+        "bio": { "type": "string" },
+        "blockedUsers": { "type": "array", "items": { "type": "string" } },
+        "pinnedChats": { "type": "array", "items": { "type": "string" } },
+        "isAdmin": { "type": "boolean" },
+        "role": { "type": "string", "enum": ["user", "admin", "owner"] },
+        "followers": { "type": "array", "items": { "type": "string" } },
+        "following": { "type": "array", "items": { "type": "string" } },
+        "isGloballyBlocked": { "type": "boolean" },
+        "privacySettings": { "type": "object" },
+        "subscription": { "type": "object" },
+        "premiumCustomization": { "type": "object" },
+        "wallpapers": { "type": "object" }
+      },
+      "required": ["uid", "email", "name"]
+    },
+    "Post": {
+      "title": "Post",
+      "description": "Social media post",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "userId": { "type": "string" },
+        "userName": { "type": "string" },
+        "userPhoto": { "type": "string" },
+        "mediaUrl": { "type": "string" },
+        "mediaType": { "type": "string", "enum": ["image", "video"] },
+        "caption": { "type": "string" },
+        "location": { "type": "string" },
+        "timestamp": { "type": "number" },
+        "likes": { "type": "array", "items": { "type": "string" } },
+        "bookmarks": { "type": "array", "items": { "type": "string" } },
+        "commentCount": { "type": "number" },
+        "isFlagged": { "type": "boolean" },
+        "flagReason": { "type": "string" }
+      },
+      "required": ["id", "userId", "mediaUrl", "timestamp"]
+    },
+    "Comment": {
+      "title": "Comment",
+      "description": "Comment on a post",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "userId": { "type": "string" },
+        "userName": { "type": "string" },
+        "userPhoto": { "type": "string" },
+        "text": { "type": "string" },
+        "timestamp": { "type": "number" },
+        "likes": { "type": "array", "items": { "type": "string" } }
+      },
+      "required": ["id", "userId", "text", "timestamp"]
+    },
+    "Chat": {
+      "title": "Chat",
+      "description": "Direct or group chat session",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "lastMessage": { "type": "object" },
+        "updatedAt": { "type": "number" },
+        "participants": { "type": "array", "items": { "type": "string" } },
+        "typing": { "type": "object" },
+        "pinnedMessages": { "type": "array", "items": { "type": "string" } },
+        "name": { "type": "string" },
+        "type": { "type": "string", "enum": ["direct", "group"] },
+        "adminIds": { "type": "array", "items": { "type": "string" } },
+        "groupIcon": { "type": "string" },
+        "description": { "type": "string" },
+        "lockedBy": { "type": "array", "items": { "type": "string" } }
+      },
+      "required": ["id", "participants", "updatedAt"]
+    },
+    "Message": {
+      "title": "Message",
+      "description": "Chat message",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "chatId": { "type": "string" },
+        "senderId": { "type": "string" },
+        "recipientId": { "type": "string" },
+        "text": { "type": "string" },
+        "type": { "type": "string" },
+        "timestamp": { "type": "number" },
+        "status": { "type": "string" },
+        "reactions": { "type": "object" },
+        "deletedFor": { "type": "array", "items": { "type": "string" } },
+        "poll": { "type": "object" },
+        "isEdited": { "type": "boolean" },
+        "lastEditedAt": { "type": "number" },
+        "storyContext": { "type": "object" },
+        "noteContext": { "type": "object" }
+      },
+      "required": ["id", "chatId", "senderId", "timestamp"]
+    },
+    "Story": {
+      "title": "Story",
+      "description": "Ephemeral story post",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "userId": { "type": "string" },
+        "userName": { "type": "string" },
+        "userPhoto": { "type": "string" },
+        "mediaUrl": { "type": "string" },
+        "mediaType": { "type": "string", "enum": ["image", "video"] },
+        "caption": { "type": "string" },
+        "timestamp": { "type": "number" },
+        "likes": { "type": "array", "items": { "type": "string" } },
+        "views": { "type": "array" },
+        "isFlagged": { "type": "boolean" },
+        "flagReason": { "type": "string" }
+      },
+      "required": ["id", "userId", "mediaUrl", "timestamp"]
+    },
+    "Note": {
+      "title": "Note",
+      "description": "Short status note",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "userId": { "type": "string" },
+        "userName": { "type": "string" },
+        "userPhoto": { "type": "string" },
+        "text": { "type": "string" },
+        "timestamp": { "type": "number" },
+        "music": { "type": "object" }
+      },
+      "required": ["id", "userId", "text", "timestamp"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "User",
+      "description": "User profiles"
+    },
+    "/posts/{postId}": {
+      "schema": "Post",
+      "description": "Feed posts"
+    },
+    "/posts/{postId}/comments/{commentId}": {
+      "schema": "Comment",
+      "description": "Post comments"
+    },
+    "/chats/{chatId}": {
+      "schema": "Chat",
+      "description": "Chat sessions"
+    },
+    "/messages/{messageId}": {
+      "schema": "Message",
+      "description": "Chat messages"
+    },
+    "/stories/{storyId}": {
+      "schema": "Story",
+      "description": "User stories"
+    },
+    "/notes/{noteId}": {
+      "schema": "Note",
+      "description": "User notes"
+    },
+    "/calls/{callId}": {
+      "schema": "object",
+      "description": "WebRTC calls"
+    },
+    "/saved_media/{mediaId}": {
+      "schema": "object",
+      "description": "Saved gallery items"
+    },
+    "/songs/{songId}": {
+      "schema": "object",
+      "description": "Music library"
+    },
+    "/store_items/{itemId}": {
+      "schema": "object",
+      "description": "Premium store items"
+    }
+  }
+}
