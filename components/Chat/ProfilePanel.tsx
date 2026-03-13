@@ -6,6 +6,7 @@ import { SubscriptionModal } from '../Premium/SubscriptionModal';
 import { aiService } from '../../src/services/aiService';
 import { AISelectionModal } from './AISelectionModal';
 import { QRCodeModal } from './QRCodeModal';
+import { QRScanner } from './QRScanner';
 
 interface ProfilePanelProps {
   user: User;
@@ -36,6 +37,7 @@ export const ProfilePanel: React.FC<ProfilePanelProps> = ({
   const [aiOptions, setAiOptions] = useState<string[]>([]);
   const [showAIModal, setShowAIModal] = useState(false);
   const [showQRModal, setShowQRModal] = useState(false);
+  const [showScanner, setShowScanner] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -101,6 +103,18 @@ export const ProfilePanel: React.FC<ProfilePanelProps> = ({
       setBio(refined);
     } finally {
       setIsAIGenerating(false);
+    }
+  };
+
+  const handleScanSuccess = (decodedText: string) => {
+    setShowScanner(false);
+    // Extract user ID from QR code (assuming it's a URL or raw ID)
+    const userIdMatch = decodedText.match(/\/profile\/([a-zA-Z0-9]+)/);
+    const targetId = userIdMatch ? userIdMatch[1] : decodedText;
+    
+    if (targetId) {
+      // Navigate to the scanned profile
+      window.location.href = `/?profile=${targetId}`;
     }
   };
 
@@ -270,6 +284,9 @@ export const ProfilePanel: React.FC<ProfilePanelProps> = ({
                 <h2 className="text-sm font-black tracking-tighter uppercase leading-none">@{user.username || user.email.split('@')[0]}</h2>
             </div>
             <div className="flex items-center gap-4">
+                <button className="flex items-center justify-center text-slate-600 dark:text-slate-400 active:scale-90 transition-all" onClick={() => setShowScanner(true)}>
+                    <span className="material-symbols-outlined text-2xl">qr_code_scanner</span>
+                </button>
                 <button className="flex items-center justify-center" onClick={() => setViewMode('settings')}>
                     <span className="material-symbols-outlined text-2xl">settings</span>
                 </button>
@@ -378,6 +395,11 @@ export const ProfilePanel: React.FC<ProfilePanelProps> = ({
             user={user}
             isOpen={showQRModal}
             onClose={() => setShowQRModal(false)}
+        />
+        <QRScanner
+            isOpen={showScanner}
+            onClose={() => setShowScanner(false)}
+            onScanSuccess={handleScanSuccess}
         />
     </div>
   );
