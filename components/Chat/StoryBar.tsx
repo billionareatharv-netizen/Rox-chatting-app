@@ -1,7 +1,7 @@
 
 import React, { useEffect, useState } from 'react';
 import { User, Story } from '../../types';
-import { getStories } from '../../firebase';
+import { subscribeToStories } from '../../firebase';
 
 interface StoryBarProps {
   currentUser: User;
@@ -13,15 +13,8 @@ export const StoryBar: React.FC<StoryBarProps> = ({ currentUser, onUploadClick, 
   const [stories, setStories] = useState<Story[]>([]);
 
   useEffect(() => {
-    const loadStories = async () => {
-      const data = await getStories();
-      setStories(data);
-    };
-    loadStories();
-    
-    // Refresh every 30 seconds
-    const interval = setInterval(loadStories, 30000);
-    return () => clearInterval(interval);
+    const unsub = subscribeToStories(setStories);
+    return () => unsub();
   }, []);
 
   // Group stories by user using a robust forEach loop

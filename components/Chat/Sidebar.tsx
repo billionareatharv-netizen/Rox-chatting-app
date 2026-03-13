@@ -40,15 +40,15 @@ export const Sidebar: React.FC<SidebarProps> = ({
         setAllUsers(usersData.filter(u => u.uid !== currentUser.uid && !myBlocked.includes(u.uid)));
         setChats(chatsData);
         setLoading(false);
-      } catch(e) { }
+      } catch(e) { 
+        setLoading(false);
+      }
     };
 
     fetchData();
-    const itv = setInterval(fetchData, 10000);
     const unsubNotes = subscribeToNotes(setNotes);
     
     return () => {
-        clearInterval(itv);
         unsubNotes();
     };
   }, [currentUser.uid]);
@@ -202,26 +202,27 @@ export const Sidebar: React.FC<SidebarProps> = ({
                         <p className="text-slate-500 dark:text-white/60 text-[10px] font-black uppercase tracking-tight">Your Note</p>
                     </div>
 
-                    {/* Active Friends & Their Notes */}
-                    {activeUsers.map(user => {
+                    {/* Other Users' Notes */}
+                    {allUsers.filter(u => notes.some(n => n.userId === u.uid)).map(user => {
                         const friendNote = notes.find(n => n.userId === user.uid);
+                        if (!friendNote) return null;
                         return (
                             <div key={user.uid} className="flex flex-col items-center gap-3 relative shrink-0 group cursor-pointer" onClick={() => onChatSelect({ id: [currentUser.uid, user.uid].sort().join('_'), type: 'private', participants: [currentUser.uid, user.uid], updatedAt: Date.now() })}>
                                 <div className="relative">
                                     {/* Friend's Thought Bubble */}
-                                    {friendNote && (
-                                        <div className="absolute -top-10 left-1/2 -translate-x-1/2 bg-white dark:bg-[#1d1b27] px-3 py-1.5 rounded-xl shadow-xl border border-white/10 z-20 min-w-[50px] max-w-[100px] animate-in slide-in-from-bottom-2">
-                                            <p className="text-[10px] font-bold text-center leading-tight line-clamp-2 text-slate-800 dark:text-white">
-                                                {friendNote.text}
-                                            </p>
-                                            <div className="absolute -bottom-1 left-1/2 -translate-x-1/2 w-2 h-2 bg-white dark:bg-[#1d1b27] rotate-45 border-r border-b border-white/10"></div>
-                                        </div>
-                                    )}
+                                    <div className="absolute -top-10 left-1/2 -translate-x-1/2 bg-white dark:bg-[#1d1b27] px-3 py-1.5 rounded-xl shadow-xl border border-white/10 z-20 min-w-[50px] max-w-[100px] animate-in slide-in-from-bottom-2">
+                                        <p className="text-[10px] font-bold text-center leading-tight line-clamp-2 text-slate-800 dark:text-white">
+                                            {friendNote.text}
+                                        </p>
+                                        <div className="absolute -bottom-1 left-1/2 -translate-x-1/2 w-2 h-2 bg-white dark:bg-[#1d1b27] rotate-45 border-r border-b border-white/10"></div>
+                                    </div>
 
-                                    <div className="w-16 h-16 rounded-full border-2 border-primary p-0.5 transition-transform group-hover:scale-105">
+                                    <div className="w-16 h-16 rounded-full border-2 border-slate-200 dark:border-slate-800 p-0.5 transition-transform group-hover:scale-105">
                                         <img src={user.photoURL} className="w-full h-full rounded-full object-cover" alt="" />
                                     </div>
-                                    <div className="absolute bottom-0 right-0 w-4.5 h-4.5 bg-green-500 border-[3px] border-background-light dark:border-background-dark rounded-full"></div>
+                                    {user.status === 'online' && (
+                                        <div className="absolute bottom-0 right-0 w-4.5 h-4.5 bg-green-500 border-[3px] border-background-light dark:border-background-dark rounded-full"></div>
+                                    )}
                                 </div>
                                 <p className="text-slate-900 dark:text-white text-[10px] font-black uppercase tracking-tight truncate w-16 text-center">{user.name.split(' ')[0]}</p>
                             </div>

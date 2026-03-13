@@ -29,6 +29,7 @@ export const StoryUpload: React.FC<StoryUploadProps> = ({ currentUser, onClose }
   const [selectedFilter, setSelectedFilter] = useState(FILTERS[0]);
   const [caption, setCaption] = useState('');
   const [isUploading, setIsUploading] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState(0);
   const [isProcessing, setIsProcessing] = useState(false);
   const [isAIGenerating, setIsAIGenerating] = useState(false);
   const [aiOptions, setAiOptions] = useState<string[]>([]);
@@ -214,6 +215,11 @@ export const StoryUpload: React.FC<StoryUploadProps> = ({ currentUser, onClose }
   const handleUpload = async () => {
     if (!preview || isUploading) return;
     setIsUploading(true);
+    setUploadProgress(0);
+    
+    const progressInterval = setInterval(() => {
+        setUploadProgress(prev => Math.min(prev + 10, 90));
+    }, 200);
     
     try {
       let finalMediaData = preview;
@@ -223,6 +229,7 @@ export const StoryUpload: React.FC<StoryUploadProps> = ({ currentUser, onClose }
       }
 
       if (finalMediaData.length > 1000000) {
+          clearInterval(progressInterval);
           throw new Error("This file is too large for the database. Try a shorter video or different photo.");
       }
 
@@ -232,6 +239,7 @@ export const StoryUpload: React.FC<StoryUploadProps> = ({ currentUser, onClose }
       if (caption.trim()) {
         const filterResult = await aiService.filterContent(caption);
         if (!filterResult.isSafe) {
+          clearInterval(progressInterval);
           alert(`Content flagged: ${filterResult.reason || "Inappropriate content detected."}. Your post will be reviewed.`);
           // We still allow upload but mark as flagged
           if (mode === 'Story') {
@@ -262,7 +270,8 @@ export const StoryUpload: React.FC<StoryUploadProps> = ({ currentUser, onClose }
               flagReason: filterResult.reason
             });
           }
-          onClose();
+          setUploadProgress(100);
+          setTimeout(() => onClose(), 500);
           return;
         }
       }
@@ -291,8 +300,11 @@ export const StoryUpload: React.FC<StoryUploadProps> = ({ currentUser, onClose }
           timestamp: Date.now()
         });
       }
-      onClose();
+      clearInterval(progressInterval);
+      setUploadProgress(100);
+      setTimeout(() => onClose(), 500);
     } catch (e: any) {
+      clearInterval(progressInterval);
       console.error("Upload error:", e);
       alert(e.message || "Upload failed. Image might be too large.");
     } finally {
@@ -357,13 +369,15 @@ export const StoryUpload: React.FC<StoryUploadProps> = ({ currentUser, onClose }
             <motion.div 
                 initial={{ scale: 1.1, opacity: 0 }}
                 animate={{ scale: 1, opacity: 1 }}
-                className={`w-full h-full relative transition-all duration-700 ease-out ${selectedFilter.class}`}
+                className={`w-full h-full relative flex items-center justify-center transition-all duration-700 ease-out ${selectedFilter.class}`}
             >
-                {mediaType === 'video' ? (
-                    <video src={preview} className="w-full h-full object-cover" autoPlay muted loop playsInline />
-                ) : (
-                    <img src={preview} className="w-full h-full object-cover" alt="Preview" />
-                )}
+                <div className="relative w-full h-full max-w-[450px] aspect-[9/16] shadow-2xl overflow-hidden">
+                    {mediaType === 'video' ? (
+                        <video src={preview} className="w-full h-full object-cover" autoPlay muted loop playsInline />
+                    ) : (
+                        <img src={preview} className="w-full h-full object-cover" alt="Preview" />
+                    )}
+                </div>
             </motion.div>
         ) : (
             <div className={`w-full h-full relative ${selectedFilter.class}`}>
@@ -483,16 +497,25 @@ export const StoryUpload: React.FC<StoryUploadProps> = ({ currentUser, onClose }
                         <button 
                             onClick={handleUpload} 
                             disabled={isUploading} 
-                            className="flex-[2] py-5 bg-primary hover:bg-primary-dark text-white rounded-[2rem] font-black uppercase tracking-[0.2em] shadow-xl shadow-primary/20 active:scale-95 transition-all disabled:opacity-50 flex items-center justify-center gap-3"
+                            className="flex-[2] py-5 bg-primary hover:bg-primary-dark text-white rounded-[2rem] font-black uppercase tracking-[0.2em] shadow-xl shadow-primary/20 active:scale-95 transition-all disabled:opacity-50 flex items-center justify-center gap-3 relative overflow-hidden"
                         >
-                            {isUploading ? (
-                                <div className="w-5 h-5 border-3 border-white/30 border-t-white rounded-full animate-spin"></div>
-                            ) : (
-                                <>
-                                    <span>Share to {mode}</span>
-                                    <span className="material-symbols-outlined text-lg">arrow_forward</span>
-                                </>
+                            {isUploading && (
+                                <motion.div 
+                                    initial={{ width: 0 }}
+                                    animate={{ width: `${uploadProgress}%` }}
+                                    className="absolute inset-0 bg-white/20 z-0"
+                                />
                             )}
+                            <span className="relative z-10">
+                                {isUploading ? (
+                                    uploadProgress < 100 ? `Uploading ${uploadProgress}%` : 'Success!'
+                                ) : (
+                                    <>
+                                        <span>Share to {mode}</span>
+                                        <span className="material-symbols-outlined text-lg">arrow_forward</span>
+                                    </>
+                                )}
+                            </span>
                         </button>
                     </div>
                 </div>
@@ -500,23 +523,23 @@ export const StoryUpload: React.FC<StoryUploadProps> = ({ currentUser, onClose }
         ) : (
             <>
                 {/* Filter Selector */}
-                <div className="flex w-full overflow-x-auto no-scrollbar px-6 py-8">
-                    <div className="flex flex-row items-end justify-center gap-6 mx-auto">
+                <div className="flex w-full overflow-x-auto no-scrollbar px-6 py-4">
+                    <div className="flex flex-row items-end justify-center gap-4 mx-auto">
                         {FILTERS.map((f) => (
                             <button 
                                 key={f.name} 
                                 onClick={() => setSelectedFilter(f)} 
-                                className="flex flex-col items-center gap-3 min-w-[70px] group"
+                                className="flex flex-col items-center gap-2 min-w-[60px] group"
                             >
-                                <div className={`relative rounded-full transition-all duration-300 overflow-hidden ${selectedFilter.name === f.name ? 'size-20 ring-4 ring-primary ring-offset-4 ring-offset-black scale-110 shadow-2xl shadow-primary/40' : 'size-14 border-2 border-white/20 opacity-60 group-hover:opacity-100'}`}>
+                                <div className={`relative rounded-full transition-all duration-300 overflow-hidden ${selectedFilter.name === f.name ? 'size-14 ring-2 ring-primary ring-offset-2 ring-offset-black scale-110 shadow-lg shadow-primary/40' : 'size-10 border border-white/20 opacity-60 group-hover:opacity-100'}`}>
                                     <img src={f.preview} className="w-full h-full object-cover" alt={f.name} />
                                     {selectedFilter.name === f.name && (
                                         <div className="absolute inset-0 bg-primary/20 flex items-center justify-center">
-                                            <span className="material-symbols-outlined text-white text-xl">check</span>
+                                            <span className="material-symbols-outlined text-white text-sm">check</span>
                                         </div>
                                     )}
                                 </div>
-                                <p className={`text-[10px] font-black tracking-widest uppercase transition-colors ${selectedFilter.name === f.name ? 'text-primary' : 'text-white/40'}`}>{f.name}</p>
+                                <p className={`text-[8px] font-black tracking-widest uppercase transition-colors ${selectedFilter.name === f.name ? 'text-primary' : 'text-white/40'}`}>{f.name}</p>
                             </button>
                         ))}
                     </div>

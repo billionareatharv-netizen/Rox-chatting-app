@@ -723,6 +723,13 @@ export const getStories = async () => {
     return snapshot.docs.map(doc => doc.data() as Story);
   } catch(e) { return []; }
 };
+export const subscribeToStories = (callback: (stories: Story[]) => void) => {
+  const yesterday = Date.now() - 86400000;
+  const q = query(collection(db, "stories"), where("timestamp", ">", yesterday));
+  return onSnapshot(q, (snapshot) => {
+    callback(snapshot.docs.map(d => d.data() as Story));
+  }, (err) => console.error("Stories Sub Error", err));
+};
 export const viewStory = async (storyId: string, userId: string, userName: string) => {
   await updateDoc(doc(db, "stories", storyId), { views: arrayUnion({ userId, userName, timestamp: Date.now() }) });
 };
